@@ -1,163 +1,389 @@
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
+import { Scanner } from "@yudiel/react-qr-scanner"
 import { Button } from "@/components/ui/button"
-import { CheckCircle, XCircle, Scan, Users, ChevronLeft } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { apiFetch, ApiError } from "@/lib/api"
+import { parseQrHash } from "@/lib/parse-qr-hash"
+import { playScannerSound } from "@/lib/scanner-sound"
+import { useAuthStore } from "@/stores/auth-store"
+import type { ApiEvent } from "@/types/events"
+import {
+  Camera,
+  CameraOff,
+  ChevronLeft,
+  RefreshCw,
+  ScanLine,
+  SwitchCamera,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type ScanState = "idle" | "scanning" | "success" | "error"
-
-interface ScanResult {
-  type: "success" | "error"
-  name?: string
-  ticketType?: string
-  message?: string
+type ValidateResponse = {
+  message: string
+  ticket: {
+    id: string
+    buyerName: string | null
+    buyerEmail: string | null
+  }
+  ticketTypeName: string
 }
 
-const mockResults: ScanResult[] = [
-  { type: "success", name: "Juan Pérez", ticketType: "Entrada general" },
-  { type: "success", name: "Sara Jiménez", ticketType: "VIP" },
-  { type: "error", message: "QR YA UTILIZADO" },
-  { type: "success", name: "Miguel Chen", ticketType: "Mesa VIP" },
-  { type: "error", message: "ENTRADA NO VÁLIDA" },
-  { type: "success", name: "Emma Williams", ticketType: "Entrada general" },
-]
+type OverlayState =
+  | {
+      kind: "success"
+      buyerName: string
+      ticketTypeName: string
+    }
+  | {
+      kind: "error"
+      headline: string
+      detail: string
+    }
+
+function formatEventLabel(ev: ApiEvent): string {
+  const d = new Date(ev.date)
+  const dateStr = Number.isNaN(d.getTime())
+    ? ev.date
+    : d.toLocaleString("es-AR", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+  return `${ev.name} · ${dateStr}`
+}
+
+function errorHeadline(message: string): string {
+  const m = message.toLowerCase()
+  if (m.includes("otro evento")) return "¡Evento incorrecto!"
+  if (m.includes("ya usado")) return "¡Ya usado!"
+  if (m.includes("inválido")) return "¡QR no válido!"
+  return "No se pudo validar"
+}
 
 export function ScannerPage() {
-  const [scanState, setScanState] = useState<ScanState>("idle")
-  const [result, setResult] = useState<ScanResult | null>(null)
-  const [checkedIn, setCheckedIn] = useState(623)
-  const totalExpected = 847
+  const token = useAuthStore((s) => s.token)
 
-  const handleScan = () => {
-    setScanState("scanning")
+  const [events, setEvents] = useState<ApiEvent[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState<string | null>(null)
+  const [selectedEventId, setSelectedEventId] = useState<string>("")
 
-    setTimeout(() => {
-      const randomResult = mockResults[Math.floor(Math.random() * mockResults.length)]
-      setResult(randomResult)
-      setScanState(randomResult.type)
+  const [cameraOn, setCameraOn] = useState(true)
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
 
-      if (randomResult.type === "success") {
-        setCheckedIn((prev) => prev + 1)
-      }
+  const [overlay, setOverlay] = useState<OverlayState | null>(null)
+  const [sessionOk, setSessionOk] = useState(0)
 
-      setTimeout(() => {
-        setScanState("idle")
-        setResult(null)
-      }, 2500)
-    }, 800)
+  const inFlightRef = useRef(false)
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null
+
+  const loadEvents = useCallback(async () => {
+    if (!token) return
+    setEventsError(null)
+    setEventsLoading(true)
+    try {
+      const data = await apiFetch<{ events: ApiEvent[] }>("/events", {
+        method: "GET",
+        token,
+      })
+      const list = data.events.filter((e) => e.isActive !== false)
+      setEvents(list)
+      setSelectedEventId((prev) => {
+        if (prev && list.some((e) => e.id === prev)) return prev
+        return list[0]?.id ?? ""
+      })
+    } catch (err) {
+      setEvents([])
+      setEventsError(
+        err instanceof ApiError ? err.message : "No se pudieron cargar los eventos"
+      )
+    } finally {
+      setEventsLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    void loadEvents()
+  }, [loadEvents])
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    }
+  }, [])
+
+  const clearSuccessTimer = () => {
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current)
+      successTimerRef.current = null
+    }
   }
 
+  const dismissOverlay = () => {
+    clearSuccessTimer()
+    setOverlay(null)
+    inFlightRef.current = false
+  }
+
+  const handleScan = useCallback(
+    async (codes: { rawValue: string }[]) => {
+      if (!token || !selectedEventId || overlay || inFlightRef.current) return
+      const raw = codes[0]?.rawValue
+      if (!raw) return
+
+      const qrHash = parseQrHash(raw)
+      if (!qrHash) return
+
+      inFlightRef.current = true
+
+      try {
+        const res = await apiFetch<ValidateResponse>("/tickets/validate", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ qrHash, eventId: selectedEventId }),
+        })
+
+        playScannerSound("success")
+        const name =
+          res.ticket.buyerName?.trim() || "Asistente"
+        const typeName = res.ticketTypeName || "Entrada"
+        setOverlay({
+          kind: "success",
+          buyerName: name,
+          ticketTypeName: typeName,
+        })
+        setSessionOk((n) => n + 1)
+
+        clearSuccessTimer()
+        successTimerRef.current = setTimeout(() => {
+          dismissOverlay()
+        }, 1500)
+      } catch (err) {
+        playScannerSound("error")
+        const msg =
+          err instanceof ApiError ? err.message : "Error de red. Probá de nuevo."
+        setOverlay({
+          kind: "error",
+          headline: errorHeadline(msg),
+          detail: msg,
+        })
+        inFlightRef.current = false
+      }
+    },
+    [token, selectedEventId, overlay]
+  )
+
+  const scannerPaused =
+    !cameraOn || !selectedEventId || overlay !== null || !token
+
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
+    <div className="flex min-h-svh flex-col bg-neutral-950 text-neutral-50">
+      <header className="flex items-center justify-between border-b border-white/10 px-3 py-3 sm:px-4">
         <Link
           to="/"
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-neutral-200 active:bg-white/10"
+          aria-label="Volver"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-6 w-6" />
         </Link>
-        <div className="text-center">
-          <h1 className="text-sm font-medium">Festival Noches Neón</h1>
-          <p className="text-xs text-muted-foreground">Escáner de acceso</p>
+        <div className="min-w-0 flex-1 px-2 text-center">
+          <h1 className="truncate text-base font-semibold tracking-tight">
+            Control de acceso
+          </h1>
+          <p className="truncate text-xs text-neutral-400">
+            {selectedEvent ? selectedEvent.name : "Elegí un evento"}
+          </p>
         </div>
-        <div className="w-8" />
+        <div className="w-11 shrink-0" />
       </header>
 
-      <div className="flex items-center justify-center gap-3 border-b border-border bg-secondary/30 px-4 py-3">
-        <Users className="h-5 w-5 text-primary" />
-        <div className="text-center">
-          <span className="text-2xl font-bold">{checkedIn}</span>
-          <span className="mx-1 text-muted-foreground">/</span>
-          <span className="text-lg text-muted-foreground">{totalExpected}</span>
-        </div>
-        <span className="text-sm text-muted-foreground">Registrados</span>
+      <div className="border-b border-white/10 bg-black/40 px-3 py-3 sm:px-4">
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-amber-400/90">
+          Evento activo
+        </label>
+        {eventsLoading ? (
+          <p className="text-sm text-neutral-500">Cargando eventos…</p>
+        ) : eventsError ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <p className="text-sm text-red-400">{eventsError}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-white/20"
+              onClick={() => void loadEvents()}
+            >
+              Reintentar
+            </Button>
+          </div>
+        ) : events.length === 0 ? (
+          <p className="text-sm text-neutral-500">
+            No hay eventos activos. Creá uno en el panel de eventos.
+          </p>
+        ) : (
+          <Select value={selectedEventId} onValueChange={setSelectedEventId}>
+            <SelectTrigger className="h-12 w-full border-white/15 bg-white/5 text-base text-neutral-100">
+              <SelectValue placeholder="Seleccionar evento" />
+            </SelectTrigger>
+            <SelectContent className="border-white/10 bg-neutral-900 text-neutral-100">
+              {events.map((ev) => (
+                <SelectItem key={ev.id} value={ev.id} className="text-base">
+                  {formatEventLabel(ev)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
+      {sessionOk > 0 && (
+        <div className="flex items-center justify-center gap-2 border-b border-emerald-500/30 bg-emerald-500/10 py-2 text-emerald-300">
+          <ScanLine className="h-4 w-4" />
+          <span className="text-sm font-semibold">
+            Ingresos validados (esta sesión): {sessionOk}
+          </span>
+        </div>
+      )}
+
+      <div className="flex flex-1 flex-col px-3 py-4 sm:px-4">
         <div
           className={cn(
-            "relative flex aspect-square w-full max-w-xs items-center justify-center rounded-2xl border-2 transition-all duration-300",
-            scanState === "idle" && "border-dashed border-border",
-            scanState === "scanning" && "border-primary animate-pulse",
-            scanState === "success" && "border-primary bg-primary/10",
-            scanState === "error" && "border-destructive bg-destructive/10"
+            "relative mx-auto w-full max-w-lg overflow-hidden rounded-2xl border-2 bg-black",
+            scannerPaused ? "border-white/10" : "border-amber-400/60 shadow-lg shadow-amber-500/10"
           )}
+          style={{ aspectRatio: "1" }}
         >
-          <div className="absolute left-4 top-4 h-8 w-8 border-l-2 border-t-2 border-primary" />
-          <div className="absolute right-4 top-4 h-8 w-8 border-r-2 border-t-2 border-primary" />
-          <div className="absolute bottom-4 left-4 h-8 w-8 border-b-2 border-l-2 border-primary" />
-          <div className="absolute bottom-4 right-4 h-8 w-8 border-b-2 border-r-2 border-primary" />
-
-          {scanState === "idle" && (
-            <div className="text-center">
-              <Scan className="mx-auto h-16 w-16 text-muted-foreground" />
-              <p className="mt-4 text-sm text-muted-foreground">
-                Coloca el código QR en el marco
+          {selectedEventId && cameraOn && token ? (
+            <Scanner
+              onScan={(detected) => void handleScan(detected)}
+              constraints={{ facingMode }}
+              paused={scannerPaused}
+              sound={false}
+              scanDelay={600}
+              components={{ torch: false }}
+              onError={() => {
+                /* cámara: errores silenciosos; el usuario puede reiniciar */
+              }}
+              classNames={{
+                container: "h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover",
+              }}
+            />
+          ) : (
+            <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 bg-neutral-900 p-6 text-center">
+              <CameraOff className="h-14 w-14 text-neutral-600" />
+              <p className="text-sm text-neutral-500">
+                {!selectedEventId
+                  ? "Seleccioná un evento para activar el lector."
+                  : !cameraOn
+                    ? "Cámara detenida. Tocá «Iniciar cámara»."
+                    : "Iniciá sesión para usar el escáner."}
               </p>
             </div>
           )}
 
-          {scanState === "scanning" && (
-            <div className="text-center">
-              <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="mt-4 text-sm text-muted-foreground">Leyendo...</p>
-            </div>
-          )}
-
-          {scanState === "success" && result && (
-            <div className="text-center px-4">
-              <CheckCircle className="mx-auto h-20 w-20 text-primary" />
-              <p className="mt-4 text-lg font-semibold text-primary">¡BIENVENIDO!</p>
-              <p className="mt-2 text-xl font-bold">{result.name}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {result.ticketType}
+          {!scannerPaused && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent py-4 text-center">
+              <p className="text-sm font-semibold tracking-wide text-amber-300">
+                Buscando QR…
               </p>
-            </div>
-          )}
-
-          {scanState === "error" && result && (
-            <div className="text-center px-4">
-              <XCircle className="mx-auto h-20 w-20 text-destructive" />
-              <p className="mt-4 text-lg font-semibold text-destructive">ERROR</p>
-              <p className="mt-2 text-base font-medium">{result.message}</p>
             </div>
           )}
         </div>
+
+        <div className="mx-auto mt-4 flex w-full max-w-lg flex-col gap-3 sm:flex-row">
+          <Button
+            type="button"
+            size="lg"
+            variant={cameraOn ? "outline" : "default"}
+            className={cn(
+              "h-14 min-h-14 flex-1 gap-2 text-base font-semibold",
+              cameraOn
+                ? "border-white/20 bg-white/5 text-neutral-100"
+                : "bg-amber-500 text-neutral-950 hover:bg-amber-400"
+            )}
+            onClick={() => setCameraOn((v) => !v)}
+            disabled={!selectedEventId || !token}
+          >
+            {cameraOn ? (
+              <>
+                <CameraOff className="h-5 w-5" />
+                Detener cámara
+              </>
+            ) : (
+              <>
+                <Camera className="h-5 w-5" />
+                Iniciar cámara
+              </>
+            )}
+          </Button>
+          <Button
+            type="button"
+            size="lg"
+            variant="outline"
+            className="h-14 min-h-14 flex-1 gap-2 border-white/20 bg-white/5 text-base font-semibold text-neutral-100"
+            onClick={() =>
+              setFacingMode((m) => (m === "environment" ? "user" : "environment"))
+            }
+            disabled={!cameraOn || !selectedEventId || !token}
+          >
+            <SwitchCamera className="h-5 w-5" />
+            Cambiar cámara
+          </Button>
+        </div>
+
+        <p className="mx-auto mt-6 max-w-lg text-center text-xs text-neutral-600">
+          Apuntá al código emitido por la venta pública o boletería. Se acepta el hash o la URL
+          completa del QR.
+        </p>
       </div>
 
-      <div className="p-6">
-        <Button
-          onClick={handleScan}
-          disabled={scanState === "scanning"}
-          className={cn(
-            "h-16 w-full text-lg font-semibold transition-all",
-            scanState === "idle" && "bg-primary text-primary-foreground hover:bg-primary/90",
-            scanState === "scanning" && "bg-secondary text-secondary-foreground",
-            scanState === "success" && "bg-primary text-primary-foreground",
-            scanState === "error" && "bg-destructive text-destructive-foreground"
-          )}
+      {overlay?.kind === "success" && (
+        <div
+          className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-emerald-500 px-6 text-center text-neutral-950"
+          role="alert"
         >
-          {scanState === "idle" && (
-            <>
-              <Scan className="mr-3 h-6 w-6" />
-              Escanear QR
-            </>
-          )}
-          {scanState === "scanning" && "Leyendo..."}
-          {scanState === "success" && (
-            <>
-              <CheckCircle className="mr-3 h-6 w-6" />
-              Entrada válida
-            </>
-          )}
-          {scanState === "error" && (
-            <>
-              <XCircle className="mr-3 h-6 w-6" />
-              No válida
-            </>
-          )}
-        </Button>
-      </div>
+          <p className="text-4xl font-black tracking-tight sm:text-5xl">
+            ¡Ticket válido!
+          </p>
+          <p className="mt-6 text-2xl font-bold sm:text-3xl">{overlay.buyerName}</p>
+          <p className="mt-2 text-lg font-medium opacity-90">
+            {overlay.ticketTypeName}
+          </p>
+          <p className="mt-8 text-sm font-medium opacity-80">Ingreso autorizado</p>
+        </div>
+      )}
+
+      {overlay?.kind === "error" && (
+        <div
+          className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-red-600 px-6 text-center text-white"
+          role="alert"
+        >
+          <p className="text-4xl font-black tracking-tight sm:text-5xl">
+            {overlay.headline}
+          </p>
+          <p className="mt-4 max-w-md text-lg font-medium opacity-95">
+            {overlay.detail}
+          </p>
+          <Button
+            type="button"
+            size="lg"
+            className="mt-10 h-16 min-w-[min(100%,280px)] text-lg font-bold bg-white text-red-600 hover:bg-neutral-100"
+            onClick={dismissOverlay}
+          >
+            <RefreshCw className="mr-2 h-6 w-6" />
+            Volver a intentar
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
