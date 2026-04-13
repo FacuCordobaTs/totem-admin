@@ -1,18 +1,25 @@
 import type { ElementType } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Ticket, Users, AlertTriangle } from "lucide-react"
+import { DollarSign, Ticket, ScanLine, AlertTriangle } from "lucide-react"
+
+export type DashboardKpiData = {
+  totalRevenue: string
+  totalTicketsSold: number
+  usedTickets: number
+  stockAlertsCount: number
+}
 
 interface KpiCardProps {
   title: string
   value: string
   subtitle?: string
-  trend?: number
   icon: ElementType
   sparklineData?: number[]
 }
 
 function Sparkline({ data }: { data: number[] }) {
-  const max = Math.max(...data)
+  if (data.length < 2) return null
+  const max = Math.max(...data, 1)
   const min = Math.min(...data)
   const range = max - min || 1
   const width = 80
@@ -43,7 +50,6 @@ function KpiCard({
   title,
   value,
   subtitle,
-  trend,
   icon: Icon,
   sparklineData,
 }: KpiCardProps) {
@@ -56,61 +62,79 @@ function KpiCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="flex items-end justify-between">
-          <div>
-            <div className="text-2xl font-bold">{value}</div>
-            {subtitle && (
+        <div className="flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-2xl font-bold">{value}</div>
+            {subtitle ? (
               <p className="text-xs text-muted-foreground">{subtitle}</p>
-            )}
-            {trend !== undefined && (
-              <p
-                className={`text-xs ${
-                  trend >= 0 ? "text-primary" : "text-destructive"
-                }`}
-              >
-                {trend >= 0 ? "+" : ""}
-                {trend}% respecto a la hora anterior
-              </p>
-            )}
+            ) : null}
           </div>
-          {sparklineData && <Sparkline data={sparklineData} />}
+          {sparklineData ? <Sparkline data={sparklineData} /> : null}
         </div>
       </CardContent>
     </Card>
   )
 }
 
-export function KpiCards() {
-  const kpis = [
+function formatMoneyArs(value: string): string {
+  const n = Number.parseFloat(value)
+  if (Number.isNaN(n)) return value
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 2,
+  }).format(n)
+}
+
+export function KpiCards({
+  data,
+  salesSparkline,
+}: {
+  data: DashboardKpiData | null
+  salesSparkline?: number[]
+}) {
+  if (!data) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="border-border bg-card">
+            <CardHeader className="pb-2">
+              <div className="h-4 w-24 animate-pulse rounded bg-secondary" />
+            </CardHeader>
+            <CardContent>
+              <div className="h-8 w-32 animate-pulse rounded bg-secondary" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )
+  }
+
+  const kpis: KpiCardProps[] = [
     {
-      title: "Ventas totales hoy",
-      value: "$24.580",
-      trend: 12.5,
+      title: "Ingresos totales",
+      value: formatMoneyArs(data.totalRevenue),
+      subtitle: "Entradas + bar (histórico)",
       icon: DollarSign,
-      sparklineData: [12, 15, 18, 14, 22, 25, 28, 24, 30, 32, 28, 35],
+      sparklineData: salesSparkline,
     },
     {
       title: "Entradas vendidas",
-      value: "847 / 1.200",
-      subtitle: "70,6% de aforo",
-      trend: 8.2,
+      value: String(data.totalTicketsSold),
+      subtitle: "Emitidas (no canceladas)",
       icon: Ticket,
-      sparklineData: [50, 80, 120, 180, 250, 320, 400, 480, 560, 650, 750, 847],
     },
     {
-      title: "Asistencia en vivo",
-      value: "623",
-      subtitle: "73,5% registrados",
-      trend: 4.1,
-      icon: Users,
-      sparklineData: [0, 45, 120, 200, 280, 350, 410, 480, 520, 570, 600, 623],
+      title: "Entradas usadas",
+      value: String(data.usedTickets),
+      subtitle: "Validadas en puerta",
+      icon: ScanLine,
     },
     {
-      title: "Alertas de stock activas",
-      value: "3",
-      subtitle: "Ítems con stock bajo",
+      title: "Alertas de stock",
+      value: String(data.stockAlertsCount),
+      subtitle: "Por debajo del umbral",
       icon: AlertTriangle,
-      sparklineData: [1, 1, 2, 2, 2, 3, 3, 2, 3, 4, 3, 3],
     },
   ]
 

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { ElementType } from "react"
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Cloud,
   CloudOff,
@@ -27,8 +34,13 @@ import {
   CircleDollarSign,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { apiFetch, ApiError } from "@/lib/api"
+import { useAuthStore } from "@/stores/auth-store"
+import type { ApiEvent } from "@/types/events"
 
-interface Product {
+const ICONS: ElementType[] = [Wine, Martini, Coffee, Beer, Droplets, Wine]
+
+interface PosProduct {
   id: string
   name: string
   price: number
@@ -36,30 +48,75 @@ interface Product {
 }
 
 interface CartItem {
-  product: Product
+  product: PosProduct
   quantity: number
 }
 
-const products: Product[] = [
-  { id: "1", name: "Fernet", price: 12.00, icon: Wine },
-  { id: "2", name: "Gin tonic", price: 10.00, icon: Martini },
-  { id: "3", name: "Vodka RB", price: 14.00, icon: Coffee },
-  { id: "4", name: "Cerveza", price: 6.00, icon: Beer },
-  { id: "5", name: "Whisky", price: 11.00, icon: Wine },
-  { id: "6", name: "Agua", price: 3.00, icon: Droplets },
-]
-
 type PaymentMethod = "cash" | "card" | "qr" | null
-type CheckoutState = "selecting" | "processing" | "complete"
+type CheckoutState = "selecting" | "processing" | "complete" | "error"
+
+type ProductsApi = {
+  products: { id: string; name: string; price: string; isActive: boolean | null }[]
+}
 
 export function PosPage() {
+  const token = useAuthStore((s) => s.token)
+  const staffName = useAuthStore((s) => s.staff?.name)
+
+  const [events, setEvents] = useState<ApiEvent[]>([])
+  const [eventId, setEventId] = useState<string>("")
+  const [products, setProducts] = useState<PosProduct[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+
   const [cart, setCart] = useState<CartItem[]>([])
   const [isOnline, setIsOnline] = useState(true)
   const [showPayment, setShowPayment] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(null)
   const [checkoutState, setCheckoutState] = useState<CheckoutState>("selecting")
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  const [lastTotal, setLastTotal] = useState<string | null>(null)
 
-  const addToCart = (product: Product) => {
+  const loadCatalog = useCallback(async () => {
+    if (!token) {
+      setEvents([])
+      setProducts([])
+      setCatalogLoading(false)
+      return
+    }
+    setCatalogLoading(true)
+    try {
+      const [evRes, prodRes] = await Promise.all([
+        apiFetch<{ events: ApiEvent[] }>("/events", { method: "GET", token }),
+        apiFetch<ProductsApi>("/inventory/products", { method: "GET", token }),
+      ])
+      const evs = evRes.events.filter((e) => e.isActive !== false)
+      setEvents(evs)
+      setEventId((prev) => {
+        if (prev && evs.some((e) => e.id === prev)) return prev
+        return evs[0]?.id ?? ""
+      })
+      const posProducts: PosProduct[] = prodRes.products
+        .filter((p) => p.isActive !== false)
+        .map((p, i) => ({
+          id: p.id,
+          name: p.name,
+          price: Number.parseFloat(p.price),
+          icon: ICONS[i % ICONS.length]!,
+        }))
+      setProducts(posProducts)
+    } catch {
+      setEvents([])
+      setProducts([])
+    } finally {
+      setCatalogLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    void loadCatalog()
+  }, [loadCatalog])
+
+  const addToCart = (product: PosProduct) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id)
       if (existing) {
@@ -92,28 +149,58 @@ export function PosPage() {
     0
   )
 
-  const handlePayment = (method: PaymentMethod) => {
+  const mapPayment = (m: PaymentMethod): "CASH" | "CARD" | "MERCADOPAGO" | "TRANSFER" => {
+    if (m === "cash") return "CASH"
+    if (m === "card") return "CARD"
+    return "MERCADOPAGO"
+  }
+
+  const handlePayment = async (method: PaymentMethod) => {
+    if (!token || !eventId || !method) return
     setPaymentMethod(method)
     setCheckoutState("processing")
-
-    setTimeout(() => {
+    setCheckoutError(null)
+    try {
+      const res = await apiFetch<{ totalAmount: string }>("/inventory/sales", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          eventId,
+          paymentMethod: mapPayment(method),
+          items: cart.map((c) => ({
+            productId: c.product.id,
+            quantity: c.quantity,
+          })),
+        }),
+      })
+      setLastTotal(res.totalAmount)
       setCheckoutState("complete")
-
-      setTimeout(() => {
+      clearCart()
+      window.setTimeout(() => {
         setShowPayment(false)
         setPaymentMethod(null)
         setCheckoutState("selecting")
-        clearCart()
-      }, 1500)
-    }, 1000)
+        setLastTotal(null)
+      }, 1800)
+    } catch (err) {
+      setCheckoutState("error")
+      setCheckoutError(
+        err instanceof ApiError ? err.message : "No se pudo registrar la venta"
+      )
+    }
   }
 
   const paymentLabel =
     paymentMethod === "cash"
       ? "efectivo"
       : paymentMethod === "card"
-      ? "tarjeta"
-      : "QR"
+        ? "tarjeta"
+        : "QR / MP"
+
+  const displayTotal =
+    checkoutState === "complete" && lastTotal
+      ? Number.parseFloat(lastTotal)
+      : total
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -126,8 +213,8 @@ export function PosPage() {
         </Link>
 
         <div className="text-center">
-          <h1 className="text-sm font-medium">Bar n.º 2 — Planta principal</h1>
-          <p className="text-xs text-muted-foreground">Álex Martínez</p>
+          <h1 className="text-sm font-medium">Punto de venta</h1>
+          <p className="text-xs text-muted-foreground">{staffName ?? "Staff"}</p>
         </div>
 
         <button
@@ -154,44 +241,74 @@ export function PosPage() {
         </button>
       </header>
 
+      <div className="border-b border-border bg-secondary/20 px-4 py-3">
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          Evento (ventas y stock)
+        </label>
+        <Select value={eventId} onValueChange={setEventId} disabled={!events.length}>
+          <SelectTrigger className="bg-secondary">
+            <SelectValue placeholder="Elegí evento" />
+          </SelectTrigger>
+          <SelectContent>
+            {events.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {!isOnline && (
         <div className="bg-destructive/20 px-4 py-2 text-center text-xs text-destructive">
-          Modo sin conexión: las ventas se sincronizarán al recuperar la red
+          Modo sin conexión simulado — en producción sincronizar ventas al volver la red
         </div>
       )}
 
       <div className="flex-1 overflow-auto p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {products.map((product) => {
-            const Icon = product.icon
-            const cartItem = cart.find((item) => item.product.id === product.id)
+        {catalogLoading ? (
+          <p className="text-center text-sm text-muted-foreground">Cargando catálogo…</p>
+        ) : !eventId ? (
+          <p className="text-center text-sm text-muted-foreground">
+            Creá un evento activo para usar el POS
+          </p>
+        ) : products.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground">
+            No hay productos activos. Configuralos en Inventario PRO.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {products.map((product) => {
+              const Icon = product.icon
+              const cartItem = cart.find((item) => item.product.id === product.id)
 
-            return (
-              <button
-                key={product.id}
-                type="button"
-                onClick={() => addToCart(product)}
-                className={cn(
-                  "relative flex flex-col items-center justify-center rounded-xl border-2 p-4 transition-all active:scale-95",
-                  cartItem
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-secondary/30 hover:bg-secondary/50"
-                )}
-              >
-                {cartItem && (
-                  <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                    {cartItem.quantity}
+              return (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => addToCart(product)}
+                  className={cn(
+                    "relative flex flex-col items-center justify-center rounded-xl border-2 p-4 transition-all active:scale-95",
+                    cartItem
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-secondary/30 hover:bg-secondary/50"
+                  )}
+                >
+                  {cartItem ? (
+                    <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                      {cartItem.quantity}
+                    </span>
+                  ) : null}
+                  <Icon className="h-8 w-8 text-foreground" />
+                  <span className="mt-2 text-sm font-medium">{product.name}</span>
+                  <span className="mt-1 text-sm text-muted-foreground">
+                    ${product.price.toFixed(2)}
                   </span>
-                )}
-                <Icon className="h-8 w-8 text-foreground" />
-                <span className="mt-2 text-sm font-medium">{product.name}</span>
-                <span className="mt-1 text-sm text-muted-foreground">
-                  ${product.price.toFixed(2)}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {cart.length > 0 && (
@@ -246,7 +363,12 @@ export function PosPage() {
           </div>
 
           <Button
-            onClick={() => setShowPayment(true)}
+            onClick={() => {
+              setCheckoutState("selecting")
+              setCheckoutError(null)
+              setShowPayment(true)
+            }}
+            disabled={!eventId || !token}
             className="h-14 w-full bg-primary text-lg font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <CircleDollarSign className="mr-2 h-5 w-5" />
@@ -259,7 +381,11 @@ export function PosPage() {
         <DialogContent className="max-w-sm border-border bg-card">
           <DialogHeader>
             <DialogTitle className="text-center">
-              {checkoutState === "complete" ? "Pago completado" : "Método de pago"}
+              {checkoutState === "complete"
+                ? "Pago completado"
+                : checkoutState === "error"
+                  ? "No se pudo cobrar"
+                  : "Método de pago"}
             </DialogTitle>
           </DialogHeader>
 
@@ -270,7 +396,7 @@ export function PosPage() {
               </div>
 
               <Button
-                onClick={() => handlePayment("cash")}
+                onClick={() => void handlePayment("cash")}
                 variant="outline"
                 className="h-14 justify-start gap-3 text-left"
               >
@@ -279,7 +405,7 @@ export function PosPage() {
               </Button>
 
               <Button
-                onClick={() => handlePayment("card")}
+                onClick={() => void handlePayment("card")}
                 variant="outline"
                 className="h-14 justify-start gap-3 text-left"
               >
@@ -288,12 +414,12 @@ export function PosPage() {
               </Button>
 
               <Button
-                onClick={() => handlePayment("qr")}
+                onClick={() => void handlePayment("qr")}
                 variant="outline"
                 className="h-14 justify-start gap-3 text-left"
               >
                 <QrCode className="h-6 w-6 text-primary" />
-                <span className="text-base font-medium">QR del cliente (app)</span>
+                <span className="text-base font-medium">QR / Mercado Pago</span>
               </Button>
             </div>
           )}
@@ -301,7 +427,7 @@ export function PosPage() {
           {checkoutState === "processing" && (
             <div className="flex flex-col items-center gap-4 py-8">
               <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-muted-foreground">Procesando pago...</p>
+              <p className="text-muted-foreground">Registrando venta…</p>
             </div>
           )}
 
@@ -311,11 +437,28 @@ export function PosPage() {
                 <CheckCircle className="h-10 w-10 text-primary" />
               </div>
               <div className="text-center">
-                <p className="text-lg font-semibold">Pago correcto</p>
+                <p className="text-lg font-semibold">Venta registrada</p>
                 <p className="text-sm text-muted-foreground">
-                  ${total.toFixed(2)} — {paymentLabel}
+                  ${displayTotal.toFixed(2)} — {paymentLabel}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Stock actualizado según recetas
                 </p>
               </div>
+            </div>
+          )}
+
+          {checkoutState === "error" && (
+            <div className="flex flex-col gap-4 py-4">
+              <p className="text-center text-sm text-destructive">{checkoutError}</p>
+              <Button
+                onClick={() => {
+                  setCheckoutState("selecting")
+                  setCheckoutError(null)
+                }}
+              >
+                Volver
+              </Button>
             </div>
           )}
         </DialogContent>

@@ -10,53 +10,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-const events = [
-  {
-    id: "1",
-    name: "Festival Noches Neón",
-    date: "15 abr 2026",
-    status: "active",
-    salesProgress: 70,
-    ticketsSold: 847,
-    totalTickets: 1200,
-  },
-  {
-    id: "2",
-    name: "Gala corporativa 2026",
-    date: "22 abr 2026",
-    status: "draft",
-    salesProgress: 35,
-    ticketsSold: 175,
-    totalTickets: 500,
-  },
-  {
-    id: "3",
-    name: "Fiesta en azotea",
-    date: "1 may 2026",
-    status: "active",
-    salesProgress: 85,
-    ticketsSold: 425,
-    totalTickets: 500,
-  },
-  {
-    id: "4",
-    name: "Noche tech & networking",
-    date: "10 may 2026",
-    status: "draft",
-    salesProgress: 12,
-    ticketsSold: 36,
-    totalTickets: 300,
-  },
-  {
-    id: "5",
-    name: "Noche de jazz y vino",
-    date: "8 abr 2026",
-    status: "finished",
-    salesProgress: 100,
-    ticketsSold: 200,
-    totalTickets: 200,
-  },
-]
+export type EventPerformanceRow = {
+  eventId: string
+  name: string
+  date: string
+  status: "active" | "draft" | "finished"
+  ticketRevenue: string
+  productRevenue: string
+  totalRevenue: string
+  ticketsSold: number
+  ticketsCapacity: number | null
+  salesProgress: number
+}
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -74,7 +39,10 @@ function getStatusBadge(status: string) {
       )
     case "finished":
       return (
-        <Badge variant="outline" className="border-muted-foreground/50 text-muted-foreground">
+        <Badge
+          variant="outline"
+          className="border-muted-foreground/50 text-muted-foreground"
+        >
           Finalizado
         </Badge>
       )
@@ -83,48 +51,89 @@ function getStatusBadge(status: string) {
   }
 }
 
-export function EventsTable() {
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString("es-AR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })
+}
+
+function formatMoney(value: string): string {
+  const n = Number.parseFloat(value)
+  if (Number.isNaN(n)) return value
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(n)
+}
+
+export function EventsTable({ rows }: { rows: EventPerformanceRow[] | null }) {
+  const events = rows ?? []
+
   return (
     <Card className="border-border bg-card">
       <CardHeader>
-        <CardTitle className="text-base font-medium">Próximos eventos</CardTitle>
+        <CardTitle className="text-base font-medium">
+          Rendimiento por evento
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow className="border-border hover:bg-transparent">
-              <TableHead className="text-muted-foreground">Evento</TableHead>
-              <TableHead className="text-muted-foreground">Fecha</TableHead>
-              <TableHead className="text-muted-foreground">Estado</TableHead>
-              <TableHead className="text-muted-foreground">Avance de ventas</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {events.map((event) => (
-              <TableRow
-                key={event.id}
-                className="border-border cursor-pointer transition-colors hover:bg-secondary/50"
-              >
-                <TableCell className="font-medium">{event.name}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {event.date}
-                </TableCell>
-                <TableCell>{getStatusBadge(event.status)}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Progress
-                      value={event.salesProgress}
-                      className="h-2 w-24 bg-secondary [&>div]:bg-primary"
-                    />
-                    <span className="text-sm text-muted-foreground">
-                      {event.ticketsSold}/{event.totalTickets}
-                    </span>
-                  </div>
-                </TableCell>
+        {events.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No hay eventos registrados
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="text-muted-foreground">Evento</TableHead>
+                <TableHead className="text-muted-foreground">Fecha</TableHead>
+                <TableHead className="text-muted-foreground">Estado</TableHead>
+                <TableHead className="text-right text-muted-foreground">
+                  Ingresos
+                </TableHead>
+                <TableHead className="text-muted-foreground">Entradas</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {events.map((event) => (
+                <TableRow
+                  key={event.eventId}
+                  className="border-border transition-colors hover:bg-secondary/50"
+                >
+                  <TableCell className="max-w-[180px] truncate font-medium">
+                    {event.name}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatDate(event.date)}
+                  </TableCell>
+                  <TableCell>{getStatusBadge(event.status)}</TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {formatMoney(event.totalRevenue)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <Progress
+                        value={event.salesProgress}
+                        className="h-2 w-20 bg-secondary [&>div]:bg-primary"
+                      />
+                      <span className="whitespace-nowrap text-xs text-muted-foreground">
+                        {event.ticketsSold}
+                        {event.ticketsCapacity != null
+                          ? `/${event.ticketsCapacity}`
+                          : ""}
+                      </span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   )
