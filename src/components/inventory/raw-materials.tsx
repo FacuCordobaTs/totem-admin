@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -24,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Search, Plus, PackagePlus } from "lucide-react"
+import { Search, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiFetch, ApiError } from "@/lib/api"
 
@@ -34,8 +33,6 @@ export interface ApiInventoryItem {
   id: string
   name: string
   unit: InventoryUnit
-  currentStock: string
-  isLowStock: boolean
 }
 
 function unitLabel(unit: InventoryUnit): string {
@@ -49,26 +46,8 @@ function unitLabel(unit: InventoryUnit): string {
   }
 }
 
-function stockStatus(current: number, alertThreshold: number, isLow: boolean) {
-  if (current <= alertThreshold * 0.5) return "critical"
-  if (isLow || current <= alertThreshold) return "low"
-  return "ok"
-}
-
-function getStockColor(status: string) {
-  switch (status) {
-    case "critical":
-      return "text-destructive"
-    case "low":
-      return "text-amber-500"
-    default:
-      return "text-primary"
-  }
-}
-
 interface RawMaterialsProps {
   items: ApiInventoryItem[]
-  alertThreshold: string
   loading: boolean
   token: string | null
   selectedId: string | null
@@ -80,7 +59,6 @@ interface RawMaterialsProps {
 
 export function RawMaterials({
   items,
-  alertThreshold,
   loading,
   token,
   selectedId,
@@ -89,30 +67,15 @@ export function RawMaterials({
   onSearchChange,
   onChanged,
 }: RawMaterialsProps) {
-  const th = Number.parseFloat(alertThreshold) || 100
   const [addOpen, setAddOpen] = useState(false)
   const [addName, setAddName] = useState("")
   const [addUnit, setAddUnit] = useState<InventoryUnit>("ML")
-  const [addStock, setAddStock] = useState("0")
   const [addSaving, setAddSaving] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
-
-  const [adjustOpen, setAdjustOpen] = useState(false)
-  const [adjustTarget, setAdjustTarget] = useState<ApiInventoryItem | null>(null)
-  const [adjustDelta, setAdjustDelta] = useState("")
-  const [adjustSaving, setAdjustSaving] = useState(false)
-  const [adjustError, setAdjustError] = useState<string | null>(null)
 
   const filteredMaterials = items.filter((m) =>
     m.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
-
-  function openAdjust(m: ApiInventoryItem) {
-    setAdjustTarget(m)
-    setAdjustDelta("")
-    setAdjustError(null)
-    setAdjustOpen(true)
-  }
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault()
@@ -126,13 +89,11 @@ export function RawMaterials({
         body: JSON.stringify({
           name: addName.trim(),
           unit: addUnit,
-          currentStock: addStock,
         }),
       })
       setAddOpen(false)
       setAddName("")
       setAddUnit("ML")
-      setAddStock("0")
       onChanged()
     } catch (err) {
       setAddError(err instanceof ApiError ? err.message : "No se pudo crear")
@@ -141,117 +102,71 @@ export function RawMaterials({
     }
   }
 
-  async function submitAdjust(e: React.FormEvent) {
-    e.preventDefault()
-    if (!token || !adjustTarget) return
-    setAdjustError(null)
-    setAdjustSaving(true)
-    try {
-      await apiFetch(`/inventory/items/${adjustTarget.id}/stock`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ delta: adjustDelta }),
-      })
-      setAdjustOpen(false)
-      setAdjustTarget(null)
-      onChanged()
-    } catch (err) {
-      setAdjustError(err instanceof ApiError ? err.message : "No se pudo ajustar")
-    } finally {
-      setAdjustSaving(false)
-    }
-  }
-
   return (
     <>
-      <Card className="flex h-full flex-col border-border bg-card">
-        <CardHeader className="shrink-0">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base font-medium">Materias primas</CardTitle>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!token}
-              onClick={() => {
-                setAddError(null)
-                setAddOpen(true)
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Añadir
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Umbral de alerta: <span className="font-mono">{alertThreshold}</span>{" "}
-            (por unidad de medida del ítem)
-          </p>
-          <div className="relative mt-3">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar materiales..."
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="bg-secondary pl-10"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="flex-1 overflow-auto">
+      <section className="flex h-full flex-col gap-6 rounded-2xl bg-background p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Insumos</h2>
+          <Button
+            size="sm"
+            disabled={!token}
+            onClick={() => {
+              setAddError(null)
+              setAddOpen(true)
+            }}
+            className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
+          >
+            <Plus className="h-4 w-4" />
+            Añadir
+          </Button>
+        </div>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8E8E93]" />
+          <Input
+            placeholder="Buscar insumo"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] pl-10 text-[15px] dark:border-zinc-800/50 dark:bg-black"
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto rounded-xl">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Cargando inventario…</p>
+            <p className="px-2 py-6 text-[15px] text-[#8E8E93] dark:text-[#98989D]">Cargando…</p>
+          ) : filteredMaterials.length === 0 ? (
+            <p className="px-2 py-10 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+              No hay insumos para mostrar.
+            </p>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-muted-foreground">Nombre</TableHead>
-                  <TableHead className="text-muted-foreground">Unidad</TableHead>
-                  <TableHead className="text-right text-muted-foreground">
-                    Stock
+                <TableRow className="border-b border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
+                  <TableHead className="pl-2 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Nombre
                   </TableHead>
-                  <TableHead className="w-[100px] text-muted-foreground">
-                    Ajuste
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Unidad
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredMaterials.map((material) => {
-                  const cur = Number.parseFloat(material.currentStock)
-                  const status = stockStatus(cur, th, material.isLowStock)
                   const isSelected = selectedId === material.id
-
                   return (
                     <TableRow
                       key={material.id}
                       onClick={() => onSelect(material.id)}
                       className={cn(
-                        "cursor-pointer border-border transition-colors",
-                        isSelected
-                          ? "bg-primary/10 hover:bg-primary/10"
-                          : "hover:bg-secondary/50"
+                        "cursor-pointer border-0 transition-colors hover:bg-[#F2F2F7]/70 dark:hover:bg-zinc-800/30",
+                        isSelected && "bg-[#FF9500]/10 hover:bg-[#FF9500]/10"
                       )}
                     >
-                      <TableCell className="font-medium">{material.name}</TableCell>
-                      <TableCell>
-                        <span className="rounded-md bg-secondary px-2 py-0.5 font-mono text-xs text-muted-foreground">
-                          {unitLabel(material.unit)}
-                        </span>
+                      <TableCell className="pl-2 py-3.5 text-[15px] font-medium text-foreground">
+                        {material.name}
                       </TableCell>
-                      <TableCell
-                        className={cn("text-right font-mono", getStockColor(status))}
-                      >
-                        {material.currentStock}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 gap-1 text-primary"
-                          disabled={!token}
-                          onClick={() => openAdjust(material)}
-                        >
-                          <PackagePlus className="h-4 w-4" />
-                          Stock
-                        </Button>
+                      <TableCell className="py-3.5 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                        {unitLabel(material.unit)}
                       </TableCell>
                     </TableRow>
                   )
@@ -259,122 +174,56 @@ export function RawMaterials({
               </TableBody>
             </Table>
           )}
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <div className="h-2 w-2 rounded-full bg-primary" />
-              <span>OK</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="h-2 w-2 rounded-full bg-amber-500" />
-              <span>Bajo (≤ umbral)</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="h-2 w-2 rounded-full bg-destructive" />
-              <span>Crítico (≤ ½ umbral)</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="rounded-2xl border-zinc-200/50 bg-background sm:max-w-md dark:border-zinc-800/50">
           <DialogHeader>
-            <DialogTitle>Nueva materia prima</DialogTitle>
+            <DialogTitle className="text-xl font-bold tracking-tight">
+              Nuevo insumo
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={submitAdd} className="flex flex-col gap-4">
             {addError ? (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
                 {addError}
               </p>
             ) : null}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nombre</label>
+              <label className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Nombre</label>
               <Input
                 value={addName}
                 onChange={(e) => setAddName(e.target.value)}
                 required
-                className="bg-secondary"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Unidad</label>
+              <label className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Unidad</label>
               <Select
                 value={addUnit}
                 onValueChange={(v) => setAddUnit(v as InventoryUnit)}
               >
-                <SelectTrigger className="bg-secondary">
+                <SelectTrigger className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="rounded-xl">
                   <SelectItem value="ML">Mililitros (ml)</SelectItem>
                   <SelectItem value="UNIDAD">Unidades (uds.)</SelectItem>
                   <SelectItem value="GRAMOS">Gramos (g)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Stock inicial</label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={addStock}
-                onChange={(e) => setAddStock(e.target.value)}
-                className="bg-secondary font-mono"
-              />
-            </div>
             <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+              <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setAddOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={addSaving}>
+              <Button type="submit" disabled={addSaving} className="rounded-xl bg-[#FF9500] text-white hover:bg-[#FF9500]/90">
                 {addSaving ? "Guardando…" : "Crear"}
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Ajuste de stock — recepción</DialogTitle>
-          </DialogHeader>
-          {adjustTarget ? (
-            <form onSubmit={submitAdjust} className="flex flex-col gap-4">
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{adjustTarget.name}</span>
-                <br />
-                Stock actual:{" "}
-                <span className="font-mono">{adjustTarget.currentStock}</span>{" "}
-                {unitLabel(adjustTarget.unit)}
-              </p>
-              {adjustError ? (
-                <p className="text-sm text-destructive" role="alert">
-                  {adjustError}
-                </p>
-              ) : null}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Cantidad a ingresar (+)</label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={adjustDelta}
-                  onChange={(e) => setAdjustDelta(e.target.value)}
-                  required
-                  placeholder="Ej. 24 o 1500"
-                  className="bg-secondary font-mono"
-                />
-              </div>
-              <DialogFooter className="gap-2">
-                <Button type="button" variant="outline" onClick={() => setAdjustOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={adjustSaving}>
-                  {adjustSaving ? "Aplicando…" : "Aplicar ingreso"}
-                </Button>
-              </DialogFooter>
-            </form>
-          ) : null}
         </DialogContent>
       </Dialog>
     </>

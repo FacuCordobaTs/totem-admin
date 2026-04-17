@@ -1,76 +1,98 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Link } from "react-router"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { Header } from "@/components/dashboard/header"
-import { KpiCards, type DashboardKpiData } from "@/components/dashboard/kpi-cards"
-import { SalesChart, type SalesHourPoint } from "@/components/dashboard/sales-chart"
-import {
-  EventsTable,
-  type EventPerformanceRow,
-} from "@/components/dashboard/events-table"
 import { useAuthStore } from "@/stores/auth-store"
 import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
 import { apiFetch, ApiError } from "@/lib/api"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, Package } from "lucide-react"
-import type { InventoryUnit } from "@/components/inventory/raw-materials"
+import { Button } from "@/components/ui/button"
+import type { DashboardKpiData } from "@/components/dashboard/kpi-cards"
+import type { ApiEvent } from "@/types/events"
+import { ChevronRight } from "lucide-react"
 
-type StockAlertItem = {
-  id: string
-  name: string
-  unit: InventoryUnit
-  currentStock: string
-  threshold: string
+type AnalyticsKpisResponse = {
+  kpis: Pick<DashboardKpiData, "totalTicketsSold" | "usedTickets">
 }
 
-type AnalyticsResponse = {
-  kpis: DashboardKpiData
-  focusEvent: { id: string; name: string; date: string } | null
-  salesByHour: SalesHourPoint[]
-  salesChartSparkline: number[]
-  stockAlerts: StockAlertItem[]
-  eventPerformance: EventPerformanceRow[]
+type EventsListResponse = { events: ApiEvent[] }
+
+function formatEventDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString("es-AR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })
 }
 
-function unitLabel(unit: InventoryUnit): string {
-  switch (unit) {
-    case "ML":
-      return "ml"
-    case "GRAMOS":
-      return "g"
-    default:
-      return "uds."
+function pickHubEvents(events: ApiEvent[]): ApiEvent[] {
+  if (events.length === 0) return []
+  const now = Date.now()
+  const byDateAsc = [...events].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  )
+  const upcoming = byDateAsc.filter((e) => new Date(e.date).getTime() >= now)
+  const picked: ApiEvent[] = []
+  for (const e of upcoming) {
+    if (picked.length >= 3) break
+    picked.push(e)
   }
+  if (picked.length < 3) {
+    const past = [...byDateAsc]
+      .filter((e) => new Date(e.date).getTime() < now)
+      .reverse()
+    for (const e of past) {
+      if (picked.length >= 3) break
+      if (!picked.some((p) => p.id === e.id)) picked.push(e)
+    }
+  }
+  return picked.slice(0, 3)
 }
 
 export function DashboardPage() {
   const tenantId = useAuthStore((s) => s.staff?.tenantId)
+  const tenantName = useAuthStore((s) => s.staff?.tenantName)
+  const staffName = useAuthStore((s) => s.staff?.name)
   const role = useAuthStore((s) => s.staff?.role)
   const token = useAuthStore((s) => s.token)
   const isAdmin = role === "ADMIN"
   const hasTenant = tenantId != null && tenantId !== ""
 
-  const [data, setData] = useState<AnalyticsResponse | null>(null)
+  const [kpis, setKpis] = useState<AnalyticsKpisResponse["kpis"] | null>(null)
+  const [events, setEvents] = useState<ApiEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const hubEvents = useMemo(() => pickHubEvents(events), [events])
+
+  const greetingName = tenantName?.trim() || "tu productora"
+  const firstName = staffName?.trim().split(/\s+/)[0] ?? "Hola"
+
   const load = useCallback(async () => {
     if (!token || !hasTenant) {
-      setData(null)
+      setKpis(null)
+      setEvents([])
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch<AnalyticsResponse>("/analytics/dashboard", {
-        method: "GET",
-        token,
-      })
-      setData(res)
+      const [analyticsRes, eventsRes] = await Promise.all([
+        apiFetch<AnalyticsKpisResponse>("/analytics/dashboard", {
+          method: "GET",
+          token,
+        }),
+        apiFetch<EventsListResponse>("/events", { method: "GET", token }),
+      ])
+      setKpis(analyticsRes.kpis)
+      setEvents(eventsRes.events)
     } catch (err) {
-      setData(null)
+      setKpis(null)
+      setEvents([])
       setError(err instanceof ApiError ? err.message : "No se pudo cargar el panel")
     } finally {
       setLoading(false)
@@ -82,80 +104,129 @@ export function DashboardPage() {
   }, [load])
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
       <Sidebar />
-      <main className="flex-1 lg:pl-16">
+      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
         <Header />
-        <div className="p-4 lg:p-6">
+        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
           {!hasTenant ? (
             <div className="flex min-h-[calc(100vh-8rem)] flex-col items-center justify-center py-8">
               {isAdmin ? <ProductoraSetupCard /> : <ProductoraWaitingCard />}
             </div>
           ) : (
-            <>
-              <div className="mb-6">
-                <h1 className="text-2xl font-semibold">Panel</h1>
-                <p className="text-sm text-muted-foreground">
-                  KPIs en tiempo casi real según ventas y entradas registradas
+            <div className="mx-auto max-w-3xl space-y-16">
+              {error ? (
+                <p className="text-[15px] text-red-600 dark:text-red-400" role="alert">
+                  {error}
                 </p>
-                {error ? (
-                  <p className="mt-2 text-sm text-destructive" role="alert">
-                    {error}
-                  </p>
-                ) : null}
-                {loading && !data ? (
-                  <p className="mt-2 text-sm text-muted-foreground">Cargando…</p>
-                ) : null}
-              </div>
+              ) : null}
 
-              <div className="flex flex-col gap-6">
-                <KpiCards
-                  data={data?.kpis ?? null}
-                  salesSparkline={data?.salesChartSparkline}
-                />
+              <header className="space-y-2">
+                <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+                  {loading ? "Cargando…" : `Hola, ${firstName}`}
+                </p>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                  {greetingName}
+                </h1>
+              </header>
 
-                {data && data.stockAlerts.length > 0 ? (
-                  <Card className="border-amber-500/40 bg-amber-500/5">
-                    <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                      <AlertTriangle className="h-5 w-5 text-amber-500" />
-                      <CardTitle className="text-base font-semibold text-amber-700 dark:text-amber-400">
-                        Stock bajo ({data.stockAlerts.length})
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {data.stockAlerts.map((a) => (
-                          <li
-                            key={a.id}
-                            className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-background/80 px-3 py-2"
-                          >
-                            <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">{a.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                <span className="font-mono text-destructive">
-                                  {a.currentStock}
-                                </span>{" "}
-                                {unitLabel(a.unit)} · umbral{" "}
-                                <span className="font-mono">{a.threshold}</span>
-                              </p>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                ) : null}
-
-                <div className="grid gap-6 lg:grid-cols-2">
-                  <SalesChart
-                    data={data?.salesByHour ?? null}
-                    focusEventName={data?.focusEvent?.name}
-                  />
-                  <EventsTable rows={data?.eventPerformance ?? null} />
+              <section className="space-y-6">
+                <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                  Entradas
+                </h2>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-background p-6">
+                    <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+                      Vendidas
+                    </p>
+                    <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                      {kpis != null ? kpis.totalTicketsSold : loading ? "…" : "0"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-background p-6">
+                    <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">Usadas</p>
+                    <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                      {kpis != null ? kpis.usedTickets : loading ? "…" : "0"}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </>
+                <Button variant="ghost" className="h-auto p-0 text-[15px] text-[#8E8E93] hover:text-foreground dark:text-[#98989D]" asChild>
+                  <Link to="/metrics" className="inline-flex items-center gap-1">
+                    Métricas
+                    <ChevronRight className="h-4 w-4 opacity-60" />
+                  </Link>
+                </Button>
+              </section>
+
+              <section className="space-y-6">
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                    Próximos eventos
+                  </h2>
+                  <Button
+                    asChild
+                    className="h-10 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
+                  >
+                    <Link to="/events" className="inline-flex items-center gap-1">
+                      Ver todos
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </div>
+                {hubEvents.length === 0 ? (
+                  <p className="rounded-2xl bg-background px-6 py-12 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                    No hay eventos todavía.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {hubEvents.map((ev) => (
+                      <li key={ev.id}>
+                        <Link
+                          to={`/events/${ev.id}`}
+                          className="flex items-center gap-4 rounded-2xl bg-background px-5 py-4 transition-colors active:opacity-80"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-semibold text-foreground">
+                              {ev.name}
+                            </p>
+                            <p className="mt-0.5 text-sm text-[#8E8E93] dark:text-[#98989D]">
+                              {formatEventDate(ev.date)}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-[#C7C7CC] dark:text-[#48484A]" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="space-y-6">
+                <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                  Accesos
+                </h2>
+                <div className="divide-y divide-zinc-200/50 overflow-hidden rounded-2xl bg-background dark:divide-zinc-800/50">
+                  <Link
+                    to="/inventory"
+                    className="flex items-center justify-between px-5 py-4 transition-colors active:bg-zinc-50 dark:active:bg-zinc-800/40"
+                  >
+                    <span className="text-[17px] font-medium text-foreground">
+                      Inventario
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-[#C7C7CC] dark:text-[#48484A]" />
+                  </Link>
+                  <Link
+                    to="/staff"
+                    className="flex items-center justify-between px-5 py-4 transition-colors active:bg-zinc-50 dark:active:bg-zinc-800/40"
+                  >
+                    <span className="text-[17px] font-medium text-foreground">
+                      Personal
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-[#C7C7CC] dark:text-[#48484A]" />
+                  </Link>
+                </div>
+              </section>
+            </div>
           )}
         </div>
       </main>

@@ -3,7 +3,6 @@ import { Sidebar } from "@/components/dashboard/sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -27,20 +26,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile, type StaffRole } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
-import { Pencil, UserCheck, UserPlus, UserX } from "lucide-react"
+import { MoreHorizontal, UserPlus } from "lucide-react"
 
 const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "BARTENDER", "SECURITY"]
 
 type TeamResponse = { staff: StaffProfile[] }
 
-function formatDate(value: string | Date | null | undefined): string {
+function formatDateShort(value: string | Date | null | undefined): string {
   if (!value) return "—"
   const d = typeof value === "string" ? new Date(value) : value
   if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })
+  return d.toLocaleDateString("es-AR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })
 }
 
 export function StaffPage() {
@@ -77,8 +86,7 @@ export function StaffPage() {
     setListError(null)
     setLoading(true)
     try {
-      const q =
-        isAdmin && showInactive ? "?includeInactive=true" : ""
+      const q = isAdmin && showInactive ? "?includeInactive=true" : ""
       const data = await apiFetch<TeamResponse>(`/staff/team${q}`, {
         method: "GET",
         token,
@@ -199,77 +207,88 @@ export function StaffPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
       <Sidebar />
-      <main className="flex-1 lg:pl-16">
+      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
         <Header />
-        <div className="p-4 lg:p-6">
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold">Personal</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Gestioná cuentas del equipo. Cada persona puede iniciar sesión en el panel
-                con su correo y contraseña.
+        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
+          <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                Personal
+              </h1>
+              <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+                Equipo y accesos.
               </p>
             </div>
             {isAdmin ? (
-              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <Button
                   type="button"
-                  variant={showInactive ? "secondary" : "outline"}
+                  variant="ghost"
+                  className="h-10 rounded-xl text-[#8E8E93] hover:text-foreground dark:text-[#98989D]"
                   onClick={() => setShowInactive((v) => !v)}
-                  className="whitespace-nowrap"
                 >
-                  {showInactive ? "Solo activos" : "Incluir desactivados"}
+                  {showInactive ? "Solo activos" : "Incluir inactivos"}
                 </Button>
-                <Button onClick={() => setCreateOpen(true)} className="gap-2">
+                <Button
+                  onClick={() => setCreateOpen(true)}
+                  className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
+                >
                   <UserPlus className="h-4 w-4" />
-                  Agregar persona
+                  Agregar
                 </Button>
               </div>
             ) : null}
           </div>
 
           {!isAdmin ? (
-            <p className="mb-4 rounded-lg border border-border bg-secondary/40 px-4 py-3 text-sm text-muted-foreground">
-              Solo los administradores pueden crear o modificar cuentas. Podés ver el listado
-              de tu organización.
+            <p className="mb-6 rounded-2xl bg-background px-5 py-4 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+              Solo administradores pueden crear o modificar cuentas.
             </p>
           ) : null}
 
           {listError ? (
-            <p
-              className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              role="alert"
-            >
+            <p className="mb-6 text-[15px] text-red-600 dark:text-red-400" role="alert">
               {listError}
             </p>
           ) : null}
 
-          <div className="rounded-xl border border-border bg-card ring-1 ring-foreground/10">
+          <div className="overflow-hidden rounded-2xl bg-background">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Correo</TableHead>
-                  <TableHead>Rol</TableHead>
-                  <TableHead className="hidden md:table-cell">Alta</TableHead>
-                  {isAdmin ? <TableHead className="w-[140px] text-right">Acciones</TableHead> : null}
+                <TableRow className="border-b border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
+                  <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Nombre
+                  </TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Rol
+                  </TableHead>
+                  <TableHead className="hidden text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] md:table-cell dark:text-[#98989D]">
+                    Alta
+                  </TableHead>
+                  {isAdmin ? (
+                    <TableHead className="w-12 pr-4 text-right" />
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={isAdmin ? 5 : 4} className="text-muted-foreground">
+                  <TableRow className="border-0 hover:bg-transparent">
+                    <TableCell
+                      colSpan={isAdmin ? 4 : 3}
+                      className="py-10 text-[#8E8E93] dark:text-[#98989D]"
+                    >
                       Cargando…
                     </TableCell>
                   </TableRow>
                 ) : members.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={isAdmin ? 5 : 4} className="text-muted-foreground">
-                      {showInactive
-                        ? "No hay registros en tu espacio."
-                        : "No hay personas activas en tu espacio todavía."}
+                  <TableRow className="border-0 hover:bg-transparent">
+                    <TableCell
+                      colSpan={isAdmin ? 4 : 3}
+                      className="py-10 text-[#8E8E93] dark:text-[#98989D]"
+                    >
+                      {showInactive ? "Sin registros." : "Sin personas activas."}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -278,77 +297,65 @@ export function StaffPage() {
                     return (
                       <TableRow
                         key={m.id}
-                        className={inactive ? "opacity-70" : undefined}
+                        className={cnRow(inactive)}
                       >
-                        <TableCell className="font-medium">
-                          <span className="inline-flex flex-wrap items-center gap-2">
-                            {m.name}
-                            {inactive ? (
-                              <Badge variant="destructive">Desactivada</Badge>
-                            ) : null}
-                          </span>
+                        <TableCell className="pl-6 py-3.5">
+                          <span className="font-semibold text-foreground">{m.name}</span>
+                          {inactive ? (
+                            <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+                              Inactiva
+                            </span>
+                          ) : null}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">{m.email}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{staffRoleLabel(m.role)}</Badge>
+                        <TableCell className="py-3.5 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                          {staffRoleLabel(m.role)}
                         </TableCell>
-                        <TableCell className="hidden text-muted-foreground md:table-cell">
-                          {formatDate(m.createdAt)}
+                        <TableCell className="hidden py-3.5 text-[15px] text-[#8E8E93] md:table-cell dark:text-[#98989D]">
+                          {formatDateShort(m.createdAt)}
                         </TableCell>
                         {isAdmin ? (
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              {inactive ? (
+                          <TableCell className="pr-4 py-3.5 text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="h-9 w-9 text-primary"
-                                  onClick={() => void reactivateMember(m)}
-                                  title="Reactivar acceso"
+                                  className="h-9 w-9 rounded-xl text-[#8E8E93] dark:text-[#98989D]"
+                                  aria-label={`Acciones · ${m.name}`}
                                 >
-                                  <UserCheck className="h-4 w-4" />
-                                  <span className="sr-only">Reactivar {m.name}</span>
+                                  <MoreHorizontal className="h-5 w-5" />
                                 </Button>
-                              ) : null}
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9"
-                                onClick={() => openEdit(m)}
-                                disabled={m.id === current?.id}
-                                title={
-                                  m.id === current?.id
-                                    ? "Editá tu perfil desde Ajustes"
-                                    : "Editar"
-                                }
-                              >
-                                <Pencil className="h-4 w-4" />
-                                <span className="sr-only">Editar {m.name}</span>
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => {
-                                  setDeactivateError(null)
-                                  setDeactivateTarget(m)
-                                }}
-                                disabled={inactive || m.id === current?.id}
-                                title={
-                                  m.id === current?.id
-                                    ? "No podés desactivarte desde aquí"
-                                    : inactive
-                                      ? "Ya desactivada"
-                                      : "Desactivar acceso"
-                                }
-                              >
-                                <UserX className="h-4 w-4" />
-                                <span className="sr-only">Desactivar {m.name}</span>
-                              </Button>
-                            </div>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-52 rounded-xl">
+                                <DropdownMenuItem
+                                  className="rounded-lg text-[15px]"
+                                  disabled={inactive}
+                                  onSelect={() => openEdit(m)}
+                                >
+                                  Editar
+                                </DropdownMenuItem>
+                                {inactive ? (
+                                  <DropdownMenuItem
+                                    className="rounded-lg text-[15px]"
+                                    onSelect={() => void reactivateMember(m)}
+                                  >
+                                    Reactivar
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    className="rounded-lg text-[15px] text-red-600 focus:text-red-600 dark:text-red-400"
+                                    disabled={m.id === current?.id}
+                                    onSelect={() => {
+                                      setDeactivateError(null)
+                                      setDeactivateTarget(m)
+                                    }}
+                                  >
+                                    Desactivar
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </TableCell>
                         ) : null}
                       </TableRow>
@@ -368,22 +375,23 @@ export function StaffPage() {
           if (!o) resetCreateForm()
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-md rounded-2xl border-zinc-200/50 dark:border-zinc-800/50">
           <DialogHeader>
-            <DialogTitle>Nueva cuenta</DialogTitle>
-            <DialogDescription>
-              La persona podrá iniciar sesión en este panel con el correo y la contraseña que
-              definás.
+            <DialogTitle className="text-xl font-bold tracking-tight">
+              Nueva cuenta
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+              Correo y contraseña para iniciar sesión.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitCreate} className="flex flex-col gap-4">
             {createError ? (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
                 {createError}
               </p>
             ) : null}
             <div className="space-y-2">
-              <label htmlFor="st-name" className="text-sm font-medium">
+              <label htmlFor="st-name" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
                 Nombre
               </label>
               <Input
@@ -391,11 +399,11 @@ export function StaffPage() {
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 required
-                className="bg-secondary/50"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="st-email" className="text-sm font-medium">
+              <label htmlFor="st-email" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
                 Correo
               </label>
               <Input
@@ -405,11 +413,11 @@ export function StaffPage() {
                 onChange={(e) => setCreateEmail(e.target.value)}
                 required
                 autoComplete="off"
-                className="bg-secondary/50"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="st-pass" className="text-sm font-medium">
+              <label htmlFor="st-pass" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
                 Contraseña inicial
               </label>
               <Input
@@ -420,19 +428,16 @@ export function StaffPage() {
                 required
                 minLength={8}
                 autoComplete="new-password"
-                className="bg-secondary/50"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
               />
             </div>
             <div className="space-y-2">
-              <span className="text-sm font-medium">Rol</span>
-              <Select
-                value={createRole}
-                onValueChange={(v) => setCreateRole(v as StaffRole)}
-              >
-                <SelectTrigger className="w-full border-border bg-secondary/50">
+              <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Rol</span>
+              <Select value={createRole} onValueChange={(v) => setCreateRole(v as StaffRole)}>
+                <SelectTrigger className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="rounded-xl">
                   {ROLES.map((r) => (
                     <SelectItem key={r} value={r}>
                       {staffRoleLabel(r)}
@@ -441,16 +446,12 @@ export function StaffPage() {
                 </SelectContent>
               </Select>
             </div>
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCreateOpen(false)}
-              >
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setCreateOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={createLoading}>
-                {createLoading ? "Creando…" : "Crear cuenta"}
+              <Button type="submit" disabled={createLoading} className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90">
+                {createLoading ? "Creando…" : "Crear"}
               </Button>
             </DialogFooter>
           </form>
@@ -458,22 +459,22 @@ export function StaffPage() {
       </Dialog>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-md rounded-2xl border-zinc-200/50 dark:border-zinc-800/50">
           <DialogHeader>
-            <DialogTitle>Editar persona</DialogTitle>
-            <DialogDescription>
-              Actualizá datos o asigná una nueva contraseña (opcional).
+            <DialogTitle className="text-xl font-bold tracking-tight">Editar</DialogTitle>
+            <DialogDescription className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+              {editing?.email}
             </DialogDescription>
           </DialogHeader>
           {editing ? (
             <form onSubmit={submitEdit} className="flex flex-col gap-4">
               {editError ? (
-                <p className="text-sm text-destructive" role="alert">
+                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
                   {editError}
                 </p>
               ) : null}
               <div className="space-y-2">
-                <label htmlFor="ed-name" className="text-sm font-medium">
+                <label htmlFor="ed-name" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
                   Nombre
                 </label>
                 <Input
@@ -481,19 +482,16 @@ export function StaffPage() {
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   required
-                  className="bg-secondary/50"
+                  className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
                 />
               </div>
               <div className="space-y-2">
-                <span className="text-sm font-medium">Rol</span>
-                <Select
-                  value={editRole}
-                  onValueChange={(v) => setEditRole(v as StaffRole)}
-                >
-                  <SelectTrigger className="w-full border-border bg-secondary/50">
+                <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Rol</span>
+                <Select value={editRole} onValueChange={(v) => setEditRole(v as StaffRole)}>
+                  <SelectTrigger className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="rounded-xl">
                     {ROLES.map((r) => (
                       <SelectItem key={r} value={r}>
                         {staffRoleLabel(r)}
@@ -503,7 +501,7 @@ export function StaffPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label htmlFor="ed-pass" className="text-sm font-medium">
+                <label htmlFor="ed-pass" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
                   Nueva contraseña (opcional)
                 </label>
                 <Input
@@ -512,16 +510,16 @@ export function StaffPage() {
                   value={editPassword}
                   onChange={(e) => setEditPassword(e.target.value)}
                   minLength={8}
-                  placeholder="Dejar vacío para no cambiar"
+                  placeholder="Vacío = sin cambios"
                   autoComplete="new-password"
-                  className="bg-secondary/50"
+                  className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
                 />
               </div>
-              <DialogFooter className="gap-2 sm:gap-0">
-                <Button type="button" variant="outline" onClick={() => setEditing(null)}>
+              <DialogFooter className="gap-2">
+                <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setEditing(null)}>
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={editLoading}>
+                <Button type="submit" disabled={editLoading} className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90">
                   {editLoading ? "Guardando…" : "Guardar"}
                 </Button>
               </DialogFooter>
@@ -530,35 +528,31 @@ export function StaffPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={!!deactivateTarget}
-        onOpenChange={(o) => !o && setDeactivateTarget(null)}
-      >
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={!!deactivateTarget} onOpenChange={(o) => !o && setDeactivateTarget(null)}>
+        <DialogContent className="max-w-md rounded-2xl border-zinc-200/50 dark:border-zinc-800/50">
           <DialogHeader>
-            <DialogTitle>Desactivar acceso</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-xl font-bold tracking-tight">
+              Desactivar acceso
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#8E8E93] dark:text-[#98989D]">
               {deactivateTarget
-                ? `${deactivateTarget.name} no podrá iniciar sesión en Totem. Podés reactivarla desde esta misma pantalla (Incluir desactivados).`
+                ? `${deactivateTarget.name} no podrá iniciar sesión.`
                 : null}
             </DialogDescription>
           </DialogHeader>
           {deactivateError ? (
-            <p className="text-sm text-destructive" role="alert">
+            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
               {deactivateError}
             </p>
           ) : null}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setDeactivateTarget(null)}
-            >
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setDeactivateTarget(null)}>
               Cancelar
             </Button>
             <Button
               type="button"
               variant="destructive"
+              className="rounded-xl"
               disabled={deactivateLoading}
               onClick={() => void confirmDeactivate()}
             >
@@ -569,4 +563,10 @@ export function StaffPage() {
       </Dialog>
     </div>
   )
+}
+
+function cnRow(inactive: boolean): string {
+  return inactive
+    ? "border-0 opacity-70 hover:bg-transparent"
+    : "border-0 transition-colors hover:bg-[#F2F2F7]/80 dark:hover:bg-zinc-800/30"
 }

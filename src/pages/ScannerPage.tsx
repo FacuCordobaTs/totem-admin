@@ -13,6 +13,8 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { parseQrHash } from "@/lib/parse-qr-hash"
 import { playScannerSound } from "@/lib/scanner-sound"
 import { useAuthStore } from "@/stores/auth-store"
+import { Sidebar } from "@/components/dashboard/sidebar"
+import { Header } from "@/components/dashboard/header"
 import type { ApiEvent } from "@/types/events"
 import {
   Camera,
@@ -69,6 +71,9 @@ function errorHeadline(message: string): string {
 
 export function ScannerPage() {
   const token = useAuthStore((s) => s.token)
+  const role = useAuthStore((s) => s.staff?.role)
+  const isSecurity = role === "SECURITY"
+  const scannerBackHref = isSecurity ? "/settings" : "/"
 
   const [events, setEvents] = useState<ApiEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(true)
@@ -185,30 +190,35 @@ export function ScannerPage() {
   const scannerPaused =
     !cameraOn || !selectedEventId || overlay !== null || !token
 
-  return (
-    <div className="flex min-h-svh flex-col bg-neutral-950 text-neutral-50">
-      <header className="flex items-center justify-between border-b border-white/10 px-3 py-3 sm:px-4">
+  const scannerMain = (
+    <div
+      className={cn(
+        "flex flex-col bg-black text-white",
+        isSecurity ? "min-h-0 flex-1" : "min-h-svh"
+      )}
+    >
+      <header className="flex items-center justify-between border-b border-zinc-800/50 px-4 py-3 backdrop-blur-xl bg-black/70 sm:px-5">
         <Link
-          to="/"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-neutral-200 active:bg-white/10"
+          to={scannerBackHref}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#98989D] transition-colors active:opacity-70"
           aria-label="Volver"
         >
           <ChevronLeft className="h-6 w-6" />
         </Link>
         <div className="min-w-0 flex-1 px-2 text-center">
-          <h1 className="truncate text-base font-semibold tracking-tight">
+          <h1 className="truncate text-[17px] font-bold tracking-tight">
             Control de acceso
           </h1>
-          <p className="truncate text-xs text-neutral-400">
+          <p className="truncate text-[13px] text-[#98989D]">
             {selectedEvent ? selectedEvent.name : "Elegí un evento"}
           </p>
         </div>
-        <div className="w-11 shrink-0" />
+        <div className="w-10 shrink-0" />
       </header>
 
-      <div className="border-b border-white/10 bg-black/40 px-3 py-3 sm:px-4">
-        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-amber-400/90">
-          Evento activo
+      <div className="border-b border-zinc-800/50 bg-black/50 px-4 py-4 sm:px-5">
+        <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+          Evento
         </label>
         {eventsLoading ? (
           <p className="text-sm text-neutral-500">Cargando eventos…</p>
@@ -217,9 +227,9 @@ export function ScannerPage() {
             <p className="text-sm text-red-400">{eventsError}</p>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="border-white/20"
+              className="text-[#FF9500] hover:text-[#FF9500]/90"
               onClick={() => void loadEvents()}
             >
               Reintentar
@@ -231,10 +241,10 @@ export function ScannerPage() {
           </p>
         ) : (
           <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-            <SelectTrigger className="h-12 w-full border-white/15 bg-white/5 text-base text-neutral-100">
+            <SelectTrigger className="h-12 w-full rounded-xl border-zinc-700 bg-[#1C1C1E] text-[15px] text-white">
               <SelectValue placeholder="Seleccionar evento" />
             </SelectTrigger>
-            <SelectContent className="border-white/10 bg-neutral-900 text-neutral-100">
+            <SelectContent className="rounded-xl border-zinc-700 bg-[#1C1C1E] text-white">
               {events.map((ev) => (
                 <SelectItem key={ev.id} value={ev.id} className="text-base">
                   {formatEventLabel(ev)}
@@ -246,11 +256,9 @@ export function ScannerPage() {
       </div>
 
       {sessionOk > 0 && (
-        <div className="flex items-center justify-center gap-2 border-b border-emerald-500/30 bg-emerald-500/10 py-2 text-emerald-300">
-          <ScanLine className="h-4 w-4" />
-          <span className="text-sm font-semibold">
-            Ingresos validados (esta sesión): {sessionOk}
-          </span>
+        <div className="flex items-center justify-center gap-2 border-b border-zinc-800/50 bg-white/5 py-2.5 text-[13px] font-medium text-[#98989D]">
+          <ScanLine className="h-4 w-4 text-[#FF9500]" />
+          <span>Validados en esta sesión: {sessionOk}</span>
         </div>
       )}
 
@@ -258,7 +266,7 @@ export function ScannerPage() {
         <div
           className={cn(
             "relative mx-auto w-full max-w-lg overflow-hidden rounded-2xl border-2 bg-black",
-            scannerPaused ? "border-white/10" : "border-amber-400/60 shadow-lg shadow-amber-500/10"
+            scannerPaused ? "border-zinc-800" : "border-[#FF9500]/50"
           )}
           style={{ aspectRatio: "1" }}
         >
@@ -292,23 +300,23 @@ export function ScannerPage() {
 
           {!scannerPaused && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent py-4 text-center">
-              <p className="text-sm font-semibold tracking-wide text-amber-300">
+              <p className="text-[13px] font-semibold tracking-wide text-[#FF9500]">
                 Buscando QR…
               </p>
             </div>
           )}
         </div>
 
-        <div className="mx-auto mt-4 flex w-full max-w-lg flex-col gap-3 sm:flex-row">
+        <div className="mx-auto mt-6 flex w-full max-w-lg flex-col gap-3 sm:flex-row">
           <Button
             type="button"
             size="lg"
             variant={cameraOn ? "outline" : "default"}
             className={cn(
-              "h-14 min-h-14 flex-1 gap-2 text-base font-semibold",
+              "h-12 min-h-12 flex-1 gap-2 rounded-xl text-[15px] font-semibold",
               cameraOn
-                ? "border-white/20 bg-white/5 text-neutral-100"
-                : "bg-amber-500 text-neutral-950 hover:bg-amber-400"
+                ? "border-zinc-700 bg-transparent text-white hover:bg-white/5"
+                : "border-0 bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
             )}
             onClick={() => setCameraOn((v) => !v)}
             disabled={!selectedEventId || !token}
@@ -329,7 +337,7 @@ export function ScannerPage() {
             type="button"
             size="lg"
             variant="outline"
-            className="h-14 min-h-14 flex-1 gap-2 border-white/20 bg-white/5 text-base font-semibold text-neutral-100"
+            className="h-12 min-h-12 flex-1 gap-2 rounded-xl border-zinc-700 bg-transparent text-[15px] font-semibold text-white hover:bg-white/5"
             onClick={() =>
               setFacingMode((m) => (m === "environment" ? "user" : "environment"))
             }
@@ -340,9 +348,8 @@ export function ScannerPage() {
           </Button>
         </div>
 
-        <p className="mx-auto mt-6 max-w-lg text-center text-xs text-neutral-600">
-          Apuntá al código emitido por la venta pública o boletería. Se acepta el hash o la URL
-          completa del QR.
+        <p className="mx-auto mt-8 max-w-lg text-center text-[13px] leading-relaxed text-[#636366]">
+          Apuntá al código de la entrada.
         </p>
       </div>
 
@@ -384,6 +391,18 @@ export function ScannerPage() {
           </Button>
         </div>
       )}
+    </div>
+  )
+
+  if (!isSecurity) return scannerMain
+
+  return (
+    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
+      <Sidebar />
+      <div className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
+        <Header />
+        <div className="flex min-h-0 flex-1 flex-col">{scannerMain}</div>
+      </div>
     </div>
   )
 }

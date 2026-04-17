@@ -4,6 +4,15 @@ export function getApiBase(): string {
   return base().replace(/\/$/, "")
 }
 
+/** Base URL for WebSocket (staff stock channel). */
+export function getWsBase(): string {
+  const b = getApiBase()
+  if (b.startsWith("https://")) {
+    return `wss://${b.slice("https://".length)}`
+  }
+  return `ws://${b.replace(/^http:\/\//, "")}`
+}
+
 type Json = Record<string, unknown>
 
 export class ApiError extends Error {

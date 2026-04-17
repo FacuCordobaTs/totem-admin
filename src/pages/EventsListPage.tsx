@@ -26,21 +26,18 @@ import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
-import { Calendar, ChevronRight, Plus } from "lucide-react"
+import { ChevronRight, Plus } from "lucide-react"
 import type { ApiEvent } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
 
-function formatEventDate(iso: string): string {
+function formatEventDateShort(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString("es-AR", {
-    weekday: "short",
+  return d.toLocaleDateString("es-AR", {
     day: "numeric",
     month: "short",
     year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   })
 }
 
@@ -123,11 +120,11 @@ export function EventsListPage() {
   const needsProductora = !hasTenant
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
       <Sidebar />
-      <main className="flex-1 lg:pl-16">
+      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
         <Header />
-        <div className="p-4 lg:p-6">
+        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
           {needsProductora ? (
             <div className="flex min-h-[calc(100vh-8rem)] flex-col items-center justify-center py-8">
               {isAdmin ? (
@@ -138,15 +135,12 @@ export function EventsListPage() {
             </div>
           ) : (
             <>
-              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h1 className="text-2xl font-semibold tracking-tight">Eventos</h1>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Creá fechas, configurá tipos de entrada y vendé desde boletería.
-                  </p>
-                </div>
+              <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                  Eventos
+                </h1>
                 <Button
-                  className="gap-2"
+                  className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
                   onClick={() => {
                     setCreateError(null)
                     setCreateOpen(true)
@@ -158,59 +152,60 @@ export function EventsListPage() {
               </div>
 
               {error ? (
-                <p className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
+                <p className="mb-6 text-[15px] text-red-600 dark:text-red-400">{error}</p>
               ) : null}
 
-              <div className="rounded-xl border border-border bg-card ring-1 ring-foreground/10">
+              <div className="overflow-hidden rounded-2xl bg-background">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Evento</TableHead>
-                      <TableHead className="hidden md:table-cell">Fecha</TableHead>
-                      <TableHead className="hidden lg:table-cell">Lugar</TableHead>
-                      <TableHead className="w-[120px] text-right" />
+                    <TableRow className="border-b border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
+                      <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                        Evento
+                      </TableHead>
+                      <TableHead className="hidden text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] sm:table-cell dark:text-[#98989D]">
+                        Fecha
+                      </TableHead>
+                      <TableHead className="w-10 pr-4" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-muted-foreground">
+                      <TableRow className="border-0 hover:bg-transparent">
+                        <TableCell colSpan={3} className="py-10 text-[#8E8E93] dark:text-[#98989D]">
                           Cargando…
                         </TableCell>
                       </TableRow>
                     ) : events.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-muted-foreground">
-                          Todavía no hay eventos. Creá el primero para tu productora.
+                      <TableRow className="border-0 hover:bg-transparent">
+                        <TableCell colSpan={3} className="py-10 text-[#8E8E93] dark:text-[#98989D]">
+                          Sin eventos todavía.
                         </TableCell>
                       </TableRow>
                     ) : (
                       events.map((ev) => (
-                        <TableRow key={ev.id} className="group">
-                          <TableCell className="font-medium">
+                        <TableRow
+                          key={ev.id}
+                          className="cursor-pointer border-0 transition-colors hover:bg-[#F2F2F7]/80 dark:hover:bg-zinc-800/30"
+                        >
+                          <TableCell className="pl-6 py-3.5">
                             <Link
                               to={`/events/${ev.id}`}
-                              className="inline-flex items-center gap-1 text-foreground hover:text-primary hover:underline"
+                              className="block font-semibold text-foreground"
                             >
                               {ev.name}
-                              <ChevronRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
                             </Link>
+                            <p className="mt-0.5 text-sm text-[#8E8E93] sm:hidden dark:text-[#98989D]">
+                              {formatEventDateShort(ev.date)}
+                              {ev.location ? ` · ${ev.location}` : ""}
+                            </p>
                           </TableCell>
-                          <TableCell className="hidden text-muted-foreground md:table-cell">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Calendar className="h-3.5 w-3.5 shrink-0" />
-                              {formatEventDate(ev.date)}
-                            </span>
+                          <TableCell className="hidden py-3.5 text-[15px] text-[#8E8E93] sm:table-cell dark:text-[#98989D]">
+                            {formatEventDateShort(ev.date)}
                           </TableCell>
-                          <TableCell className="hidden text-muted-foreground lg:table-cell">
-                            {ev.location ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="outline" size="sm" asChild>
-                              <Link to={`/events/${ev.id}`}>Abrir</Link>
-                            </Button>
+                          <TableCell className="pr-4 py-3.5 text-right">
+                            <Link to={`/events/${ev.id}`} aria-label={`Abrir ${ev.name}`}>
+                              <ChevronRight className="inline h-4 w-4 text-[#C7C7CC] dark:text-[#48484A]" />
+                            </Link>
                           </TableCell>
                         </TableRow>
                       ))
@@ -224,21 +219,23 @@ export function EventsListPage() {
       </main>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-md rounded-2xl border-zinc-200/50 dark:border-zinc-800/50">
           <DialogHeader>
-            <DialogTitle>Nuevo evento</DialogTitle>
-            <DialogDescription>
-              La fecha y hora se guardan en zona local y se envían al servidor en ISO-8601.
+            <DialogTitle className="text-xl font-bold tracking-tight">
+              Nuevo evento
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+              Nombre y fecha de inicio.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitCreate} className="flex flex-col gap-4">
             {createError ? (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
                 {createError}
               </p>
             ) : null}
             <div className="space-y-2">
-              <label htmlFor="ev-name" className="text-sm font-medium">
+              <label htmlFor="ev-name" className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
                 Nombre
               </label>
               <Input
@@ -246,13 +243,13 @@ export function EventsListPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="bg-secondary/50"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
                 placeholder="Ej. Festival Noches Neón"
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="ev-date" className="text-sm font-medium">
-                Fecha y hora de inicio
+              <label htmlFor="ev-date" className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+                Fecha y hora
               </label>
               <Input
                 id="ev-date"
@@ -260,26 +257,26 @@ export function EventsListPage() {
                 value={dateLocal}
                 onChange={(e) => setDateLocal(e.target.value)}
                 required
-                className="bg-secondary/50"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="ev-loc" className="text-sm font-medium">
+              <label htmlFor="ev-loc" className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
                 Lugar (opcional)
               </label>
               <Input
                 id="ev-loc"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                className="bg-secondary/50"
-                placeholder="Dirección o venue"
+                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
+                placeholder="Venue o dirección"
               />
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setCreateOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={createLoading}>
+              <Button type="submit" disabled={createLoading} className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90">
                 {createLoading ? "Creando…" : "Crear"}
               </Button>
             </DialogFooter>

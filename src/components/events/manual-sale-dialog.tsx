@@ -19,6 +19,7 @@ import {
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiTicketType } from "./ticket-types"
+import { ShoppingBag } from "lucide-react"
 
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 
@@ -41,6 +42,12 @@ type ManualSaleDialogProps = {
   onOpenChange: (open: boolean) => void
   onSold: () => void
 }
+
+const inputClass =
+  "h-11 rounded-xl border border-zinc-200/50 bg-[#F2F2F7] px-4 text-[17px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-black dark:text-white"
+
+const selectClass =
+  "h-11 w-full rounded-xl border border-zinc-200/50 bg-[#F2F2F7] px-4 text-[17px] dark:border-zinc-800/50 dark:bg-black dark:text-white"
 
 export function ManualSaleDialog({
   eventId,
@@ -113,106 +120,134 @@ export function ManualSaleDialog({
 
   const selected = types.find((t) => t.id === ticketTypeId)
   const soldOut =
-    selected != null &&
-    selected.stockLimit != null &&
-    selected.sold >= selected.stockLimit
+    selected != null && selected.stockLimit != null && selected.sold >= selected.stockLimit
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-border bg-card sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Venta manual</DialogTitle>
-          <DialogDescription>
-            Simulación de cobro: se emite la entrada con hash QR único (sin Mercado Pago).
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          {error ? (
-            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-          <div className="space-y-2">
-            <span className="text-sm font-medium text-foreground">Tipo de entrada</span>
-            {loadingTypes ? (
-              <p className="text-sm text-muted-foreground">Cargando…</p>
-            ) : types.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Creá al menos un tipo de entrada antes de vender.
+      <DialogContent
+        showCloseButton
+        className="max-h-[min(92vh,880px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-background p-0 sm:max-w-lg dark:border-zinc-800/50"
+      >
+        <div className="border-b border-zinc-200/50 px-5 py-5 dark:border-zinc-800/50">
+          <div className="flex gap-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
+              <ShoppingBag className="h-6 w-6 text-[#FF9500]" />
+            </span>
+            <DialogHeader className="flex-1 gap-1 text-left">
+              <DialogTitle className="text-[20px] font-bold tracking-tight text-black dark:text-white">
+                Venta manual
+              </DialogTitle>
+              <DialogDescription className="text-[15px] leading-snug text-[#8E8E93] dark:text-[#98989D]">
+                Simulación de cobro: se emite la entrada con hash QR único (sin Mercado
+                Pago).
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+        </div>
+
+        <form
+          onSubmit={submit}
+          className="flex max-h-[calc(92vh-14rem)] flex-col overflow-y-auto"
+        >
+          <div className="space-y-5 px-5 py-5">
+            {error ? (
+              <p
+                className="rounded-xl border border-red-200/50 bg-red-500/10 px-4 py-3 text-[15px] text-red-600 dark:border-red-900/50 dark:text-red-400"
+                role="alert"
+              >
+                {error}
               </p>
-            ) : (
-              <Select value={ticketTypeId} onValueChange={setTicketTypeId}>
-                <SelectTrigger className="h-12 w-full border-border bg-secondary text-base">
-                  <SelectValue placeholder="Elegí tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {types.map((t) => {
-                    const out =
-                      t.stockLimit != null && t.sold >= t.stockLimit
-                    return (
-                      <SelectItem key={t.id} value={t.id} disabled={out}>
-                        {t.name} — ${Number(t.price).toFixed(2)}
-                        {out ? " (agotado)" : ""}
-                      </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
-            )}
+            ) : null}
+            <div className="space-y-2">
+              <span className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                Tipo de entrada
+              </span>
+              {loadingTypes ? (
+                <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">Cargando…</p>
+              ) : types.length === 0 ? (
+                <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                  Creá al menos un tipo de entrada antes de vender.
+                </p>
+              ) : (
+                <Select value={ticketTypeId} onValueChange={setTicketTypeId}>
+                  <SelectTrigger className={selectClass}>
+                    <SelectValue placeholder="Elegí tipo" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                    {types.map((t) => {
+                      const out = t.stockLimit != null && t.sold >= t.stockLimit
+                      return (
+                        <SelectItem key={t.id} value={t.id} disabled={out}>
+                          {t.name} — ${Number(t.price).toFixed(2)}
+                          {out ? " (agotado)" : ""}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label
+                className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                htmlFor="buyer-name"
+              >
+                Nombre del comprador
+              </label>
+              <Input
+                id="buyer-name"
+                className={inputClass}
+                value={buyerName}
+                onChange={(e) => setBuyerName(e.target.value)}
+                required
+                autoComplete="name"
+              />
+            </div>
+            <div className="space-y-2">
+              <label
+                className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                htmlFor="buyer-email"
+              >
+                Correo
+              </label>
+              <Input
+                id="buyer-email"
+                type="email"
+                className={inputClass}
+                value={buyerEmail}
+                onChange={(e) => setBuyerEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+            {soldOut ? (
+              <p className="text-[15px] text-amber-600 dark:text-amber-400">
+                Este tipo está agotado. Elegí otro.
+              </p>
+            ) : null}
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="buyer-name">
-              Nombre del comprador
-            </label>
-            <Input
-              id="buyer-name"
-              className="h-12 bg-secondary text-base"
-              value={buyerName}
-              onChange={(e) => setBuyerName(e.target.value)}
-              required
-              autoComplete="name"
-            />
+
+          <div className="mt-auto border-t border-zinc-200/50 bg-[#F2F2F7]/80 p-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 max-sm:sticky max-sm:bottom-0">
+            <DialogFooter className="flex-col gap-2 sm:flex-col">
+              <Button
+                type="submit"
+                className="h-12 w-full rounded-xl bg-[#FF9500] text-[17px] font-semibold text-white transition-all duration-200 active:opacity-70"
+                disabled={
+                  selling || loadingTypes || types.length === 0 || !ticketTypeId || soldOut
+                }
+              >
+                {selling ? "Emitiendo…" : "Confirmar venta"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full rounded-xl border-zinc-200/50 text-[17px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancelar
+              </Button>
+            </DialogFooter>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="buyer-email">
-              Correo
-            </label>
-            <Input
-              id="buyer-email"
-              type="email"
-              className="h-12 bg-secondary text-base"
-              value={buyerEmail}
-              onChange={(e) => setBuyerEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
-          </div>
-          {soldOut ? (
-            <p className="text-sm text-amber-500">Este tipo está agotado. Elegí otro.</p>
-          ) : null}
-          <DialogFooter className="gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-12 min-w-[100px]"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              className="h-12 min-w-[140px] text-base font-semibold"
-              disabled={
-                selling ||
-                loadingTypes ||
-                types.length === 0 ||
-                !ticketTypeId ||
-                soldOut
-              }
-            >
-              {selling ? "Emitiendo…" : "Confirmar venta"}
-            </Button>
-          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

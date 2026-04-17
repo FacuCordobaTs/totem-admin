@@ -37,7 +37,13 @@ export function LoginPage() {
         body: JSON.stringify({ email, password }),
       })
       setAuth(data.token, data.staff)
-      navigate("/", { replace: true })
+      const home =
+        data.staff.role === "BARTENDER"
+          ? "/pos"
+          : data.staff.role === "SECURITY"
+            ? "/scanner"
+            : "/"
+      navigate(home, { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión")
     } finally {

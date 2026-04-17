@@ -14,7 +14,6 @@ import { useAuthStore } from "@/stores/auth-store"
 
 type ItemsResponse = {
   items: ApiInventoryItem[]
-  alertThreshold: string
 }
 
 type ProductsResponse = {
@@ -25,7 +24,6 @@ export function InventoryPage() {
   const token = useAuthStore((s) => s.token)
 
   const [items, setItems] = useState<ApiInventoryItem[]>([])
-  const [alertThreshold, setAlertThreshold] = useState("100")
   const [products, setProducts] = useState<ApiProduct[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
   const [loadingProducts, setLoadingProducts] = useState(true)
@@ -49,7 +47,6 @@ export function InventoryPage() {
         token,
       })
       setItems(data.items)
-      setAlertThreshold(data.alertThreshold)
     } catch (err) {
       setItems([])
       setLoadError(err instanceof ApiError ? err.message : "Error al cargar ítems")
@@ -96,27 +93,28 @@ export function InventoryPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
       <Sidebar />
-      <main className="flex-1 lg:pl-16">
+      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
         <Header />
-        <div className="p-4 lg:p-6">
-          <div className="mb-6">
-            <h1 className="text-2xl font-semibold">Inventario PRO</h1>
-            <p className="text-sm text-muted-foreground">
-              Materias primas, productos y recetas — descuenta stock en cada venta del POS
+        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
+          <div className="mb-10 space-y-1">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              Inventario
+            </h1>
+            <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+              Insumos y productos. El stock por evento se ajusta en cada evento.
             </p>
             {loadError ? (
-              <p className="mt-2 text-sm text-destructive" role="alert">
+              <p className="pt-2 text-[15px] text-red-600 dark:text-red-400" role="alert">
                 {loadError}
               </p>
             ) : null}
           </div>
 
-          <div className="grid min-h-[calc(100vh-220px)] gap-6 lg:grid-cols-2">
+          <div className="grid min-h-[calc(100vh-240px)] gap-10 lg:grid-cols-2 lg:gap-12">
             <RawMaterials
               items={items}
-              alertThreshold={alertThreshold}
               loading={loadingItems}
               token={token}
               selectedId={selectedMaterialId}
