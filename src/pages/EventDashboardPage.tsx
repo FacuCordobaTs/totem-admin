@@ -12,6 +12,7 @@ import { EventStaffTab } from "@/components/events/event-staff-tab"
 import { EventInventoryTab } from "@/components/events/event-inventory-tab"
 import { EventBarsTab } from "@/components/events/event-bars-tab"
 import { EventExpensesTab } from "@/components/events/event-expenses-tab"
+import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -21,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { apiFetch, ApiError } from "@/lib/api"
+import { getEventShopUrl } from "@/lib/client-app-url"
 import { useAuthStore } from "@/stores/auth-store"
 import { ChevronLeft, Loader2, MoreHorizontal, Plus } from "lucide-react"
 import type { ApiEvent } from "@/types/events"
@@ -79,17 +81,16 @@ export function EventDashboardPage() {
 
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
 
-  const publicSaleUrl =
-    typeof window !== "undefined" && id ? `${window.location.origin}/p/${id}` : ""
+  const publicShopUrl = id ? getEventShopUrl(id) : ""
 
-  async function copyPublicSaleLink() {
-    if (!publicSaleUrl) return
+  async function copyPublicShopLink() {
+    if (!publicShopUrl) return
     try {
-      await navigator.clipboard.writeText(publicSaleUrl)
+      await navigator.clipboard.writeText(publicShopUrl)
       setLinkCopied(true)
       window.setTimeout(() => setLinkCopied(false), 2000)
     } catch {
-      /* portapapeles no disponible */
+      /* clipboard unavailable */
     }
   }
 
@@ -197,7 +198,7 @@ export function EventDashboardPage() {
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
                     <DropdownMenuItem
                       className="rounded-lg text-[15px]"
-                      onSelect={() => void copyPublicSaleLink()}
+                      onSelect={() => void copyPublicShopLink()}
                     >
                       {linkCopied ? "¡Link copiado!" : "Copiar link público"}
                     </DropdownMenuItem>
@@ -218,6 +219,10 @@ export function EventDashboardPage() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {activeTab === "general" && (
             <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
+              <Section title="Configuración de Ventas">
+                <EventSalesConfig event={event} onUpdated={loadEvent} />
+              </Section>
+
               <Section title="Inventario">
                 <EventInventoryTab eventId={id} />
               </Section>

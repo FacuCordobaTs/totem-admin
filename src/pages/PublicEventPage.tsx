@@ -34,20 +34,19 @@ type PublicEventPayload = {
   ticketTypes: PublicTicketType[]
 }
 
-type PurchaseResponse = {
+type CheckoutResponse = {
   message: string
-  ticket: {
-    id: string
-    qrHash: string
-    status: string
-    buyerName: string | null
-    buyerEmail: string | null
-    ticketTypeName: string
-  }
-  qrDataUrl: string
+  receiptToken: string
+  saleId: string
 }
 
-type PurchaseSuccess = PurchaseResponse & { productoraName: string }
+type PurchaseSuccess = {
+  receiptToken: string
+  productoraName: string
+  eventName: string
+  ticketTypeName: string
+  clientReceiptPath: string
+}
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -73,6 +72,7 @@ export function PublicEventPage() {
   const [selectedType, setSelectedType] = useState<PublicTicketType | null>(null)
   const [buyerName, setBuyerName] = useState("")
   const [buyerEmail, setBuyerEmail] = useState("")
+  const [buyerPhone, setBuyerPhone] = useState("")
   const [purchaseLoading, setPurchaseLoading] = useState(false)
   const [purchaseError, setPurchaseError] = useState<string | null>(null)
 
@@ -107,6 +107,7 @@ export function PublicEventPage() {
     setSelectedType(tt)
     setBuyerName("")
     setBuyerEmail("")
+    setBuyerPhone("")
     setPurchaseError(null)
     setCheckoutOpen(true)
   }
@@ -117,19 +118,28 @@ export function PublicEventPage() {
     setPurchaseError(null)
     setPurchaseLoading(true)
     try {
-      const data = await publicApiFetch<PurchaseResponse>("/public/tickets/purchase", {
+      const data = await publicApiFetch<CheckoutResponse>("/public/checkout", {
         method: "POST",
         body: JSON.stringify({
           eventId,
-          ticketTypeId: selectedType.id,
-          buyerName: buyerName.trim(),
-          buyerEmail: buyerEmail.trim(),
+          paymentMethod: "CARD",
+          clientTotal: selectedType.price,
+          contact: {
+            name: buyerName.trim(),
+            email: buyerEmail.trim(),
+            phone: buyerPhone.trim(),
+          },
+          ticketLines: [{ ticketTypeId: selectedType.id, quantity: 1 }],
+          drinkLines: [],
         }),
       })
       setCheckoutOpen(false)
       setSuccess({
-        ...data,
+        receiptToken: data.receiptToken,
         productoraName: payload.productora.name,
+        eventName: payload.event.name,
+        ticketTypeName: selectedType.name,
+        clientReceiptPath: `/receipt/${data.receiptToken}`,
       })
       await load()
     } catch (err) {
@@ -168,23 +178,19 @@ export function PublicEventPage() {
             ¡Compra exitosa!
           </h1>
           <p className="mt-3 text-sm text-neutral-400">
-            Guardá o capturá este código. Lo pedirán en el acceso al evento. Tu compra quedó
-            registrada con {success.productoraName}.
+            Tu compra quedó registrada con {success.productoraName}. Los códigos QR están en el
+            comprobante digital (magic link).
           </p>
           <p className="mt-2 text-sm font-medium text-neutral-200">
-            {success.ticket.ticketTypeName}
+            {success.ticketTypeName} · {success.eventName}
           </p>
-          <div className="mt-8 rounded-2xl border border-white/10 bg-white p-4 shadow-2xl shadow-black/50">
-            <img
-              src={success.qrDataUrl}
-              alt="Código QR de tu entrada"
-              className="h-64 w-64 max-w-full object-contain md:h-72 md:w-72"
-              width={288}
-              height={288}
-            />
-          </div>
-          <p className="mt-6 max-w-full break-all font-mono text-xs text-neutral-500">
-            {success.ticket.qrHash}
+          <p className="mt-6 text-xs uppercase tracking-wide text-neutral-500">Comprobante</p>
+          <p className="mt-2 max-w-full break-all font-mono text-sm text-neutral-300">
+            {success.receiptToken}
+          </p>
+          <p className="mt-4 text-sm text-neutral-400">
+            En la app de asistentes abrí:{" "}
+            <span className="font-mono text-neutral-200">{success.clientReceiptPath}</span>
           </p>
           <Button
             type="button"
@@ -333,6 +339,20 @@ export function PublicEventPage() {
                 onChange={(e) => setBuyerEmail(e.target.value)}
                 required
                 autoComplete="email"
+                className="h-11 border-white/15 bg-white/5 text-base text-neutral-100"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="pub-phone" className="text-sm font-medium">
+                Teléfono
+              </label>
+              <Input
+                id="pub-phone"
+                type="tel"
+                value={buyerPhone}
+                onChange={(e) => setBuyerPhone(e.target.value)}
+                required
+                autoComplete="tel"
                 className="h-11 border-white/15 bg-white/5 text-base text-neutral-100"
               />
             </div>
