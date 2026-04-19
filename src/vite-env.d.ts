@@ -2,7 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_URL?: string
-  /** Public client app origin (e.g. https://app.example.com) for attendee links. */
+  /** Optional override for attendee app origin (default prod: https://my.totem.uno). */
   readonly VITE_CLIENT_URL?: string
 }
 
