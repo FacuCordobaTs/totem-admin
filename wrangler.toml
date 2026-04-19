@@ -1,0 +1,4 @@
+# Cloudflare Pages: set Build output directory to `dist` (or rely on this file).
+# Build command must be: npm run build  (not `bun run build` — Bun breaks lightningcss native binaries.)
+name = "totem-admin"
+pages_build_output_dir = "dist"
