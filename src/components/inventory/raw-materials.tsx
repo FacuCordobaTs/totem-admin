@@ -33,6 +33,8 @@ export interface ApiInventoryItem {
   id: string
   name: string
   unit: InventoryUnit
+  defaultContentValue?: string
+  defaultContentUnit?: InventoryUnit
 }
 
 function unitLabel(unit: InventoryUnit): string {
@@ -70,6 +72,8 @@ export function RawMaterials({
   const [addOpen, setAddOpen] = useState(false)
   const [addName, setAddName] = useState("")
   const [addUnit, setAddUnit] = useState<InventoryUnit>("ML")
+  const [addDefaultVol, setAddDefaultVol] = useState("750")
+  const [addDefaultVolUnit, setAddDefaultVolUnit] = useState<InventoryUnit>("ML")
   const [addSaving, setAddSaving] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 
@@ -89,11 +93,15 @@ export function RawMaterials({
         body: JSON.stringify({
           name: addName.trim(),
           unit: addUnit,
+          defaultContentValue: addDefaultVol.replace(",", "."),
+          defaultContentUnit: addDefaultVolUnit,
         }),
       })
       setAddOpen(false)
       setAddName("")
       setAddUnit("ML")
+      setAddDefaultVol("750")
+      setAddDefaultVolUnit("ML")
       onChanged()
     } catch (err) {
       setAddError(err instanceof ApiError ? err.message : "No se pudo crear")
@@ -214,6 +222,36 @@ export function RawMaterials({
                   <SelectItem value="GRAMOS">Gramos (g)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
+                Tamaño estándar (por botella / envase)
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={addDefaultVol}
+                  onChange={(e) => setAddDefaultVol(e.target.value)}
+                  className="h-11 min-w-0 flex-1 rounded-xl border-zinc-200/50 bg-[#F2F2F7] font-mono dark:border-zinc-800/50 dark:bg-black"
+                  inputMode="decimal"
+                  placeholder="750"
+                />
+                <Select
+                  value={addDefaultVolUnit}
+                  onValueChange={(v) => setAddDefaultVolUnit(v as InventoryUnit)}
+                >
+                  <SelectTrigger className="h-11 w-[140px] shrink-0 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="ML">ml</SelectItem>
+                    <SelectItem value="GRAMOS">g</SelectItem>
+                    <SelectItem value="UNIDAD">uds.</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-[#8E8E93] dark:text-[#98989D]">
+                Ej.: 750 ml para licores. Para stock en unidades, podés dejar 1 uds.
+              </p>
             </div>
             <DialogFooter className="gap-2">
               <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setAddOpen(false)}>

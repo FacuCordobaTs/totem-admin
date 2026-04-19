@@ -19,6 +19,8 @@ import { Plus, Save, Trash2 } from "lucide-react"
 import type { ApiInventoryItem, InventoryUnit } from "@/components/inventory/raw-materials"
 import { apiFetch, ApiError } from "@/lib/api"
 
+export type ProductSaleType = "BOTTLE" | "GLASS"
+
 export interface ApiProductRecipeLine {
   id: string
   inventoryItemId: string
@@ -32,6 +34,7 @@ export interface ApiProduct {
   name: string
   price: string
   isActive: boolean | null
+  saleType?: ProductSaleType
   recipes: ApiProductRecipeLine[]
 }
 
@@ -44,6 +47,34 @@ function unitLabel(unit: InventoryUnit): string {
     default:
       return "uds."
   }
+}
+
+export function recipeConversionHint(
+  saleType: ProductSaleType,
+  material: ApiInventoryItem | undefined,
+  quantityUsed: string
+): string | null {
+  if (!material) return null
+  const q = Number.parseFloat(quantityUsed.replace(",", "."))
+  if (!Number.isFinite(q) || q <= 0) return null
+  const def = Number.parseFloat(material.defaultContentValue ?? "0")
+  const defU = material.defaultContentUnit ?? material.unit
+
+  if (material.unit === "ML" && defU === "ML" && def > 0) {
+    if (saleType === "GLASS") {
+      const drinks = Math.floor(def / q)
+      return `≈ ${drinks} tragos de ${q} ml por botella estándar (${def} ml).`
+    }
+    return `Cada venta descuenta ${q} botella(s) × ${def} ml = ${(q * def).toLocaleString("es-AR")} ml del stock.`
+  }
+  if (material.unit === "GRAMOS" && defU === "GRAMOS" && def > 0 && saleType === "GLASS") {
+    const portions = Math.floor(def / q)
+    return `≈ ${portions} porciones de ${q} g por envase (${def} g).`
+  }
+  if (material.unit === "UNIDAD" && saleType === "BOTTLE") {
+    return `Cada venta descuenta ${q} unidad(es) de stock.`
+  }
+  return null
 }
 
 interface RecipeConfigProps {
@@ -71,6 +102,7 @@ export function RecipeConfig({
 
   const [draftName, setDraftName] = useState("")
   const [draftPrice, setDraftPrice] = useState("")
+  const [draftSaleType, setDraftSaleType] = useState<ProductSaleType>("GLASS")
   const [draftLines, setDraftLines] = useState<DraftLine[]>([])
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -86,11 +118,13 @@ export function RecipeConfig({
     if (!selectedProduct) {
       setDraftName("")
       setDraftPrice("")
+      setDraftSaleType("GLASS")
       setDraftLines([])
       return
     }
     setDraftName(selectedProduct.name)
     setDraftPrice(selectedProduct.price)
+    setDraftSaleType(selectedProduct.saleType ?? "GLASS")
     setDraftLines(
       selectedProduct.recipes.map((r) => ({
         inventoryItemId: r.inventoryItemId,
@@ -110,6 +144,7 @@ export function RecipeConfig({
         body: JSON.stringify({
           name: draftName.trim(),
           price: draftPrice,
+          saleType: draftSaleType,
           recipes: draftLines
             .filter((l) => l.inventoryItemId && Number.parseFloat(l.quantityUsed) > 0)
             .map((l) => ({
@@ -246,6 +281,21 @@ export function RecipeConfig({
                   className="h-11 rounded-xl border-zinc-200/50 bg-background font-mono dark:border-zinc-800/50"
                   inputMode="decimal"
                 />
+                <label className="block text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+                  Tipo de venta (stock)
+                </label>
+                <Select
+                  value={draftSaleType}
+                  onValueChange={(v) => setDraftSaleType(v as ProductSaleType)}
+                >
+                  <SelectTrigger className="h-11 rounded-xl border-zinc-200/50 bg-background dark:border-zinc-800/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="GLASS">Vaso / medida (descuenta ml, g o uds. de la receta)</SelectItem>
+                    <SelectItem value="BOTTLE">Botella entera (la receta cuenta botellas × tamaño estándar)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-3">
@@ -269,11 +319,13 @@ export function RecipeConfig({
                 <div className="flex flex-col gap-2">
                   {draftLines.map((line, index) => {
                     const mat = materials.find((m) => m.id === line.inventoryItemId)
+                    const hint = recipeConversionHint(draftSaleType, mat, line.quantityUsed)
                     return (
                       <div
                         key={`${line.inventoryItemId}-${index}`}
-                        className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/70 p-3 sm:flex-nowrap dark:border-zinc-800/50 dark:bg-black/20"
+                        className="flex flex-col gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/70 p-3 dark:border-zinc-800/50 dark:bg-black/20"
                       >
+                        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                         <Select
                           value={line.inventoryItemId}
                           onValueChange={(v) =>
@@ -315,6 +367,12 @@ export function RecipeConfig({
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
+                        </div>
+                        {hint ? (
+                          <p className="text-xs leading-snug text-[#8E8E93] dark:text-[#98989D]">
+                            {hint}
+                          </p>
+                        ) : null}
                       </div>
                     )
                   })}

@@ -3,7 +3,11 @@ import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventMenuProductRow, EventMenuProductsResponse } from "@/types/event-dashboard"
-import type { ApiProduct } from "@/components/inventory/recipe-config"
+import {
+  recipeConversionHint,
+  type ApiProduct,
+  type ProductSaleType,
+} from "@/components/inventory/recipe-config"
 import type { InventoryUnit } from "@/components/inventory/raw-materials"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -32,7 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Package, Pencil, Plus, Trash2 } from "lucide-react"
+import { Package, Pencil, Plus, Trash2, Wine } from "lucide-react"
 
 const inputClass =
   "h-11 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[#FF9500]/30 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
@@ -44,6 +48,8 @@ type EventInvRow = {
   id: string
   name: string
   unit: InventoryUnit
+  defaultContentValue?: string
+  defaultContentUnit?: InventoryUnit
   eventInventoryId: string | null
   stockAllocated: string
 }
@@ -76,6 +82,21 @@ function unitLabel(unit: InventoryUnit): string {
   }
 }
 
+function bottleLoadPreview(row: EventInvRow, bottles: number, perVol: number): string {
+  if (!Number.isFinite(bottles) || bottles <= 0) {
+    return "Ingresá la cantidad de botellas."
+  }
+  if (row.unit === "UNIDAD") {
+    return `Sumás ${bottles.toLocaleString("es-AR")} unidades al stock del evento.`
+  }
+  if (!Number.isFinite(perVol) || perVol <= 0) {
+    return "Indicá ml (o g) por botella o configurá el tamaño estándar del insumo."
+  }
+  const total = bottles * perVol
+  const u = row.unit === "GRAMOS" ? "g" : "ml"
+  return `Estás sumando ${total.toLocaleString("es-AR", { maximumFractionDigits: 2 })} ${u} de ${row.name}.`
+}
+
 type DraftLine = { inventoryItemId: string; quantityUsed: string }
 
 type Props = {
@@ -101,11 +122,20 @@ export function EventInventoryTab({ eventId }: Props) {
   const [newInsumoName, setNewInsumoName] = useState("")
   const [newInsumoUnit, setNewInsumoUnit] = useState<InventoryUnit>("ML")
   const [newInsumoStock, setNewInsumoStock] = useState("0")
+  const [newInsumoDefaultVol, setNewInsumoDefaultVol] = useState("750")
+  const [newInsumoDefaultVolUnit, setNewInsumoDefaultVolUnit] =
+    useState<InventoryUnit>("ML")
   const [newInsumoSaving, setNewInsumoSaving] = useState(false)
+
+  const [bottleDlgRow, setBottleDlgRow] = useState<EventInvRow | null>(null)
+  const [bottleCount, setBottleCount] = useState("1")
+  const [bottleMl, setBottleMl] = useState("")
+  const [bottleSaving, setBottleSaving] = useState(false)
 
   const [createProductOpen, setCreateProductOpen] = useState(false)
   const [cpName, setCpName] = useState("")
   const [cpPrice, setCpPrice] = useState("")
+  const [cpSaleType, setCpSaleType] = useState<ProductSaleType>("GLASS")
   const [cpLines, setCpLines] = useState<DraftLine[]>([])
   const [cpSaving, setCpSaving] = useState(false)
 
@@ -113,6 +143,7 @@ export function EventInventoryTab({ eventId }: Props) {
   const [editProductId, setEditProductId] = useState<string | null>(null)
   const [editName, setEditName] = useState("")
   const [editPrice, setEditPrice] = useState("")
+  const [editSaleType, setEditSaleType] = useState<ProductSaleType>("GLASS")
   const [editLines, setEditLines] = useState<DraftLine[]>([])
   const [editSaving, setEditSaving] = useState(false)
 
@@ -211,12 +242,16 @@ export function EventInventoryTab({ eventId }: Props) {
           name: newInsumoName.trim(),
           unit: newInsumoUnit,
           initialStock: newInsumoStock,
+          defaultContentValue: newInsumoDefaultVol.replace(",", "."),
+          defaultContentUnit: newInsumoDefaultVolUnit,
         }),
       })
       setNewInsumoOpen(false)
       setNewInsumoName("")
       setNewInsumoUnit("ML")
       setNewInsumoStock("0")
+      setNewInsumoDefaultVol("750")
+      setNewInsumoDefaultVolUnit("ML")
       toast.success("Insumo creado")
       await loadInsumos()
       await loadMenu()
@@ -258,6 +293,7 @@ export function EventInventoryTab({ eventId }: Props) {
     setEditProductId(productId)
     setEditName(full.name)
     setEditPrice(full.price)
+    setEditSaleType(full.saleType ?? "GLASS")
     setEditLines(
       full.recipes.map((r) => ({
         inventoryItemId: r.inventoryItemId,
@@ -277,6 +313,7 @@ export function EventInventoryTab({ eventId }: Props) {
         body: JSON.stringify({
           name: editName.trim(),
           price: editPrice,
+          saleType: editSaleType,
           recipes: editLines
             .filter(
               (l) =>
@@ -315,6 +352,57 @@ export function EventInventoryTab({ eventId }: Props) {
     setEditLines((prev) => [...prev, { inventoryItemId: first, quantityUsed: "1" }])
   }
 
+  function openBottleDialog(row: EventInvRow) {
+    setBottleDlgRow(row)
+    setBottleCount("1")
+    const d = row.defaultContentValue ?? ""
+    setBottleMl(d === "" || d === "0.00" ? "" : String(Number.parseFloat(d)))
+  }
+
+  async function submitBottleLoad(e: React.FormEvent) {
+    e.preventDefault()
+    if (!token || !bottleDlgRow) return
+    const n = Number.parseInt(bottleCount, 10)
+    if (!Number.isFinite(n) || n <= 0) {
+      toast.error("Cantidad de botellas inválida")
+      return
+    }
+    let customBody: { customContentValue: number } | object = {}
+    if (bottleDlgRow.unit !== "UNIDAD") {
+      const raw = bottleMl.trim()
+      if (raw !== "") {
+        const c = Number.parseFloat(raw.replace(",", "."))
+        if (!Number.isFinite(c) || c <= 0) {
+          toast.error("Volumen por botella inválido")
+          return
+        }
+        customBody = { customContentValue: c }
+      }
+    }
+    setBottleSaving(true)
+    try {
+      await apiFetch("/inventory/load-bottles", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          inventoryItemId: bottleDlgRow.id,
+          quantityOfBottles: n,
+          eventId,
+          ...customBody,
+        }),
+      })
+      toast.success("Carga sumada al stock del evento")
+      setBottleDlgRow(null)
+      await loadInsumos()
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo registrar la carga"
+      )
+    } finally {
+      setBottleSaving(false)
+    }
+  }
+
   async function submitCreateProduct(e: React.FormEvent) {
     e.preventDefault()
     if (!token) return
@@ -326,6 +414,7 @@ export function EventInventoryTab({ eventId }: Props) {
         body: JSON.stringify({
           name: cpName.trim(),
           price: cpPrice,
+          saleType: cpSaleType,
           recipes: cpLines
             .filter(
               (l) =>
@@ -346,6 +435,7 @@ export function EventInventoryTab({ eventId }: Props) {
       setCreateProductOpen(false)
       setCpName("")
       setCpPrice("")
+      setCpSaleType("GLASS")
       setCpLines([])
       toast.success("Producto creado y agregado al menú del evento")
       await loadMenu()
@@ -415,7 +505,7 @@ export function EventInventoryTab({ eventId }: Props) {
                   <TableHead className="min-w-[160px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                     Stock del evento
                   </TableHead>
-                  <TableHead className="w-[140px]" />
+                  <TableHead className="min-w-[200px] w-[220px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -454,15 +544,28 @@ export function EventInventoryTab({ eventId }: Props) {
                         />
                       </TableCell>
                       <TableCell className="py-3.5 text-right">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          disabled={busy}
-                          onClick={() => void patchStock(row)}
-                          className="h-9 rounded-lg px-4 text-[14px] font-semibold transition-all duration-200 active:opacity-50"
-                        >
-                          Guardar
-                        </Button>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => openBottleDialog(row)}
+                            className="h-10 gap-1.5 rounded-xl border-zinc-200/50 px-3 text-[13px] font-semibold dark:border-zinc-700/80"
+                            title="Cargar por botellas"
+                          >
+                            <Wine className="h-4 w-4" />
+                            Botellas
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={busy}
+                            onClick={() => void patchStock(row)}
+                            className="h-9 rounded-lg px-4 text-[14px] font-semibold transition-all duration-200 active:opacity-50"
+                          >
+                            Guardar
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -536,6 +639,36 @@ export function EventInventoryTab({ eventId }: Props) {
                     className={cn(inputClass, "font-mono")}
                   />
                 </div>
+                <div className="space-y-3">
+                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Tamaño estándar (por botella)
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={newInsumoDefaultVol}
+                      onChange={(e) => setNewInsumoDefaultVol(e.target.value)}
+                      className={cn(inputClass, "min-w-0 flex-1 font-mono")}
+                      placeholder="750"
+                    />
+                    <Select
+                      value={newInsumoDefaultVolUnit}
+                      onValueChange={(v) =>
+                        setNewInsumoDefaultVolUnit(v as InventoryUnit)
+                      }
+                    >
+                      <SelectTrigger className={cn(inputClass, "h-11 w-[120px] shrink-0")}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                        <SelectItem value="ML">ml</SelectItem>
+                        <SelectItem value="GRAMOS">g</SelectItem>
+                        <SelectItem value="UNIDAD">uds.</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
               <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
                 <DialogFooter className="flex-col gap-3 sm:flex-col">
@@ -559,6 +692,106 @@ export function EventInventoryTab({ eventId }: Props) {
             </form>
           </DialogContent>
         </Dialog>
+
+        <Dialog
+          open={bottleDlgRow != null}
+          onOpenChange={(open) => {
+            if (!open) setBottleDlgRow(null)
+          }}
+        >
+          <DialogContent className="max-h-[min(90vh,760px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-md dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+              <div className="flex gap-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
+                  <Wine className="h-6 w-6 text-[#FF9500]" />
+                </span>
+                <DialogHeader className="flex-1 text-left">
+                  <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
+                    Cargar por botellas
+                  </DialogTitle>
+                  <p className="mt-2 text-[14px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                    Sumá stock al total del evento. Para fijar el número exacto en depósito, usá el
+                    campo de la tabla y &quot;Guardar&quot;.
+                  </p>
+                </DialogHeader>
+              </div>
+            </div>
+            <form onSubmit={submitBottleLoad} className="flex flex-col overflow-y-auto">
+              <div className="space-y-6 p-8 pt-6">
+                <p className="text-[15px] font-semibold text-black dark:text-white">
+                  {bottleDlgRow?.name}
+                </p>
+                <div className="space-y-3">
+                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Cantidad de botellas
+                  </label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={bottleCount}
+                    onChange={(e) => setBottleCount(e.target.value)}
+                    className={cn(inputClass, "h-12 font-mono text-[17px]")}
+                    required
+                  />
+                </div>
+                {bottleDlgRow?.unit !== "UNIDAD" ? (
+                  <div className="space-y-3">
+                    <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                      {bottleDlgRow?.unit === "GRAMOS"
+                        ? "Peso por envase (g)"
+                        : "Volumen por botella (ml)"}
+                    </label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={bottleMl}
+                      onChange={(e) => setBottleMl(e.target.value)}
+                      className={cn(inputClass, "h-12 font-mono text-[17px]")}
+                      placeholder={
+                        bottleDlgRow?.defaultContentValue &&
+                        bottleDlgRow.defaultContentValue !== "0.00"
+                          ? `Predeterminado: ${bottleDlgRow.defaultContentValue}`
+                          : "Ej. 750"
+                    }
+                    />
+                  </div>
+                ) : null}
+                <div className="rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/80 px-4 py-3 dark:border-zinc-800/50 dark:bg-black/30">
+                  <p className="text-[14px] leading-relaxed text-foreground">
+                    {bottleDlgRow
+                      ? bottleLoadPreview(
+                          bottleDlgRow,
+                          Number.parseInt(bottleCount, 10) || 0,
+                          bottleMl.trim() === ""
+                            ? Number.parseFloat(bottleDlgRow.defaultContentValue ?? "0")
+                            : Number.parseFloat(bottleMl.replace(",", "."))
+                        )
+                      : ""}
+                  </p>
+                </div>
+              </div>
+              <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+                <DialogFooter className="flex-col gap-3 sm:flex-col">
+                  <Button
+                    type="submit"
+                    disabled={bottleSaving}
+                    className="h-12 w-full rounded-xl bg-[#FF9500] text-[16px] font-semibold text-white"
+                  >
+                    {bottleSaving ? "Sumando…" : "Sumar al stock del evento"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setBottleDlgRow(null)}
+                    className="h-11 w-full rounded-xl border-zinc-200/50 dark:border-zinc-800/50"
+                  >
+                    Cancelar
+                  </Button>
+                </DialogFooter>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="space-y-6">
@@ -570,6 +803,7 @@ export function EventInventoryTab({ eventId }: Props) {
               setCpLines([])
               setCpName("")
               setCpPrice("")
+              setCpSaleType("GLASS")
               setCreateProductOpen(true)
             }}
             disabled={!token || insumos.length === 0}
@@ -710,6 +944,27 @@ export function EventInventoryTab({ eventId }: Props) {
                   />
                 </div>
                 <div className="space-y-3">
+                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Tipo de venta (stock)
+                  </label>
+                  <Select
+                    value={cpSaleType}
+                    onValueChange={(v) => setCpSaleType(v as ProductSaleType)}
+                  >
+                    <SelectTrigger className={inputClass}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                      <SelectItem value="GLASS" className="rounded-lg py-2">
+                        Vaso / medida (ml, g en receta)
+                      </SelectItem>
+                      <SelectItem value="BOTTLE" className="rounded-lg py-2">
+                        Botella entera
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                       Receta
@@ -727,11 +982,15 @@ export function EventInventoryTab({ eventId }: Props) {
                     </Button>
                   </div>
                   <div className="flex flex-col gap-3">
-                    {cpLines.map((line, index) => (
+                    {cpLines.map((line, index) => {
+                      const mat = insumos.find((m) => m.id === line.inventoryItemId)
+                      const hint = recipeConversionHint(cpSaleType, mat, line.quantityUsed)
+                      return (
                       <div
                         key={`${line.inventoryItemId}-${index}`}
-                        className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/20"
+                        className="flex flex-col gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/20"
                       >
+                        <div className="flex flex-wrap items-center gap-3">
                         <Select
                           value={line.inventoryItemId}
                           onValueChange={(v) =>
@@ -778,8 +1037,15 @@ export function EventInventoryTab({ eventId }: Props) {
                             <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
                           </span>
                         </Button>
+                        </div>
+                        {hint ? (
+                          <p className="text-xs leading-snug text-[#8E8E93] dark:text-[#98989D]">
+                            {hint}
+                          </p>
+                        ) : null}
                       </div>
-                    ))}
+                    )
+                  })}
                   </div>
                 </div>
               </div>
@@ -844,6 +1110,27 @@ export function EventInventoryTab({ eventId }: Props) {
                   />
                 </div>
                 <div className="space-y-3">
+                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Tipo de venta (stock)
+                  </label>
+                  <Select
+                    value={editSaleType}
+                    onValueChange={(v) => setEditSaleType(v as ProductSaleType)}
+                  >
+                    <SelectTrigger className={inputClass}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                      <SelectItem value="GLASS" className="rounded-lg py-2">
+                        Vaso / medida (ml, g en receta)
+                      </SelectItem>
+                      <SelectItem value="BOTTLE" className="rounded-lg py-2">
+                        Botella entera
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                       Receta
@@ -861,11 +1148,15 @@ export function EventInventoryTab({ eventId }: Props) {
                     </Button>
                   </div>
                   <div className="flex flex-col gap-3">
-                    {editLines.map((line, index) => (
+                    {editLines.map((line, index) => {
+                      const mat = insumos.find((m) => m.id === line.inventoryItemId)
+                      const hint = recipeConversionHint(editSaleType, mat, line.quantityUsed)
+                      return (
                       <div
                         key={`${line.inventoryItemId}-${index}`}
-                        className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/20"
+                        className="flex flex-col gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/20"
                       >
+                        <div className="flex flex-wrap items-center gap-3">
                         <Select
                           value={line.inventoryItemId}
                           onValueChange={(v) =>
@@ -912,8 +1203,15 @@ export function EventInventoryTab({ eventId }: Props) {
                             <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
                           </span>
                         </Button>
+                        </div>
+                        {hint ? (
+                          <p className="text-xs leading-snug text-[#8E8E93] dark:text-[#98989D]">
+                            {hint}
+                          </p>
+                        ) : null}
                       </div>
-                    ))}
+                    )
+                  })}
                   </div>
                 </div>
               </div>
