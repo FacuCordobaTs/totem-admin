@@ -20,13 +20,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { apiFetch, ApiError } from "@/lib/api"
 import { getEventShopUrl } from "@/lib/client-app-url"
 import { useAuthStore } from "@/stores/auth-store"
-import { ChevronLeft, Loader2, MoreHorizontal, Plus } from "lucide-react"
+import { Check, ChevronLeft, Copy, Loader2, MoreHorizontal, Plus } from "lucide-react"
 import type { ApiEvent } from "@/types/events"
 
 function formatEventDate(iso: string): string {
@@ -200,13 +199,6 @@ export function EventDashboardPage() {
                   <DropdownMenuContent align="end" className="w-56 rounded-xl">
                     <DropdownMenuItem
                       className="rounded-lg text-[15px]"
-                      onSelect={() => void copyPublicShopLink()}
-                    >
-                      {linkCopied ? "¡Link copiado!" : "Copiar link público"}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="rounded-lg text-[15px]"
                       onSelect={() => attendeeTableRef.current?.exportCsv()}
                     >
                       Exportar CSV
@@ -221,6 +213,11 @@ export function EventDashboardPage() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {activeTab === "general" && (
             <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
+              <PublicShopLinkBanner
+                url={publicShopUrl}
+                copied={linkCopied}
+                onCopy={() => void copyPublicShopLink()}
+              />
               <Section title="Resumen ejecutivo">
                 <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
               </Section>
@@ -300,6 +297,66 @@ export function EventDashboardPage() {
         }}
       />
     </EventLayout>
+  )
+}
+
+function PublicShopLinkBanner({
+  url,
+  copied,
+  onCopy,
+}: {
+  url: string
+  copied: boolean
+  onCopy: () => void
+}) {
+  if (!url) return null
+
+  return (
+    <section
+      className="relative overflow-hidden rounded-3xl border-2 sm:p-8"
+      aria-labelledby="public-shop-heading"
+    >
+      <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#FF9500]/20 blur-3xl dark:bg-[#FF9500]/15" />
+      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10">
+        <div className="min-w-0 space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#FF9500]">
+            Venta al público
+          </p>
+          <h2
+            id="public-shop-heading"
+            className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl"
+          >
+            Link de la tienda del evento
+          </h2>
+          <p className="max-w-xl text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+            Compartí este enlace por WhatsApp, redes o mail. Quienes lo abran pueden comprar
+            entradas sin acceder al panel de administración.
+          </p>
+          <p className="truncate rounded-xl border border-zinc-200/60 bg-white/60 px-3 py-2 font-mono text-[13px] text-foreground/90 dark:border-zinc-700/60 dark:bg-black/40">
+            {url}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center lg:flex-col xl:flex-row">
+          <Button
+            type="button"
+            onClick={onCopy}
+            className="h-14 gap-2 rounded-2xl bg-[#FF9500] px-8 text-[16px] font-semibold text-white shadow-md transition-all hover:bg-[#FF9500]/90 active:scale-[0.98] active:opacity-90 sm:h-16 sm:px-10 sm:text-[17px]"
+          >
+            {copied ? (
+              <>
+                <Check className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.25} />
+                ¡Copiado al portapapeles!
+              </>
+            ) : (
+              <>
+                <Copy className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.25} />
+                Copiar link de venta
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </section>
   )
 }
 
