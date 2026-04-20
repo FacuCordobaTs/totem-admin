@@ -3,12 +3,21 @@ import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventMenuProductRow, EventMenuProductsResponse } from "@/types/event-dashboard"
+import { type ApiProduct, type ProductSaleType } from "@/components/inventory/recipe-config"
+import type { ApiInventoryItem } from "@/components/inventory/raw-materials"
+import { RecipeIngredientRow } from "@/components/inventory/recipe-ingredient-row"
 import {
-  recipeConversionHint,
-  type ApiProduct,
-  type ProductSaleType,
-} from "@/components/inventory/recipe-config"
-import type { InventoryUnit } from "@/components/inventory/raw-materials"
+  draftLineQuantityForApi,
+  materialSupportsFullBottle,
+  recipeApiLineToDraft,
+  type RecipeDraftLine,
+} from "@/lib/inventory-recipe-helpers"
+import {
+  bottleStockPreviewLine,
+  hasBottlePackage,
+  stockBaseToBottleDraft,
+  unitLabel,
+} from "@/lib/inventory-units"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -36,7 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Package, Pencil, Plus, Trash2, Wine } from "lucide-react"
+import { Package, Pencil, Plus, Wine } from "lucide-react"
 
 const inputClass =
   "h-11 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[#FF9500]/30 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
@@ -47,9 +56,8 @@ const selectTriggerClass =
 type EventInvRow = {
   id: string
   name: string
-  unit: InventoryUnit
-  defaultContentValue?: string
-  defaultContentUnit?: InventoryUnit
+  baseUnit: ApiInventoryItem["baseUnit"]
+  packageSize: string
   eventInventoryId: string | null
   stockAllocated: string
 }
@@ -71,33 +79,45 @@ function formatMoneyArs(value: string): string {
   }).format(n)
 }
 
-function unitLabel(unit: InventoryUnit): string {
-  switch (unit) {
-    case "ML":
-      return "ml"
-    case "GRAMOS":
-      return "g"
-    default:
-      return "uds."
-  }
-}
-
 function bottleLoadPreview(row: EventInvRow, bottles: number, perVol: number): string {
   if (!Number.isFinite(bottles) || bottles <= 0) {
     return "Ingresá la cantidad de botellas."
   }
-  if (row.unit === "UNIDAD") {
+  if (row.baseUnit === "UNIT") {
     return `Sumás ${bottles.toLocaleString("es-AR")} unidades al stock del evento.`
   }
   if (!Number.isFinite(perVol) || perVol <= 0) {
-    return "Indicá ml (o g) por botella o configurá el tamaño estándar del insumo."
+    return "Indicá ml (o g) por botella o configurá el tamaño del envase del insumo."
   }
   const total = bottles * perVol
-  const u = row.unit === "GRAMOS" ? "g" : "ml"
+  const u = row.baseUnit === "GRAMS" ? "g" : "ml"
   return `Estás sumando ${total.toLocaleString("es-AR", { maximumFractionDigits: 2 })} ${u} de ${row.name}.`
 }
 
-type DraftLine = { inventoryItemId: string; quantityUsed: string }
+function lineIsSavable(
+  l: RecipeDraftLine,
+  materials: ApiInventoryItem[],
+  saleType: ProductSaleType
+): boolean {
+  if (!l.inventoryItemId) return false
+  const mat = materials.find((m) => m.id === l.inventoryItemId)
+  if (l.useFullBottle && materialSupportsFullBottle(mat, saleType)) return true
+  const q = Number.parseFloat(l.quantityUsed.replace(",", "."))
+  return Number.isFinite(q) && q > 0
+}
+
+type MaterialKind = "liquid" | "solid" | "unit"
+
+function kindToBaseUnit(k: MaterialKind): ApiInventoryItem["baseUnit"] {
+  switch (k) {
+    case "liquid":
+      return "ML"
+    case "solid":
+      return "GRAMS"
+    default:
+      return "UNIT"
+  }
+}
 
 type Props = {
   eventId: string
@@ -120,11 +140,9 @@ export function EventInventoryTab({ eventId }: Props) {
 
   const [newInsumoOpen, setNewInsumoOpen] = useState(false)
   const [newInsumoName, setNewInsumoName] = useState("")
-  const [newInsumoUnit, setNewInsumoUnit] = useState<InventoryUnit>("ML")
+  const [newInsumoKind, setNewInsumoKind] = useState<MaterialKind>("liquid")
+  const [newInsumoPackageSize, setNewInsumoPackageSize] = useState("750")
   const [newInsumoStock, setNewInsumoStock] = useState("0")
-  const [newInsumoDefaultVol, setNewInsumoDefaultVol] = useState("750")
-  const [newInsumoDefaultVolUnit, setNewInsumoDefaultVolUnit] =
-    useState<InventoryUnit>("ML")
   const [newInsumoSaving, setNewInsumoSaving] = useState(false)
 
   const [bottleDlgRow, setBottleDlgRow] = useState<EventInvRow | null>(null)
@@ -136,7 +154,7 @@ export function EventInventoryTab({ eventId }: Props) {
   const [cpName, setCpName] = useState("")
   const [cpPrice, setCpPrice] = useState("")
   const [cpSaleType, setCpSaleType] = useState<ProductSaleType>("GLASS")
-  const [cpLines, setCpLines] = useState<DraftLine[]>([])
+  const [cpLines, setCpLines] = useState<RecipeDraftLine[]>([])
   const [cpSaving, setCpSaving] = useState(false)
 
   const [editOpen, setEditOpen] = useState(false)
@@ -144,7 +162,7 @@ export function EventInventoryTab({ eventId }: Props) {
   const [editName, setEditName] = useState("")
   const [editPrice, setEditPrice] = useState("")
   const [editSaleType, setEditSaleType] = useState<ProductSaleType>("GLASS")
-  const [editLines, setEditLines] = useState<DraftLine[]>([])
+  const [editLines, setEditLines] = useState<RecipeDraftLine[]>([])
   const [editSaving, setEditSaving] = useState(false)
 
   const loadInsumos = useCallback(async () => {
@@ -158,7 +176,14 @@ export function EventInventoryTab({ eventId }: Props) {
       )
       setInsumos(res.items)
       setStockDrafts(
-        Object.fromEntries(res.items.map((i) => [i.id, i.stockAllocated]))
+        Object.fromEntries(
+          res.items.map((i) => [
+            i.id,
+            hasBottlePackage(i)
+              ? stockBaseToBottleDraft(i.stockAllocated, i.packageSize)
+              : i.stockAllocated,
+          ])
+        )
       )
     } catch (e) {
       setInsumos([])
@@ -211,6 +236,7 @@ export function EventInventoryTab({ eventId }: Props) {
       toast.error("Ingresá una cantidad válida (≥ 0)")
       return
     }
+    const usePackages = hasBottlePackage(row)
     setStockBusy((b) => ({ ...b, [row.id]: true }))
     try {
       await apiFetch(`/events/${eventId}/inventory`, {
@@ -219,6 +245,7 @@ export function EventInventoryTab({ eventId }: Props) {
         body: JSON.stringify({
           inventoryItemId: row.id,
           stockAllocated: n,
+          stockInputAs: usePackages ? "PACKAGES" : "BASE_UNITS",
         }),
       })
       toast.success("Stock actualizado")
@@ -235,23 +262,34 @@ export function EventInventoryTab({ eventId }: Props) {
     if (!token) return
     setNewInsumoSaving(true)
     try {
+      const baseUnit = kindToBaseUnit(newInsumoKind)
+      const pkgRaw = newInsumoPackageSize.trim().replace(",", ".")
+      const pkgNum = pkgRaw === "" ? 0 : Number.parseFloat(pkgRaw)
+      const useBottles =
+        (baseUnit === "ML" || baseUnit === "GRAMS") &&
+        Number.isFinite(pkgNum) &&
+        pkgNum > 0
+
+      const body: Record<string, unknown> = {
+        name: newInsumoName.trim(),
+        baseUnit,
+        initialStock: newInsumoStock,
+        initialStockInputAs: useBottles ? "PACKAGES" : "BASE_UNITS",
+      }
+      if (pkgRaw !== "") {
+        body.packageSize = pkgRaw
+      }
+
       await apiFetch(`/events/${eventId}/inventory/create`, {
         method: "POST",
         token,
-        body: JSON.stringify({
-          name: newInsumoName.trim(),
-          unit: newInsumoUnit,
-          initialStock: newInsumoStock,
-          defaultContentValue: newInsumoDefaultVol.replace(",", "."),
-          defaultContentUnit: newInsumoDefaultVolUnit,
-        }),
+        body: JSON.stringify(body),
       })
       setNewInsumoOpen(false)
       setNewInsumoName("")
-      setNewInsumoUnit("ML")
+      setNewInsumoKind("liquid")
+      setNewInsumoPackageSize("750")
       setNewInsumoStock("0")
-      setNewInsumoDefaultVol("750")
-      setNewInsumoDefaultVolUnit("ML")
       toast.success("Insumo creado")
       await loadInsumos()
       await loadMenu()
@@ -295,10 +333,10 @@ export function EventInventoryTab({ eventId }: Props) {
     setEditPrice(full.price)
     setEditSaleType(full.saleType ?? "GLASS")
     setEditLines(
-      full.recipes.map((r) => ({
-        inventoryItemId: r.inventoryItemId,
-        quantityUsed: r.quantityUsed,
-      }))
+      full.recipes.map((r) => {
+        const mat = insumos.find((m) => m.id === r.inventoryItemId)
+        return recipeApiLineToDraft(r, mat)
+      })
     )
     setEditOpen(true)
   }
@@ -315,14 +353,13 @@ export function EventInventoryTab({ eventId }: Props) {
           price: editPrice,
           saleType: editSaleType,
           recipes: editLines
-            .filter(
-              (l) =>
-                l.inventoryItemId &&
-                Number.parseFloat(l.quantityUsed.replace(",", ".")) > 0
-            )
+            .filter((l) => lineIsSavable(l, insumos, editSaleType))
             .map((l) => ({
               inventoryItemId: l.inventoryItemId,
-              quantityUsed: l.quantityUsed.replace(",", "."),
+              quantityUsed: draftLineQuantityForApi(
+                l,
+                insumos.find((m) => m.id === l.inventoryItemId)
+              ),
             })),
         }),
       })
@@ -343,19 +380,25 @@ export function EventInventoryTab({ eventId }: Props) {
       toast.message("Agregá al menos un insumo en la primera pestaña")
       return
     }
-    setCpLines((prev) => [...prev, { inventoryItemId: first, quantityUsed: "1" }])
+    setCpLines((prev) => [
+      ...prev,
+      { inventoryItemId: first, quantityUsed: "1", useFullBottle: false },
+    ])
   }
 
   function addEditLine() {
     const first = insumos[0]?.id
     if (!first) return
-    setEditLines((prev) => [...prev, { inventoryItemId: first, quantityUsed: "1" }])
+    setEditLines((prev) => [
+      ...prev,
+      { inventoryItemId: first, quantityUsed: "1", useFullBottle: false },
+    ])
   }
 
   function openBottleDialog(row: EventInvRow) {
     setBottleDlgRow(row)
     setBottleCount("1")
-    const d = row.defaultContentValue ?? ""
+    const d = row.packageSize ?? ""
     setBottleMl(d === "" || d === "0.00" ? "" : String(Number.parseFloat(d)))
   }
 
@@ -368,7 +411,7 @@ export function EventInventoryTab({ eventId }: Props) {
       return
     }
     let customBody: { customContentValue: number } | object = {}
-    if (bottleDlgRow.unit !== "UNIDAD") {
+    if (bottleDlgRow.baseUnit !== "UNIT") {
       const raw = bottleMl.trim()
       if (raw !== "") {
         const c = Number.parseFloat(raw.replace(",", "."))
@@ -416,14 +459,13 @@ export function EventInventoryTab({ eventId }: Props) {
           price: cpPrice,
           saleType: cpSaleType,
           recipes: cpLines
-            .filter(
-              (l) =>
-                l.inventoryItemId &&
-                Number.parseFloat(l.quantityUsed.replace(",", ".")) > 0
-            )
+            .filter((l) => lineIsSavable(l, insumos, cpSaleType))
             .map((l) => ({
               inventoryItemId: l.inventoryItemId,
-              quantityUsed: l.quantityUsed.replace(",", "."),
+              quantityUsed: draftLineQuantityForApi(
+                l,
+                insumos.find((m) => m.id === l.inventoryItemId)
+              ),
             })),
         }),
       })
@@ -520,15 +562,25 @@ export function EventInventoryTab({ eventId }: Props) {
                         {row.name}
                       </TableCell>
                       <TableCell className="hidden py-3.5 text-[#8E8E93] dark:text-[#98989D] sm:table-cell">
-                        {unitLabel(row.unit)}
+                        {unitLabel(row.baseUnit)}
                       </TableCell>
                       <TableCell className="py-3.5">
+                        {hasBottlePackage(row) ? (
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                            ¿Cuántas botellas ingresan?
+                          </p>
+                        ) : null}
                         <Input
                           type="text"
                           inputMode="decimal"
                           className="h-10 max-w-[180px] rounded-xl border-zinc-200/50 bg-white font-mono tabular-nums dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
                           disabled={busy}
-                          value={stockDrafts[row.id] ?? row.stockAllocated}
+                          value={
+                            stockDrafts[row.id] ??
+                            (hasBottlePackage(row)
+                              ? stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
+                              : row.stockAllocated)
+                          }
                           onChange={(e) =>
                             setStockDrafts((d) => ({
                               ...d,
@@ -542,6 +594,22 @@ export function EventInventoryTab({ eventId }: Props) {
                             }
                           }}
                         />
+                        {hasBottlePackage(row) ? (
+                          <p className="mt-1.5 text-[12px] leading-snug text-foreground/90">
+                            {bottleStockPreviewLine(
+                              Number.parseFloat(
+                                (
+                                  stockDrafts[row.id] ??
+                                  stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
+                                )
+                                  .trim()
+                                  .replace(",", ".")
+                              ) || 0,
+                              row.packageSize,
+                              row.baseUnit
+                            )}
+                          </p>
+                        ) : null}
                       </TableCell>
                       <TableCell className="py-3.5 text-right">
                         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -605,27 +673,47 @@ export function EventInventoryTab({ eventId }: Props) {
                 </div>
                 <div className="space-y-3">
                   <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Unidad
+                    Tipo
                   </label>
                   <Select
-                    value={newInsumoUnit}
-                    onValueChange={(v) => setNewInsumoUnit(v as InventoryUnit)}
+                    value={newInsumoKind}
+                    onValueChange={(v) => setNewInsumoKind(v as MaterialKind)}
                   >
                     <SelectTrigger className={inputClass}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                      <SelectItem value="ML" className="rounded-lg py-2">
-                        Mililitros (ml)
+                      <SelectItem value="liquid" className="rounded-lg py-2">
+                        Líquido (ml)
                       </SelectItem>
-                      <SelectItem value="UNIDAD" className="rounded-lg py-2">
-                        Unidades
+                      <SelectItem value="solid" className="rounded-lg py-2">
+                        Sólido (g)
                       </SelectItem>
-                      <SelectItem value="GRAMOS" className="rounded-lg py-2">
-                        Gramos (g)
+                      <SelectItem value="unit" className="rounded-lg py-2">
+                        Unidad indivisible (uds.)
                       </SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    {newInsumoKind === "liquid"
+                      ? "Tamaño de la botella/envase (ml)"
+                      : newInsumoKind === "solid"
+                        ? "Peso del envase (g)"
+                        : "Unidades por paquete (opcional)"}{" "}
+                    <span className="font-normal normal-case text-[#8E8E93]/80 dark:text-[#98989D]/80">
+                      (opcional)
+                    </span>
+                  </label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={newInsumoPackageSize}
+                    onChange={(e) => setNewInsumoPackageSize(e.target.value)}
+                    className={cn(inputClass, "font-mono")}
+                    placeholder={newInsumoKind === "unit" ? "Ej. 6" : "Ej. 750"}
+                  />
                 </div>
                 <div className="space-y-3">
                   <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
@@ -638,36 +726,20 @@ export function EventInventoryTab({ eventId }: Props) {
                     onChange={(e) => setNewInsumoStock(e.target.value)}
                     className={cn(inputClass, "font-mono")}
                   />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Tamaño estándar (por botella)
-                  </label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={newInsumoDefaultVol}
-                      onChange={(e) => setNewInsumoDefaultVol(e.target.value)}
-                      className={cn(inputClass, "min-w-0 flex-1 font-mono")}
-                      placeholder="750"
-                    />
-                    <Select
-                      value={newInsumoDefaultVolUnit}
-                      onValueChange={(v) =>
-                        setNewInsumoDefaultVolUnit(v as InventoryUnit)
-                      }
-                    >
-                      <SelectTrigger className={cn(inputClass, "h-11 w-[120px] shrink-0")}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                        <SelectItem value="ML">ml</SelectItem>
-                        <SelectItem value="GRAMOS">g</SelectItem>
-                        <SelectItem value="UNIDAD">uds.</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                    {(() => {
+                      const baseUnit = kindToBaseUnit(newInsumoKind)
+                      const pkgRaw = newInsumoPackageSize.trim().replace(",", ".")
+                      const pkgNum = pkgRaw === "" ? 0 : Number.parseFloat(pkgRaw)
+                      const useBottles =
+                        (baseUnit === "ML" || baseUnit === "GRAMS") &&
+                        Number.isFinite(pkgNum) &&
+                        pkgNum > 0
+                      return useBottles
+                        ? "La cantidad se interpreta en botellas/envases; el backend guarda ml o g totales."
+                        : "La cantidad está en ml, g o unidades según el tipo."
+                    })()}
+                  </p>
                 </div>
               </div>
               <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
@@ -734,10 +806,10 @@ export function EventInventoryTab({ eventId }: Props) {
                     required
                   />
                 </div>
-                {bottleDlgRow?.unit !== "UNIDAD" ? (
+                {bottleDlgRow?.baseUnit !== "UNIT" ? (
                   <div className="space-y-3">
                     <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                      {bottleDlgRow?.unit === "GRAMOS"
+                      {bottleDlgRow?.baseUnit === "GRAMS"
                         ? "Peso por envase (g)"
                         : "Volumen por botella (ml)"}
                     </label>
@@ -748,11 +820,11 @@ export function EventInventoryTab({ eventId }: Props) {
                       onChange={(e) => setBottleMl(e.target.value)}
                       className={cn(inputClass, "h-12 font-mono text-[17px]")}
                       placeholder={
-                        bottleDlgRow?.defaultContentValue &&
-                        bottleDlgRow.defaultContentValue !== "0.00"
-                          ? `Predeterminado: ${bottleDlgRow.defaultContentValue}`
+                        bottleDlgRow?.packageSize &&
+                        bottleDlgRow.packageSize !== "0.00"
+                          ? `Predeterminado: ${bottleDlgRow.packageSize}`
                           : "Ej. 750"
-                    }
+                      }
                     />
                   </div>
                 ) : null}
@@ -763,7 +835,7 @@ export function EventInventoryTab({ eventId }: Props) {
                           bottleDlgRow,
                           Number.parseInt(bottleCount, 10) || 0,
                           bottleMl.trim() === ""
-                            ? Number.parseFloat(bottleDlgRow.defaultContentValue ?? "0")
+                            ? Number.parseFloat(bottleDlgRow.packageSize ?? "0")
                             : Number.parseFloat(bottleMl.replace(",", "."))
                         )
                       : ""}
@@ -982,70 +1054,25 @@ export function EventInventoryTab({ eventId }: Props) {
                     </Button>
                   </div>
                   <div className="flex flex-col gap-3">
-                    {cpLines.map((line, index) => {
-                      const mat = insumos.find((m) => m.id === line.inventoryItemId)
-                      const hint = recipeConversionHint(cpSaleType, mat, line.quantityUsed)
-                      return (
-                      <div
+                    {cpLines.map((line, index) => (
+                      <RecipeIngredientRow
                         key={`${line.inventoryItemId}-${index}`}
-                        className="flex flex-col gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/20"
-                      >
-                        <div className="flex flex-wrap items-center gap-3">
-                        <Select
-                          value={line.inventoryItemId}
-                          onValueChange={(v) =>
-                            setCpLines((prev) =>
-                              prev.map((l, i) =>
-                                i === index ? { ...l, inventoryItemId: v } : l
-                              )
-                            )
-                          }
-                        >
-                          <SelectTrigger className={selectTriggerClass}>
-                            <SelectValue placeholder="Insumo" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                            {insumos.map((m) => (
-                              <SelectItem key={m.id} value={m.id} className="rounded-lg py-2">
-                                {m.name}{" "}
-                                <span className="text-[#8E8E93]">({unitLabel(m.unit)})</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          className="h-10 w-24 rounded-xl border-zinc-200/50 bg-white text-center font-mono dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
-                          inputMode="decimal"
-                          value={line.quantityUsed}
-                          onChange={(e) =>
-                            setCpLines((prev) =>
-                              prev.map((l, i) =>
-                                i === index ? { ...l, quantityUsed: e.target.value } : l
-                              )
-                            )
-                          }
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-12 w-12 shrink-0 rounded-2xl"
-                          onClick={() =>
-                            setCpLines((prev) => prev.filter((_, i) => i !== index))
-                          }
-                        >
-                          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 dark:bg-red-900/30">
-                            <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                          </span>
-                        </Button>
-                        </div>
-                        {hint ? (
-                          <p className="text-xs leading-snug text-[#8E8E93] dark:text-[#98989D]">
-                            {hint}
-                          </p>
-                        ) : null}
-                      </div>
-                    )
-                  })}
+                        line={line}
+                        index={index}
+                        materials={insumos as ApiInventoryItem[]}
+                        saleType={cpSaleType}
+                        selectTriggerClass={selectTriggerClass}
+                        quantityInputClass="h-10 w-28 rounded-xl border-zinc-200/50 bg-white text-center font-mono dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+                        onChange={(i, patch) =>
+                          setCpLines((prev) =>
+                            prev.map((l, j) => (j === i ? { ...l, ...patch } : l))
+                          )
+                        }
+                        onRemove={(i) =>
+                          setCpLines((prev) => prev.filter((_, j) => j !== i))
+                        }
+                      />
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1148,70 +1175,25 @@ export function EventInventoryTab({ eventId }: Props) {
                     </Button>
                   </div>
                   <div className="flex flex-col gap-3">
-                    {editLines.map((line, index) => {
-                      const mat = insumos.find((m) => m.id === line.inventoryItemId)
-                      const hint = recipeConversionHint(editSaleType, mat, line.quantityUsed)
-                      return (
-                      <div
+                    {editLines.map((line, index) => (
+                      <RecipeIngredientRow
                         key={`${line.inventoryItemId}-${index}`}
-                        className="flex flex-col gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/20"
-                      >
-                        <div className="flex flex-wrap items-center gap-3">
-                        <Select
-                          value={line.inventoryItemId}
-                          onValueChange={(v) =>
-                            setEditLines((prev) =>
-                              prev.map((l, i) =>
-                                i === index ? { ...l, inventoryItemId: v } : l
-                              )
-                            )
-                          }
-                        >
-                          <SelectTrigger className={selectTriggerClass}>
-                            <SelectValue placeholder="Insumo" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                            {insumos.map((m) => (
-                              <SelectItem key={m.id} value={m.id} className="rounded-lg py-2">
-                                {m.name}{" "}
-                                <span className="text-[#8E8E93]">({unitLabel(m.unit)})</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          className="h-10 w-24 rounded-xl border-zinc-200/50 bg-white text-center font-mono dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
-                          inputMode="decimal"
-                          value={line.quantityUsed}
-                          onChange={(e) =>
-                            setEditLines((prev) =>
-                              prev.map((l, i) =>
-                                i === index ? { ...l, quantityUsed: e.target.value } : l
-                              )
-                            )
-                          }
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-12 w-12 shrink-0 rounded-2xl"
-                          onClick={() =>
-                            setEditLines((prev) => prev.filter((_, i) => i !== index))
-                          }
-                        >
-                          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 dark:bg-red-900/30">
-                            <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                          </span>
-                        </Button>
-                        </div>
-                        {hint ? (
-                          <p className="text-xs leading-snug text-[#8E8E93] dark:text-[#98989D]">
-                            {hint}
-                          </p>
-                        ) : null}
-                      </div>
-                    )
-                  })}
+                        line={line}
+                        index={index}
+                        materials={insumos as ApiInventoryItem[]}
+                        saleType={editSaleType}
+                        selectTriggerClass={selectTriggerClass}
+                        quantityInputClass="h-10 w-28 rounded-xl border-zinc-200/50 bg-white text-center font-mono dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+                        onChange={(i, patch) =>
+                          setEditLines((prev) =>
+                            prev.map((l, j) => (j === i ? { ...l, ...patch } : l))
+                          )
+                        }
+                        onRemove={(i) =>
+                          setEditLines((prev) => prev.filter((_, j) => j !== i))
+                        }
+                      />
+                    ))}
                   </div>
                 </div>
               </div>

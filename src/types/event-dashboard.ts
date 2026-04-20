@@ -1,7 +1,28 @@
 export type EventSummaryResponse = {
+  /** ADMIN / MANAGER: incluye gastos y beneficio neto; resto de roles: false. */
+  canViewFinancials: boolean
   ticketsSold: number
+  ticketsCheckedIn: number
+  /** Capacidad total si todos los tipos tienen cupo; si alguno es ilimitado, null. */
+  ticketCapacity: number | null
+  /** Ingresos por entradas (suma de precios de tipo por ticket no cancelado). */
+  ticketRevenue: string
+  /** Suma de `sales.totalAmount` del evento (ventas completadas). */
+  barSalesRevenue: string
+  /** Entradas + ventas POS/app/web del evento. */
+  grossRevenue: string
+  /** Solo ADMIN/MANAGER; null si no aplica. */
+  totalExpenses: string | null
+  /** Solo ADMIN/MANAGER; null si no aplica. */
+  netProfit: string | null
+  /** Suma de `sales.totalAmount` (alias histórico; igual que `barSalesRevenue`). */
   totalRevenue: string
+  /** Suma de líneas `sale_items` (solo productos / barras). */
+  barProductRevenue: string
+  /** Consumiciones digitales emitidas (no canceladas). */
   digitalConsumptionsSold: number
+  digitalConsumptionsGenerated: number
+  digitalConsumptionsRedeemed: number
 }
 
 export type EventBarSalesItem = {
@@ -93,7 +114,8 @@ export type BarMenuProductsApiResponse = {
 export type BarInventoryItemRow = {
   inventoryItemId: string
   name: string
-  unit: "ML" | "UNIDAD" | "GRAMOS"
+  baseUnit: "ML" | "GRAMS" | "UNIT"
+  packageSize: string
   eventStockAllocated: string
   barInventoryRowId: string | null
   barCurrentStock: string
@@ -153,7 +175,8 @@ export type InventoryBreakdownBarRow = {
 export type InventoryBreakdownItemRow = {
   inventoryItemId: string
   itemName: string
-  unit: "ML" | "UNIDAD" | "GRAMOS"
+  baseUnit: "ML" | "GRAMS" | "UNIT"
+  packageSize: string
   /** Stock total asignado al evento (pool del evento). */
   stockAllocated: string
   /** Suma del stock físico declarado en las barras. */

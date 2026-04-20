@@ -91,10 +91,10 @@ export function EventSummaryTab({ eventId }: Props) {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold tracking-tight text-foreground">
-              {formatMoneyArs(data.totalRevenue)}
+              {formatMoneyArs(data.grossRevenue)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Ventas completadas (POS, app y otros canales)
+              Entradas + ventas completadas (POS, app y web)
             </p>
           </CardContent>
         </Card>

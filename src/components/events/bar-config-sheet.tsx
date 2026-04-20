@@ -29,6 +29,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package, SlidersHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { hasBottlePackage, stockBaseToBottleDraft } from "@/lib/inventory-units"
 
 function formatMoneyArs(value: string): string {
   const n = Number.parseFloat(value)
@@ -41,11 +42,11 @@ function formatMoneyArs(value: string): string {
   }).format(n)
 }
 
-function unitLabel(unit: BarInventoryItemRow["unit"]): string {
+function unitLabel(unit: BarInventoryItemRow["baseUnit"]): string {
   switch (unit) {
     case "ML":
       return "ml"
-    case "GRAMOS":
+    case "GRAMS":
       return "g"
     default:
       return "uds."
@@ -107,7 +108,12 @@ export function BarConfigSheet({ open, onOpenChange, eventId, bar }: Props) {
       setInventoryItems(invRes.items)
       setDraftStock(
         Object.fromEntries(
-          invRes.items.map((i) => [i.inventoryItemId, i.barCurrentStock])
+          invRes.items.map((i) => [
+            i.inventoryItemId,
+            hasBottlePackage(i)
+              ? stockBaseToBottleDraft(i.barCurrentStock, i.packageSize)
+              : i.barCurrentStock,
+          ])
         )
       )
     } catch (e) {
@@ -177,18 +183,8 @@ export function BarConfigSheet({ open, onOpenChange, eventId, bar }: Props) {
 
     const prevItems = inventoryItems
     const prevDrafts = draftStock
+    const usePackages = hasBottlePackage(item)
     addApplying(item.inventoryItemId)
-    setInventoryItems((rows) =>
-      rows.map((r) =>
-        r.inventoryItemId === item.inventoryItemId
-          ? { ...r, barCurrentStock: n.toFixed(2) }
-          : r
-      )
-    )
-    setDraftStock((d) => ({
-      ...d,
-      [item.inventoryItemId]: n.toFixed(2),
-    }))
 
     try {
       const res = await apiFetch<{ ok: boolean; currentStock: string }>(
@@ -199,6 +195,7 @@ export function BarConfigSheet({ open, onOpenChange, eventId, bar }: Props) {
           body: JSON.stringify({
             inventoryItemId: item.inventoryItemId,
             stockToAddOrSet: n,
+            stockInputAs: usePackages ? "PACKAGES" : "BASE_UNITS",
           }),
         }
       )
@@ -210,7 +207,13 @@ export function BarConfigSheet({ open, onOpenChange, eventId, bar }: Props) {
             : r
         )
       )
-      setDraftStock((d) => ({ ...d, [item.inventoryItemId]: applied }))
+      setDraftStock((d) => ({
+        ...d,
+        [item.inventoryItemId]: usePackages
+          ? stockBaseToBottleDraft(applied, item.packageSize)
+          : applied,
+      }))
+      toast.success("Stock de barra actualizado")
     } catch (e) {
       setInventoryItems(prevItems)
       setDraftStock(prevDrafts)
@@ -375,7 +378,7 @@ export function BarConfigSheet({ open, onOpenChange, eventId, bar }: Props) {
                                     {item.name}
                                   </p>
                                   <p className="text-[11px] text-[#8E8E93] dark:text-[#98989D]">
-                                    {unitLabel(item.unit)}
+                                    {unitLabel(item.baseUnit)}
                                   </p>
                                 </div>
                               </TableCell>

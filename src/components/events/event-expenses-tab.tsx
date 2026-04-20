@@ -102,9 +102,10 @@ function TableSkeleton() {
 type Props = {
   eventId: string
   embedded?: boolean
+  onExpensesChanged?: () => void
 }
 
-export function EventExpensesTab({ eventId, embedded = false }: Props) {
+export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged }: Props) {
   const token = useAuthStore((s) => s.token)
   const [expenses, setExpenses] = useState<EventExpenseRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -166,6 +167,7 @@ export function EventExpensesTab({ eventId, embedded = false }: Props) {
       setFormCategory("OTHER")
       setFormAmount("")
       await load()
+      onExpensesChanged?.()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo registrar el gasto")
     } finally {
@@ -184,6 +186,7 @@ export function EventExpensesTab({ eventId, embedded = false }: Props) {
         token,
       })
       toast.success("Gasto eliminado")
+      onExpensesChanged?.()
     } catch (e) {
       setExpenses(prev)
       toast.error(e instanceof ApiError ? e.message : "No se pudo eliminar el gasto")

@@ -12,6 +12,7 @@ import { EventStaffTab } from "@/components/events/event-staff-tab"
 import { EventInventoryTab } from "@/components/events/event-inventory-tab"
 import { EventBarsTab } from "@/components/events/event-bars-tab"
 import { EventExpensesTab } from "@/components/events/event-expenses-tab"
+import { EventSummaryDashboard } from "@/components/events/event-summary-dashboard"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { Button } from "@/components/ui/button"
 import {
@@ -219,6 +220,10 @@ export function EventDashboardPage() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {activeTab === "general" && (
             <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
+              <Section title="Resumen ejecutivo">
+                <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
+              </Section>
+
               <Section title="Configuración de Ventas">
                 <EventSalesConfig event={event} onUpdated={loadEvent} />
               </Section>
@@ -236,7 +241,7 @@ export function EventDashboardPage() {
               </Section>
 
               <Section title="Gastos">
-                <EventExpensesTab eventId={id} embedded />
+                <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
               </Section>
             </div>
           )}

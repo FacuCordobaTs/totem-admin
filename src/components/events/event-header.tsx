@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 const EVENT_TABS = [
   { label: "General", value: "general" },
   { label: "Entradas", value: "tickets" },
-  { label: "Métricas", value: "metrics" },
+  { label: "Ventas", value: "metrics" },
 ] as const
 
 interface EventHeaderProps {

@@ -60,18 +60,21 @@ function formatTime(value: Date | string | null): string {
   })
 }
 
-function unitLabel(unit: InventoryBreakdownItemRow["unit"]): string {
+function unitLabel(unit: InventoryBreakdownItemRow["baseUnit"]): string {
   switch (unit) {
     case "ML":
       return "ml"
-    case "GRAMOS":
+    case "GRAMS":
       return "g"
     default:
       return "uds."
   }
 }
 
-function formatStockDisplay(amount: string, unit: InventoryBreakdownItemRow["unit"]): string {
+function formatStockDisplay(
+  amount: string,
+  unit: InventoryBreakdownItemRow["baseUnit"]
+): string {
   const n = Number.parseFloat(amount)
   if (Number.isNaN(n)) return `${amount} ${unitLabel(unit)}`
   if (unit === "ML" && n >= 1000) {
@@ -252,14 +255,14 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
       {summaryError ? (
         <p className="text-base text-red-600 dark:text-red-400">{summaryError}</p>
       ) : null}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <StatCard
-          label="Entradas"
-          value={summaryLoading ? "…" : String(summary?.ticketsSold ?? "—")}
-        />
-        <StatCard
-          label="Ingresos"
-          value={summaryLoading ? "…" : formatMoneyArs(summary?.totalRevenue ?? "0")}
+          label="Ingresos en barras"
+          value={
+            summaryLoading
+              ? "…"
+              : formatMoneyArs(summary?.barProductRevenue ?? summary?.totalRevenue ?? "0")
+          }
         />
         <StatCard
           label="Consumos"
@@ -274,6 +277,10 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
               <h3 className="text-2xl font-bold tracking-tight text-foreground">
                 Últimas ventas
               </h3>
+              <p className="mt-1 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
+                Productos y barras (sin ventas solo de entradas). El total por fila es el subtotal de
+                ítems de catálogo.
+              </p>
             </div>
             <div className="p-5 pt-4">
               {salesError ? (
@@ -291,7 +298,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                             Origen
                           </TableHead>
                           <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                            Total
+                            Productos
                           </TableHead>
                           <TableHead className="min-w-[200px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                             Detalle
@@ -404,12 +411,12 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                           <p className="mt-0.5 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
                             Stock del evento:{" "}
                             <span className="font-mono tabular-nums text-black dark:text-white">
-                              {formatStockDisplay(item.stockAllocated, item.unit)}
+                              {formatStockDisplay(item.stockAllocated, item.baseUnit)}
                             </span>
                             {" · "}
                             En barras:{" "}
                             <span className="font-mono tabular-nums text-black dark:text-white">
-                              {formatStockDisplay(item.totalInBars, item.unit)}
+                              {formatStockDisplay(item.totalInBars, item.baseUnit)}
                             </span>
                           </p>
                         </div>
@@ -428,7 +435,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                                 {b.barName}
                               </span>
                               <span className="font-mono font-medium tabular-nums text-black dark:text-white">
-                                {formatStockDisplay(b.stock, item.unit)}
+                                {formatStockDisplay(b.stock, item.baseUnit)}
                               </span>
                             </li>
                           ))}

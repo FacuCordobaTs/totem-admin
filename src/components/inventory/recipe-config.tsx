@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -15,18 +16,38 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus, Save, Trash2 } from "lucide-react"
-import type { ApiInventoryItem, InventoryUnit } from "@/components/inventory/raw-materials"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Plus, Save, Pencil, Trash2 } from "lucide-react"
+import type { ApiInventoryItem } from "@/components/inventory/raw-materials"
+import { RecipeIngredientRow } from "@/components/inventory/recipe-ingredient-row"
 import { apiFetch, ApiError } from "@/lib/api"
+import {
+  draftLineQuantityForApi,
+  materialSupportsFullBottle,
+  recipeApiLineToDraft,
+  type ProductSaleType,
+  type RecipeDraftLine,
+} from "@/lib/inventory-recipe-helpers"
+import { cn } from "@/lib/utils"
 
-export type ProductSaleType = "BOTTLE" | "GLASS"
+export type { ProductSaleType }
 
 export interface ApiProductRecipeLine {
   id: string
   inventoryItemId: string
   quantityUsed: string
   inventoryItemName: string
-  inventoryUnit: InventoryUnit
+  inventoryBaseUnit: ApiInventoryItem["baseUnit"]
+  inventoryPackageSize: string
 }
 
 export interface ApiProduct {
@@ -36,45 +57,6 @@ export interface ApiProduct {
   isActive: boolean | null
   saleType?: ProductSaleType
   recipes: ApiProductRecipeLine[]
-}
-
-function unitLabel(unit: InventoryUnit): string {
-  switch (unit) {
-    case "ML":
-      return "ml"
-    case "GRAMOS":
-      return "g"
-    default:
-      return "uds."
-  }
-}
-
-export function recipeConversionHint(
-  saleType: ProductSaleType,
-  material: ApiInventoryItem | undefined,
-  quantityUsed: string
-): string | null {
-  if (!material) return null
-  const q = Number.parseFloat(quantityUsed.replace(",", "."))
-  if (!Number.isFinite(q) || q <= 0) return null
-  const def = Number.parseFloat(material.defaultContentValue ?? "0")
-  const defU = material.defaultContentUnit ?? material.unit
-
-  if (material.unit === "ML" && defU === "ML" && def > 0) {
-    if (saleType === "GLASS") {
-      const drinks = Math.floor(def / q)
-      return `≈ ${drinks} tragos de ${q} ml por botella estándar (${def} ml).`
-    }
-    return `Cada venta descuenta ${q} botella(s) × ${def} ml = ${(q * def).toLocaleString("es-AR")} ml del stock.`
-  }
-  if (material.unit === "GRAMOS" && defU === "GRAMOS" && def > 0 && saleType === "GLASS") {
-    const portions = Math.floor(def / q)
-    return `≈ ${portions} porciones de ${q} g por envase (${def} g).`
-  }
-  if (material.unit === "UNIDAD" && saleType === "BOTTLE") {
-    return `Cada venta descuenta ${q} unidad(es) de stock.`
-  }
-  return null
 }
 
 interface RecipeConfigProps {
@@ -87,7 +69,17 @@ interface RecipeConfigProps {
   onChanged: () => void
 }
 
-type DraftLine = { inventoryItemId: string; quantityUsed: string }
+function lineIsSavable(
+  l: RecipeDraftLine,
+  materials: ApiInventoryItem[],
+  saleType: ProductSaleType
+): boolean {
+  if (!l.inventoryItemId) return false
+  const mat = materials.find((m) => m.id === l.inventoryItemId)
+  if (l.useFullBottle && materialSupportsFullBottle(mat, saleType)) return true
+  const q = Number.parseFloat(l.quantityUsed.replace(",", "."))
+  return Number.isFinite(q) && q > 0
+}
 
 export function RecipeConfig({
   products,
@@ -103,7 +95,7 @@ export function RecipeConfig({
   const [draftName, setDraftName] = useState("")
   const [draftPrice, setDraftPrice] = useState("")
   const [draftSaleType, setDraftSaleType] = useState<ProductSaleType>("GLASS")
-  const [draftLines, setDraftLines] = useState<DraftLine[]>([])
+  const [draftLines, setDraftLines] = useState<RecipeDraftLine[]>([])
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -112,6 +104,9 @@ export function RecipeConfig({
   const [newPrice, setNewPrice] = useState("")
   const [newSaving, setNewSaving] = useState(false)
   const [newError, setNewError] = useState<string | null>(null)
+
+  const [deleteTarget, setDeleteTarget] = useState<ApiProduct | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     setSaveError(null)
@@ -126,12 +121,12 @@ export function RecipeConfig({
     setDraftPrice(selectedProduct.price)
     setDraftSaleType(selectedProduct.saleType ?? "GLASS")
     setDraftLines(
-      selectedProduct.recipes.map((r) => ({
-        inventoryItemId: r.inventoryItemId,
-        quantityUsed: r.quantityUsed,
-      }))
+      selectedProduct.recipes.map((r) => {
+        const mat = materials.find((m) => m.id === r.inventoryItemId)
+        return recipeApiLineToDraft(r, mat)
+      })
     )
-  }, [selectedProduct])
+  }, [selectedProduct, materials])
 
   async function saveProduct() {
     if (!token || !selectedProductId) return
@@ -146,11 +141,14 @@ export function RecipeConfig({
           price: draftPrice,
           saleType: draftSaleType,
           recipes: draftLines
-            .filter((l) => l.inventoryItemId && Number.parseFloat(l.quantityUsed) > 0)
-            .map((l) => ({
-              inventoryItemId: l.inventoryItemId,
-              quantityUsed: l.quantityUsed,
-            })),
+            .filter((l) => lineIsSavable(l, materials, draftSaleType))
+            .map((l) => {
+              const mat = materials.find((m) => m.id === l.inventoryItemId)
+              return {
+                inventoryItemId: l.inventoryItemId,
+                quantityUsed: draftLineQuantityForApi(l, mat),
+              }
+            }),
         }),
       })
       onChanged()
@@ -164,17 +162,18 @@ export function RecipeConfig({
   function addLine() {
     const first = materials[0]?.id
     if (!first) return
-    setDraftLines((prev) => [...prev, { inventoryItemId: first, quantityUsed: "1" }])
+    setDraftLines((prev) => [
+      ...prev,
+      { inventoryItemId: first, quantityUsed: "1", useFullBottle: false },
+    ])
   }
 
   function removeLine(index: number) {
     setDraftLines((prev) => prev.filter((_, i) => i !== index))
   }
 
-  function updateLine(index: number, patch: Partial<DraftLine>) {
-    setDraftLines((prev) =>
-      prev.map((l, i) => (i === index ? { ...l, ...patch } : l))
-    )
+  function updateLine(index: number, patch: Partial<RecipeDraftLine>) {
+    setDraftLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
   }
 
   async function submitNew(e: React.FormEvent) {
@@ -204,6 +203,28 @@ export function RecipeConfig({
     }
   }
 
+  async function confirmDelete() {
+    if (!token || !deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await apiFetch<{
+        ok?: boolean
+        deactivated?: boolean
+        message?: string
+      }>(`/inventory/products/${deleteTarget.id}`, {
+        method: "DELETE",
+        token,
+      })
+      setDeleteTarget(null)
+      onChanged()
+      toast.success(res.message ?? "Producto desactivado")
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : "No se pudo eliminar")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <>
       <section className="flex h-full flex-col gap-6 rounded-2xl bg-background p-6">
@@ -226,34 +247,64 @@ export function RecipeConfig({
           </Button>
         </div>
 
-        <Select
-          value={selectedProductId || ""}
-          onValueChange={onProductSelect}
-          disabled={loading || products.length === 0}
-        >
-          <SelectTrigger className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] text-[15px] dark:border-zinc-800/50 dark:bg-black">
-            <SelectValue placeholder="Seleccioná un producto" />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl">
-            {products.map((product) => (
-              <SelectItem key={product.id} value={product.id}>
-                <div className="flex items-center justify-between gap-4">
-                  <span>{product.name}</span>
-                  <span className="font-mono text-[#8E8E93] dark:text-[#98989D]">
-                    ${Number.parseFloat(product.price).toFixed(2)}
-                  </span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 max-h-[220px] flex-1 overflow-auto rounded-xl border border-zinc-200/50 dark:border-zinc-800/50">
           {loading ? (
-            <p className="py-6 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+            <p className="p-4 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
               Cargando productos…
             </p>
-          ) : !selectedProduct ? (
+          ) : products.length === 0 ? (
+            <p className="p-4 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+              No hay productos. Creá uno con &quot;Nuevo&quot;.
+            </p>
+          ) : (
+            <ul className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
+              {products.map((product) => {
+                const active = product.id === selectedProductId
+                return (
+                  <li
+                    key={product.id}
+                    className={cn(
+                      "group flex items-center gap-1 px-2 py-2 transition-colors",
+                      active ? "bg-[#FF9500]/10" : "hover:bg-[#F2F2F7]/80 dark:hover:bg-zinc-800/40"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onProductSelect(product.id)}
+                      className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left"
+                    >
+                      <span className="block truncate font-medium text-foreground">
+                        {product.name}
+                      </span>
+                      <span className="font-mono text-[13px] text-[#8E8E93] dark:text-[#98989D]">
+                        ${Number.parseFloat(product.price).toFixed(2)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onProductSelect(product.id)}
+                      className="rounded-lg p-2 opacity-0 transition-opacity hover:bg-zinc-500/10 group-hover:opacity-100"
+                      title="Editar"
+                    >
+                      <Pencil className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(product)}
+                      className="rounded-lg p-2 opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-600 group-hover:opacity-100 dark:hover:text-red-400"
+                      title="Desactivar"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          {!selectedProduct ? (
             <div className="flex h-full items-center justify-center py-12">
               <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">
                 {products.length === 0
@@ -292,8 +343,12 @@ export function RecipeConfig({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
-                    <SelectItem value="GLASS">Vaso / medida (descuenta ml, g o uds. de la receta)</SelectItem>
-                    <SelectItem value="BOTTLE">Botella entera (la receta cuenta botellas × tamaño estándar)</SelectItem>
+                    <SelectItem value="GLASS">
+                      Vaso / medida (descuenta ml, g o uds. de la receta)
+                    </SelectItem>
+                    <SelectItem value="BOTTLE">
+                      Botella entera (envases × tamaño del insumo)
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -317,65 +372,17 @@ export function RecipeConfig({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  {draftLines.map((line, index) => {
-                    const mat = materials.find((m) => m.id === line.inventoryItemId)
-                    const hint = recipeConversionHint(draftSaleType, mat, line.quantityUsed)
-                    return (
-                      <div
-                        key={`${line.inventoryItemId}-${index}`}
-                        className="flex flex-col gap-2 rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/70 p-3 dark:border-zinc-800/50 dark:bg-black/20"
-                      >
-                        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                        <Select
-                          value={line.inventoryItemId}
-                          onValueChange={(v) =>
-                            updateLine(index, { inventoryItemId: v })
-                          }
-                        >
-                          <SelectTrigger className="min-w-[160px] flex-1 rounded-xl border-zinc-200/50 bg-background dark:border-zinc-800/50">
-                            <SelectValue placeholder="Material" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl">
-                            {materials.map((m) => (
-                              <SelectItem key={m.id} value={m.id}>
-                                {m.name}{" "}
-                                <span className="text-[#8E8E93] dark:text-[#98989D]">
-                                  ({unitLabel(m.unit)})
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          value={line.quantityUsed}
-                          onChange={(e) =>
-                            updateLine(index, { quantityUsed: e.target.value })
-                          }
-                          className="h-10 w-24 rounded-xl border-zinc-200/50 bg-background text-center font-mono dark:border-zinc-800/50"
-                        />
-                        <span className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-                          {mat ? unitLabel(mat.unit) : ""}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-9 w-9 shrink-0 rounded-xl text-[#8E8E93] hover:text-red-600 dark:text-[#98989D] dark:hover:text-red-400"
-                          onClick={() => removeLine(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                        </div>
-                        {hint ? (
-                          <p className="text-xs leading-snug text-[#8E8E93] dark:text-[#98989D]">
-                            {hint}
-                          </p>
-                        ) : null}
-                      </div>
-                    )
-                  })}
+                  {draftLines.map((line, index) => (
+                    <RecipeIngredientRow
+                      key={`${line.inventoryItemId}-${index}`}
+                      line={line}
+                      index={index}
+                      materials={materials}
+                      saleType={draftSaleType}
+                      onChange={updateLine}
+                      onRemove={removeLine}
+                    />
+                  ))}
                 </div>
 
                 {draftLines.length === 0 && (
@@ -455,6 +462,32 @@ export function RecipeConfig({
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteTarget != null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent className="border-zinc-200/50 dark:border-zinc-800/50">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desactivar producto</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `¿Desactivar «${deleteTarget.name}»? Dejará de mostrarse en el catálogo de inventario; el historial de ventas no cambia.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDelete()
+              }}
+              className="bg-red-600 text-white hover:bg-red-600/90"
+            >
+              {deleting ? "…" : "Desactivar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

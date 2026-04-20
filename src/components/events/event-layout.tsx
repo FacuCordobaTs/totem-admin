@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 export const EVENT_SECTIONS = [
   { label: "General", value: "general" },
   { label: "Entradas", value: "tickets" },
-  { label: "Métricas", value: "metrics" },
+  { label: "Ventas", value: "metrics" },
 ] as const
 
 export type EventSectionValue = (typeof EVENT_SECTIONS)[number]["value"]
