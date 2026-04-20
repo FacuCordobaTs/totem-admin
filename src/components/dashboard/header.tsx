@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { ChevronDown, Menu } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -10,6 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import { Sidebar } from "@/components/dashboard/sidebar"
 import { useAuthStore } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { apiFetch } from "@/lib/api"
@@ -21,12 +29,9 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-interface HeaderProps {
-  onMenuClick?: () => void
-}
-
-export function Header({ onMenuClick }: HeaderProps) {
+export function Header() {
   const navigate = useNavigate()
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const staff = useAuthStore((s) => s.staff)
   const token = useAuthStore((s) => s.token)
   const logoutStore = useAuthStore((s) => s.logout)
@@ -48,17 +53,31 @@ export function Header({ onMenuClick }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-zinc-200/50 bg-white/70 px-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 lg:h-16 lg:px-8">
+    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-zinc-200/50 bg-white/70 px-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 lg:h-16 lg:px-8">
       <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10 rounded-xl text-foreground lg:hidden"
-          onClick={onMenuClick}
-        >
-          <Menu className="h-5 w-5" />
-          <span className="sr-only">Abrir menú</span>
-        </Button>
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              className="h-10 w-10 rounded-xl text-foreground lg:hidden"
+            >
+              <Menu className="h-5 w-5" />
+              <span className="sr-only">Abrir menú</span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent
+            side="left"
+            className="w-64 border-zinc-800 bg-zinc-950 p-0 shadow-none ring-0 dark:bg-zinc-950 sm:max-w-[16rem]"
+          >
+            <SheetTitle className="sr-only">Menú de navegación</SheetTitle>
+            <Sidebar
+              layout="sheet"
+              onNavigate={() => setMobileNavOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
       </div>
 
       <DropdownMenu>

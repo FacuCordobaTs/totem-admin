@@ -28,7 +28,19 @@ const mobileApps = [
   { name: "POS barra", href: "/pos", icon: CreditCard },
 ]
 
-export function Sidebar() {
+type SidebarProps = {
+  /** Close mobile sheet after navigation */
+  onNavigate?: () => void
+  /** Narrow desktop rail vs full-width mobile drawer */
+  layout?: "rail" | "sheet"
+  className?: string
+}
+
+export function Sidebar({
+  onNavigate,
+  layout = "rail",
+  className,
+}: SidebarProps) {
   const location = useLocation()
   const pathname = location.pathname
   const role = useAuthStore((s) => s.staff?.role)
@@ -44,8 +56,89 @@ export function Sidebar() {
   const homeHref =
     role === "BARTENDER" ? "/pos" : role === "SECURITY" ? "/scanner" : "/"
 
+  if (layout === "sheet") {
+    return (
+      <aside
+        className={cn(
+          "flex h-full w-full flex-col bg-zinc-950 text-white",
+          className
+        )}
+      >
+        <div className="flex h-16 shrink-0 items-center border-b border-zinc-800 px-4">
+          <Link
+            to={homeHref}
+            onClick={onNavigate}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#FF9500]/15 text-[17px] font-bold text-[#FF9500] transition-opacity active:opacity-70"
+            aria-label="Inicio"
+          >
+            T
+          </Link>
+        </div>
+
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-4">
+          {navigation.map((item) => {
+            const isActive =
+              item.href === "/"
+                ? pathname === "/"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`)
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  "mx-2 flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] font-medium transition-colors active:opacity-70",
+                  isActive
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+                )}
+              >
+                <item.icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                {item.name}
+              </Link>
+            )
+          })}
+        </nav>
+
+        {!isBartender && !isSecurity ? (
+          <div className="shrink-0 border-t border-zinc-800 py-4">
+            <p className="px-5 pb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              En móvil
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {mobileApps.map((item) => {
+                const isActive = pathname === item.href
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={onNavigate}
+                    className={cn(
+                      "mx-2 flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] font-medium transition-colors active:opacity-70",
+                      isActive
+                        ? "bg-zinc-800 text-white"
+                        : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+                    )}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                    {item.name}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+      </aside>
+    )
+  }
+
   return (
-    <aside className="fixed left-0 top-0 z-40 hidden h-screen w-[4.25rem] flex-col border-r border-zinc-200/50 bg-white/80 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/80 lg:flex">
+    <aside
+      className={cn(
+        "fixed left-0 top-0 z-40 hidden h-screen w-[4.25rem] flex-col border-r border-zinc-200/50 bg-white/80 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/80 lg:flex",
+        className
+      )}
+    >
       <div className="flex h-16 items-center justify-center border-b border-zinc-200/50 dark:border-zinc-800/50">
         <Link
           to={homeHref}
