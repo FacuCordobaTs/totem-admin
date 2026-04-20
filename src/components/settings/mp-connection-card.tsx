@@ -20,12 +20,15 @@ function obfuscateMpUserId(raw: string | null): string {
   return `${t.slice(0, 4)}••••••${t.slice(-4)}`
 }
 
-function buildMpAuthUrl(tenantId: string): string | null {
-  const clientId = import.meta.env.VITE_MP_APP_ID
-  const redirectUri = import.meta.env.VITE_MP_REDIRECT_URI
-  if (!clientId || !redirectUri) {
-    return null
-  }
+/** Defaults = Totem prod; override con VITE_* en .env si hace falta. */
+const DEFAULT_MP_APP_ID = "3918831191946006"
+const DEFAULT_MP_REDIRECT_URI = "https://api.totem.uno/api/mp/callback"
+
+function buildMpAuthUrl(tenantId: string): string {
+  const clientId =
+    import.meta.env.VITE_MP_APP_ID?.trim() || DEFAULT_MP_APP_ID
+  const redirectUri =
+    import.meta.env.VITE_MP_REDIRECT_URI?.trim() || DEFAULT_MP_REDIRECT_URI
   const params = new URLSearchParams({
     client_id: clientId,
     response_type: "code",
@@ -72,7 +75,7 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
     void load()
   }, [load])
 
-  const authUrl = tenantId ? buildMpAuthUrl(tenantId) : null
+  const authUrl = tenantId ? buildMpAuthUrl(tenantId) : ""
   const connected = status?.mpConnected === true
 
   async function handleDisconnect() {
@@ -120,21 +123,15 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
             <p className="text-[15px] leading-relaxed text-zinc-300">
               Connect Mercado Pago to receive payments directly into your account.
             </p>
-            {authUrl ? (
-              <Button
-                asChild
-                size="lg"
-                className="w-full rounded-xl border-0 bg-white text-black hover:bg-zinc-200 sm:w-auto"
-              >
-                <a href={authUrl} rel="noopener noreferrer">
-                  Conectar Mercado Pago
-                </a>
-              </Button>
-            ) : (
-              <p className="text-sm text-amber-500">
-                Faltan VITE_MP_APP_ID o VITE_MP_REDIRECT_URI en el entorno del admin.
-              </p>
-            )}
+            <Button
+              asChild
+              size="lg"
+              className="w-full rounded-xl border-0 bg-white text-black hover:bg-zinc-200 sm:w-auto"
+            >
+              <a href={authUrl} rel="noopener noreferrer">
+                Conectar Mercado Pago
+              </a>
+            </Button>
           </div>
         ) : (
           <div className="space-y-5">
