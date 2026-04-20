@@ -13,6 +13,7 @@ import { EventInventoryTab } from "@/components/events/event-inventory-tab"
 import { EventBarsTab } from "@/components/events/event-bars-tab"
 import { EventExpensesTab } from "@/components/events/event-expenses-tab"
 import { EventSummaryDashboard } from "@/components/events/event-summary-dashboard"
+import { EventImageUploader } from "@/components/events/event-image-uploader"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { Button } from "@/components/ui/button"
 import {
@@ -222,6 +223,10 @@ export function EventDashboardPage() {
             <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
               <Section title="Resumen ejecutivo">
                 <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
+              </Section>
+
+              <Section title="Identidad del evento">
+                <EventImageUploader event={event} onUpdated={loadEvent} />
               </Section>
 
               <Section title="Configuración de Ventas">
