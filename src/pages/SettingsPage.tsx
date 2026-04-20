@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useSearchParams } from "react-router"
+import { toast } from "sonner"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -9,6 +10,7 @@ import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
+import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 
 const SETTINGS_TABS = ["profile", "finances", "productora"] as const
 type SettingsTab = (typeof SETTINGS_TABS)[number]
@@ -25,9 +27,11 @@ function Panel({ children }: { children: React.ReactNode }) {
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const mpToastHandled = useRef(false)
   const tenantId = useAuthStore((s) => s.staff?.tenantId)
   const tenantName = useAuthStore((s) => s.staff?.tenantName)
   const staff = useAuthStore((s) => s.staff)
+  const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const isAdmin = role === "ADMIN"
   const isBartender = role === "BARTENDER"
@@ -52,6 +56,24 @@ export function SettingsPage() {
       setSearchParams({ tab: "profile" }, { replace: true })
     }
   }, [restrictedSettingsTabs, tabFromUrl, setSearchParams])
+
+  useEffect(() => {
+    const mpStatus = searchParams.get("mp_status")
+    if (mpStatus !== "success" && mpStatus !== "error") {
+      mpToastHandled.current = false
+      return
+    }
+    if (mpToastHandled.current) return
+    mpToastHandled.current = true
+    if (mpStatus === "success") {
+      toast.success("Mercado Pago conectado correctamente")
+    } else {
+      toast.error("No se pudo conectar Mercado Pago")
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete("mp_status")
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const profileSection = (
     <Panel>
@@ -82,12 +104,23 @@ export function SettingsPage() {
   )
 
   const financesSection = (
-    <Panel>
-      <h2 className="text-xl font-bold tracking-tight text-foreground">Finanzas</h2>
-      <p className="mt-4 text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-        En preparación.
-      </p>
-    </Panel>
+    <div className="space-y-8">
+      {hasTenant ? (
+        <MpConnectionCard tenantId={tenantId ?? null} token={token} />
+      ) : null}
+      <Panel>
+        <h2 className="text-xl font-bold tracking-tight text-foreground">Finanzas</h2>
+        {!hasTenant ? (
+          <p className="mt-4 text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+            Configurá tu productora para vincular cobros.
+          </p>
+        ) : (
+          <p className="mt-4 text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+            Reportes y métricas: en preparación.
+          </p>
+        )}
+      </Panel>
+    </div>
   )
 
   const productoraSection = (

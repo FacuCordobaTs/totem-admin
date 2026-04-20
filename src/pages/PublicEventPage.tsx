@@ -38,6 +38,9 @@ type CheckoutResponse = {
   message: string
   receiptToken: string
   saleId: string
+  initPoint?: string
+  preferenceId?: string
+  mercadoPago?: boolean
 }
 
 type PurchaseSuccess = {
@@ -122,7 +125,7 @@ export function PublicEventPage() {
         method: "POST",
         body: JSON.stringify({
           eventId,
-          paymentMethod: "CARD",
+          paymentMethod: "MERCADOPAGO",
           clientTotal: selectedType.price,
           contact: {
             name: buyerName.trim(),
@@ -133,6 +136,10 @@ export function PublicEventPage() {
           drinkLines: [],
         }),
       })
+      if (data.mercadoPago && data.initPoint) {
+        window.location.assign(data.initPoint)
+        return
+      }
       setCheckoutOpen(false)
       setSuccess({
         receiptToken: data.receiptToken,
