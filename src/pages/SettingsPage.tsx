@@ -10,6 +10,7 @@ import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
+import { CucuruConnectionCard } from "@/components/settings/cucuru-connection-card"
 import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 
 const SETTINGS_TABS = ["profile", "finances", "productora"] as const
@@ -106,7 +107,10 @@ export function SettingsPage() {
   const financesSection = (
     <div className="space-y-8">
       {hasTenant ? (
-        <MpConnectionCard tenantId={tenantId ?? null} token={token} />
+        <>
+          <MpConnectionCard tenantId={tenantId ?? null} token={token} />
+          <CucuruConnectionCard tenantId={tenantId ?? null} token={token} />
+        </>
       ) : null}
       <Panel>
         <h2 className="text-xl font-bold tracking-tight text-foreground">Finanzas</h2>
