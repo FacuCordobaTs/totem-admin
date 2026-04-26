@@ -19,7 +19,7 @@ import { PublicEventPage } from "@/pages/PublicEventPage"
 import { RequireAuth } from "@/components/auth/RequireAuth"
 import { GuestRoute } from "@/components/auth/GuestRoute"
 import type { ReactElement } from "react"
-import { Navigate, useParams } from "react-router"
+import { Navigate, useParams, useSearchParams } from "react-router"
 
 function withAuth(element: ReactElement) {
   return <RequireAuth>{element}</RequireAuth>
@@ -29,6 +29,21 @@ function LegacyPublicEventRedirect() {
   const { id } = useParams<{ id: string }>()
   if (!id) return <Navigate to="/" replace />
   return <Navigate to={`/p/${id}`} replace />
+}
+
+/** Backend Mercado Pago OAuth redirects here with `?mp_status` / `mp_error` (see `mercadopago.ts` callback). */
+function DashboardPerfilMpRedirect() {
+  const [sp] = useSearchParams()
+  const next = new URLSearchParams(sp)
+  next.set("tab", "finances")
+  return <Navigate to={`/settings?${next.toString()}`} replace />
+}
+
+function OnboardingMpRedirect() {
+  const [sp] = useSearchParams()
+  const next = new URLSearchParams(sp)
+  next.set("tab", "finances")
+  return <Navigate to={`/settings?${next.toString()}`} replace />
 }
 
 const router = createBrowserRouter([
@@ -60,6 +75,8 @@ const router = createBrowserRouter([
       { path: "inventory", element: <InventoryPage /> },
       { path: "staff", element: <StaffPage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "dashboard/perfil", element: <DashboardPerfilMpRedirect /> },
+      { path: "onboarding", element: <OnboardingMpRedirect /> },
       { path: "metrics", element: <GlobalMetricsPage /> },
       { path: "pos", element: <PosPage /> },
       { path: "scanner", element: <ScannerPage /> },

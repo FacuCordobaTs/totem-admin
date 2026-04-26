@@ -69,10 +69,24 @@ export function SettingsPage() {
     if (mpStatus === "success") {
       toast.success("Mercado Pago conectado correctamente")
     } else {
-      toast.error("No se pudo conectar Mercado Pago")
+      const mpError = searchParams.get("mp_error")
+      if (mpError === "config_error") {
+        toast.error(
+          "Falta la configuración de Mercado Pago en el servidor (Client ID, Secret o URL de retorno). Contactá a soporte."
+        )
+      } else if (mpError === "missing_params") {
+        toast.error(
+          "La respuesta de Mercado Pago vino incompleta. Volvé a conectar."
+        )
+      } else if (mpError === "oauth_failed") {
+        toast.error("Mercado Pago no autorizó la conexión. Volvé a intentar.")
+      } else {
+        toast.error("No se pudo conectar Mercado Pago")
+      }
     }
     const next = new URLSearchParams(searchParams)
     next.delete("mp_status")
+    next.delete("mp_error")
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
