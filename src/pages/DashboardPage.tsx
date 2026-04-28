@@ -153,6 +153,9 @@ export function DashboardPage() {
                   </p>
                 </div>
               </div>
+              <p className="text-[12px] leading-snug text-[#8E8E93] dark:text-[#98989D]">
+                Las entradas canceladas no suman en estas métricas.
+              </p>
               <Button variant="ghost" className="h-auto p-0 text-[15px] text-[#8E8E93] hover:text-foreground dark:text-[#98989D]" asChild>
                 <Link to="/metrics" className="inline-flex items-center gap-1">
                   Métricas

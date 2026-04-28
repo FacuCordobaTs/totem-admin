@@ -5,20 +5,11 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type {
   EventAssignmentStaffRow,
-  EventBarRow,
-  EventBarsResponse,
   EventStaffListResponse,
 } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
   Table,
@@ -29,11 +20,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Users } from "lucide-react"
-
-const UNASSIGNED_BAR_VALUE = "__unassigned__"
-
-const selectClass =
-  "h-10 w-full max-w-[300px] rounded-xl border-zinc-200/50 bg-white px-3 text-[15px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
 
 function TableSkeleton() {
   return (
@@ -52,7 +38,6 @@ type Props = {
 export function EventStaffTab({ eventId, embedded = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
-  const [bars, setBars] = useState<EventBarRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
@@ -62,21 +47,16 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const [staffRes, barsRes] = await Promise.all([
-        apiFetch<EventStaffListResponse>(`/events/${eventId}/staff`, {
+      const staffRes = await apiFetch<EventStaffListResponse>(
+        `/events/${eventId}/staff`,
+        {
           method: "GET",
           token,
-        }),
-        apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, {
-          method: "GET",
-          token,
-        }),
-      ])
+        }
+      )
       setRows(staffRes.staff)
-      setBars(barsRes.bars)
     } catch (e) {
       setRows([])
-      setBars([])
       setError(
         e instanceof ApiError ? e.message : "No se pudo cargar el personal del evento"
       )
@@ -142,37 +122,14 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
           : s
       )
     )
-    const body: {
-      staffId: string
-      isAssigned: boolean
-      barId?: string | null
-    } = {
-      staffId: member.id,
-      isAssigned: checked,
-    }
-    if (checked && member.barId != null) {
-      body.barId = member.barId
-    }
-    void postAssign(body, prevRows)
-  }
-
-  function onBarChange(member: EventAssignmentStaffRow, value: string) {
-    if (pendingIds.has(member.id) || !member.isAssigned) return
-    const prevRows = rows
-    const nextBarId = value === UNASSIGNED_BAR_VALUE ? null : value
-    addPending(member.id)
-    setRows((r) => r.map((s) => (s.id === member.id ? { ...s, barId: nextBarId } : s)))
     void postAssign(
       {
         staffId: member.id,
-        isAssigned: true,
-        barId: nextBarId,
+        isAssigned: checked,
       },
       prevRows
     )
   }
-
-  const activeBars = bars.filter((b) => b.isActive !== false)
 
   if (loading) {
     return <TableSkeleton />
@@ -198,11 +155,14 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
               Equipo
             </p>
             <h2 className="mt-1 text-[28px] font-bold tracking-tight text-black dark:text-white md:text-[34px]">
-              Turno y puesto en este evento
+              Turno en este evento
             </h2>
             <p className="mt-2 max-w-2xl text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-              Marcá quién trabaja el evento y, si aplica, asignalo a una barra física. Una
-              persona solo puede tener un puesto por evento.
+              Marcá quién trabaja el evento. La asignación a una barra física se hace desde{" "}
+              <span className="font-semibold text-black dark:text-white">
+                Barras → configuración → Personal
+              </span>
+              .
             </p>
           </div>
         </div>
@@ -236,14 +196,10 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
                 <TableHead className="w-[160px] text-center text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                   ¿Trabaja hoy?
                 </TableHead>
-                <TableHead className="min-w-[220px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                  Barra asignada
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((member) => {
-                const selectValue = member.barId ?? UNASSIGNED_BAR_VALUE
                 const busy = pendingIds.has(member.id)
                 return (
                   <TableRow
@@ -271,36 +227,6 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
                           }
                         />
                       </div>
-                    </TableCell>
-                    <TableCell className="py-3.5">
-                      <Select
-                        value={selectValue}
-                        disabled={!member.isAssigned || busy}
-                        onValueChange={(v) => onBarChange(member, v)}
-                      >
-                        <SelectTrigger className={selectClass}>
-                          <SelectValue placeholder="Elegir barra" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                          <SelectItem value={UNASSIGNED_BAR_VALUE} className="rounded-lg py-2">
-                            Sin barra (evento general)
-                          </SelectItem>
-                          {activeBars.map((b) => (
-                            <SelectItem key={b.id} value={b.id} className="rounded-lg py-2">
-                              {b.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {member.isAssigned && activeBars.length === 0 ? (
-                        <p className="mt-2 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                          No hay barras en este evento. Creá barras en la pestaña{" "}
-                          <span className="font-semibold text-black dark:text-white">
-                            Barras
-                          </span>
-                          .
-                        </p>
-                      ) : null}
                     </TableCell>
                   </TableRow>
                 )

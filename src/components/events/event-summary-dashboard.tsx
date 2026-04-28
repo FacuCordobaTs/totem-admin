@@ -185,6 +185,9 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
           <p className="mt-2 text-[13px] font-medium tabular-nums text-[#8E8E93] dark:text-[#98989D]">
             Ingresos por entradas: {formatMoneyArs(data.ticketRevenue)}
           </p>
+          <p className="mt-1 text-[12px] leading-snug text-[#8E8E93] dark:text-[#98989D]">
+            Cifras de entradas excluyen canceladas.
+          </p>
           <div className="mt-5 space-y-2">
             <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
               <span>Puerta</span>

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 
 export const EVENT_SECTIONS = [
   { label: "General", value: "general" },
+  { label: "Stock & Barras", value: "logistics" },
   { label: "Entradas", value: "tickets" },
   { label: "Ventas", value: "metrics" },
 ] as const

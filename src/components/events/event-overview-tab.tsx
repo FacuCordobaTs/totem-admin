@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
   Table,
   TableBody,
   TableCell,
@@ -11,20 +18,42 @@ import {
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type {
-  EventInventoryBreakdownResponse,
   EventMenuProductsResponse,
   EventSaleRowApi,
   EventSalesPageResponse,
   EventSummaryResponse,
-  InventoryBreakdownItemRow,
 } from "@/types/event-dashboard"
-import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const SALES_PAGE_SIZE = 50
 
 const cardClass =
   "rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50 "
+
+type SaleStatus = "PENDING" | "PAYMENT_FAILED" | "COMPLETED" | "REFUNDED"
+
+type SaleDetailSale = {
+  id: string
+  totalAmount: string
+  paymentMethod: EventSaleRowApi["paymentMethod"]
+  createdAt: Date | string | null
+  source: EventSaleRowApi["source"]
+  status: SaleStatus | null
+  staffName: string | null
+  customerName: string | null
+}
+
+type SaleDetailItem = {
+  productName: string
+  quantity: number
+  priceAtTime: string
+  lineSubtotal: string
+}
+
+type SaleDetailResponse = {
+  sale: SaleDetailSale
+  items: SaleDetailItem[]
+}
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
@@ -48,39 +77,89 @@ function formatMoneyArs(value: string): string {
   }).format(n)
 }
 
-function formatTime(value: Date | string | null): string {
+function formatTimeOnly(value: Date | string | null): string {
+  if (value == null) return "—"
+  const d = typeof value === "string" ? new Date(value) : value
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  })
+}
+
+function formatDateTimeFull(value: Date | string | null): string {
   if (value == null) return "—"
   const d = typeof value === "string" ? new Date(value) : value
   if (Number.isNaN(d.getTime())) return "—"
   return d.toLocaleString("es-AR", {
     day: "2-digit",
-    month: "short",
+    month: "long",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: true,
   })
 }
 
-function unitLabel(unit: InventoryBreakdownItemRow["baseUnit"]): string {
-  switch (unit) {
-    case "ML":
-      return "ml"
-    case "GRAMS":
-      return "g"
+function paymentMethodLabel(method: EventSaleRowApi["paymentMethod"]): string {
+  switch (method) {
+    case "CASH":
+      return "Efectivo"
+    case "CARD":
+      return "Tarjeta"
+    case "MERCADOPAGO":
+      return "Mercado Pago"
+    case "TRANSFER":
+      return "Transferencia"
     default:
-      return "uds."
+      return method
   }
 }
 
-function formatStockDisplay(
-  amount: string,
-  unit: InventoryBreakdownItemRow["baseUnit"]
-): string {
-  const n = Number.parseFloat(amount)
-  if (Number.isNaN(n)) return `${amount} ${unitLabel(unit)}`
-  if (unit === "ML" && n >= 1000) {
-    return `${(n / 1000).toFixed(2)} L`
+function statusLabel(status: SaleStatus | null): string {
+  switch (status) {
+    case "COMPLETED":
+      return "Completada"
+    case "PENDING":
+      return "Pendiente"
+    case "PAYMENT_FAILED":
+      return "Pago fallido"
+    case "REFUNDED":
+      return "Reembolsada"
+    default:
+      return "—"
   }
-  return `${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })} ${unitLabel(unit)}`
+}
+
+function paymentMethodBadge(method: EventSaleRowApi["paymentMethod"]) {
+  return (
+    <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+      {paymentMethodLabel(method)}
+    </span>
+  )
+}
+
+function statusBadge(status: SaleStatus | null) {
+  const map: Record<SaleStatus, string> = {
+    COMPLETED: "bg-[#34C759]/15 text-[#34C759]",
+    PENDING: "bg-[#FF9500]/15 text-[#FF9500]",
+    PAYMENT_FAILED: "bg-[#FF3B30]/15 text-[#FF3B30]",
+    REFUNDED: "bg-[#8E8E93]/15 text-[#8E8E93] dark:text-[#98989D]",
+  }
+  const cls = status
+    ? map[status]
+    : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide",
+        cls
+      )}
+    >
+      {statusLabel(status)}
+    </span>
+  )
 }
 
 function sourceBadge(source: EventSaleRowApi["source"]) {
@@ -112,6 +191,32 @@ function sourceBadge(source: EventSaleRowApi["source"]) {
   }
 }
 
+function DetailRow({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string
+  value: string
+  muted?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">{label}</span>
+      <span
+        className={cn(
+          "text-right text-[15px] tracking-tight",
+          muted
+            ? "text-[#8E8E93] dark:text-[#98989D]"
+            : "font-medium text-foreground"
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  )
+}
+
 type Props = {
   eventId: string
   refreshTrigger?: number
@@ -130,12 +235,13 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
   const [salesLoadingMore, setSalesLoadingMore] = useState(false)
   const [salesError, setSalesError] = useState<string | null>(null)
 
-  const [breakdown, setBreakdown] = useState<InventoryBreakdownItemRow[]>([])
-  const [breakdownLoading, setBreakdownLoading] = useState(true)
-  const [breakdownError, setBreakdownError] = useState<string | null>(null)
-
   const [menuProducts, setMenuProducts] = useState<{ id: string; name: string }[]>([])
   const [menuLoading, setMenuLoading] = useState(true)
+
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null)
+  const [saleDetail, setSaleDetail] = useState<SaleDetailResponse | null>(null)
+  const [saleDetailLoading, setSaleDetailLoading] = useState(false)
+  const [saleDetailError, setSaleDetailError] = useState<string | null>(null)
 
   const loadSummary = useCallback(async () => {
     if (!token) return
@@ -177,26 +283,6 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
     }
   }, [token, eventId, refreshTrigger])
 
-  const loadBreakdown = useCallback(async () => {
-    if (!token) return
-    setBreakdownLoading(true)
-    setBreakdownError(null)
-    try {
-      const res = await apiFetch<EventInventoryBreakdownResponse>(
-        `/events/${eventId}/inventory-breakdown`,
-        { method: "GET", token }
-      )
-      setBreakdown(res.items)
-    } catch (e) {
-      setBreakdown([])
-      setBreakdownError(
-        e instanceof ApiError ? e.message : "No se pudo cargar el mapa de stock"
-      )
-    } finally {
-      setBreakdownLoading(false)
-    }
-  }, [token, eventId, refreshTrigger])
-
   const loadMenu = useCallback(async () => {
     if (!token) return
     setMenuLoading(true)
@@ -226,12 +312,45 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
   }, [loadSalesInitial])
 
   useEffect(() => {
-    void loadBreakdown()
-  }, [loadBreakdown])
-
-  useEffect(() => {
     void loadMenu()
   }, [loadMenu])
+
+  useEffect(() => {
+    if (!selectedSaleId || !token) {
+      setSaleDetail(null)
+      setSaleDetailError(null)
+      setSaleDetailLoading(false)
+      return
+    }
+    let cancelled = false
+    setSaleDetail(null)
+    setSaleDetailError(null)
+    setSaleDetailLoading(true)
+    void (async () => {
+      try {
+        const res = await apiFetch<SaleDetailResponse>(`/sales/${selectedSaleId}`, {
+          method: "GET",
+          token,
+        })
+        if (!cancelled) {
+          setSaleDetail(res)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setSaleDetailError(
+            e instanceof ApiError ? e.message : "No se pudo cargar la venta"
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setSaleDetailLoading(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedSaleId, token])
 
   async function loadMoreSales() {
     if (!token || salesLoadingMore || !salesHasMore) return
@@ -278,8 +397,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                 Últimas ventas
               </h3>
               <p className="mt-1 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                Productos y barras (sin ventas solo de entradas). El total por fila es el subtotal de
-                ítems de catálogo.
+                Tocá una fila para ver el detalle completo de la venta.
               </p>
             </div>
             <div className="p-5 pt-4">
@@ -291,6 +409,12 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                     <Table>
                       <TableHeader>
                         <TableRow className="border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
+                          <TableHead className="w-[72px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                            Nº
+                          </TableHead>
+                          <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                            Cliente
+                          </TableHead>
                           <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                             Hora
                           </TableHead>
@@ -298,17 +422,14 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                             Origen
                           </TableHead>
                           <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                            Productos
-                          </TableHead>
-                          <TableHead className="min-w-[200px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                            Detalle
+                            Total
                           </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {salesLoading ? (
                           <TableRow>
-                            <TableCell colSpan={4} className="py-10">
+                            <TableCell colSpan={5} className="py-10">
                               <div className="space-y-3">
                                 {Array.from({ length: 5 }).map((_, i) => (
                                   <div
@@ -322,30 +443,47 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                         ) : sales.length === 0 ? (
                           <TableRow>
                             <TableCell
-                              colSpan={4}
+                              colSpan={5}
                               className="py-10 text-center text-[#8E8E93] dark:text-[#98989D]"
                             >
                               No hay ventas registradas.
                             </TableCell>
                           </TableRow>
                         ) : (
-                          sales.map((s) => (
-                            <TableRow
-                              key={s.id}
-                              className="border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
-                            >
-                              <TableCell className="whitespace-nowrap py-3 text-[15px]">
-                                {formatTime(s.createdAt)}
-                              </TableCell>
-                              <TableCell className="py-3">{sourceBadge(s.source)}</TableCell>
-                              <TableCell className="py-3 text-right font-mono text-[15px] font-semibold tabular-nums text-black dark:text-white">
-                                {formatMoneyArs(s.totalAmount)}
-                              </TableCell>
-                              <TableCell className="max-w-[320px] py-3 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-                                <span className="line-clamp-2">{s.itemsSummary}</span>
-                              </TableCell>
-                            </TableRow>
-                          ))
+                          sales.map((s, index) => {
+                            const hasName =
+                              s.customerName != null && s.customerName.trim() !== ""
+                            return (
+                              <TableRow
+                                key={s.id}
+                                onClick={() => setSelectedSaleId(s.id)}
+                                className="cursor-pointer border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
+                              >
+                                <TableCell className="py-3 font-mono text-[13px] tabular-nums text-[#8E8E93] dark:text-[#98989D]">
+                                  #{sales.length - index}
+                                </TableCell>
+                                <TableCell
+                                  className={cn(
+                                    "py-3 text-[15px]",
+                                    hasName
+                                      ? "font-medium text-foreground"
+                                      : "text-[#8E8E93] dark:text-[#98989D]"
+                                  )}
+                                >
+                                  {hasName ? s.customerName : "Consumidor Final"}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap py-3 text-[15px] tabular-nums text-[#8E8E93] dark:text-[#98989D]">
+                                  {formatTimeOnly(s.createdAt)}
+                                </TableCell>
+                                <TableCell className="py-3">
+                                  {sourceBadge(s.source)}
+                                </TableCell>
+                                <TableCell className="py-3 text-right text-[15px] font-bold tabular-nums text-foreground">
+                                  {formatMoneyArs(s.totalAmount)}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })
                         )}
                       </TableBody>
                     </Table>
@@ -364,86 +502,6 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                     </div>
                   ) : null}
                 </>
-              )}
-            </div>
-          </section>
-
-          <section className={cn(cardClass, "overflow-hidden")}>
-            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
-              <h3 className="text-2xl font-bold tracking-tight text-foreground">
-                Stock en barras
-              </h3>
-            </div>
-            <div className="p-5 pt-4">
-              {breakdownError ? (
-                <p className="text-base text-red-600 dark:text-red-400">{breakdownError}</p>
-              ) : breakdownLoading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-14 animate-pulse rounded-lg bg-zinc-200/50 dark:bg-zinc-700/50"
-                    />
-                  ))}
-                </div>
-              ) : breakdown.length === 0 ? (
-                <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-                  No hay insumos con stock en este evento. Cargá insumos y cantidades en
-                  Inventario del evento, o distribuí en barras.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {breakdown.map((item) => (
-                    <details
-                      key={item.inventoryItemId}
-                      className="group rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 transition-colors duration-200 open:bg-background dark:border-zinc-800/50 dark:bg-black/30"
-                    >
-                      <summary
-                        className={cn(
-                          "flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 transition-colors duration-200 active:opacity-70",
-                          "marker:content-none [&::-webkit-details-marker]:hidden"
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[17px] font-semibold leading-tight tracking-tight text-black dark:text-white">
-                            {item.itemName}
-                          </p>
-                          <p className="mt-0.5 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                            Stock del evento:{" "}
-                            <span className="font-mono tabular-nums text-black dark:text-white">
-                              {formatStockDisplay(item.stockAllocated, item.baseUnit)}
-                            </span>
-                            {" · "}
-                            En barras:{" "}
-                            <span className="font-mono tabular-nums text-black dark:text-white">
-                              {formatStockDisplay(item.totalInBars, item.baseUnit)}
-                            </span>
-                          </p>
-                        </div>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-500/10">
-                          <ChevronDown className="h-4 w-4 text-[#8E8E93] transition-transform duration-200 group-open:rotate-180" />
-                        </span>
-                      </summary>
-                      <div className="border-t border-zinc-200/50 pl-4 pr-4 pb-3 dark:border-zinc-800/50">
-                        <ul className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50 text-[15px]">
-                          {item.bars.map((b) => (
-                            <li
-                              key={`${item.inventoryItemId}-${b.barName}`}
-                              className="flex justify-between gap-4 py-2.5 pl-0"
-                            >
-                              <span className="text-[#8E8E93] dark:text-[#98989D]">
-                                {b.barName}
-                              </span>
-                              <span className="font-mono font-medium tabular-nums text-black dark:text-white">
-                                {formatStockDisplay(b.stock, item.baseUnit)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </details>
-                  ))}
-                </div>
               )}
             </div>
           </section>
@@ -484,6 +542,129 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
           </div>
         </section>
       </div>
+
+      <Sheet
+        open={selectedSaleId != null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedSaleId(null)
+        }}
+      >
+        <SheetContent className="bg-white dark:border-zinc-800/50 dark:bg-background">
+          <SheetHeader className="border-b border-zinc-200/50 px-6 py-4 dark:border-zinc-800/50">
+            <SheetTitle className="text-[17px] font-semibold tracking-tight text-foreground">
+              Detalle de venta
+            </SheetTitle>
+            <SheetDescription className="sr-only">
+              Información completa de la venta seleccionada.
+            </SheetDescription>
+          </SheetHeader>
+
+          {saleDetailLoading ? (
+            <div className="flex-1 space-y-6 overflow-y-auto p-6">
+              <div className="space-y-3">
+                <div className="h-3 w-12 animate-pulse rounded bg-zinc-200/60 dark:bg-zinc-800/60" />
+                <div className="h-10 w-48 animate-pulse rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60" />
+                <div className="flex gap-2">
+                  <div className="h-6 w-20 animate-pulse rounded-full bg-zinc-200/60 dark:bg-zinc-800/60" />
+                  <div className="h-6 w-24 animate-pulse rounded-full bg-zinc-200/60 dark:bg-zinc-800/60" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-9 animate-pulse rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60"
+                  />
+                ))}
+              </div>
+            </div>
+          ) : saleDetailError ? (
+            <div className="flex-1 p-6">
+              <p className="text-base text-red-600 dark:text-red-400">
+                {saleDetailError}
+              </p>
+            </div>
+          ) : saleDetail ? (
+            <div className="flex-1 overflow-y-auto">
+              <div className="border-b border-zinc-200/50 px-6 py-6 dark:border-zinc-800/50">
+                <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  Total
+                </p>
+                <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-foreground">
+                  {formatMoneyArs(saleDetail.sale.totalAmount)}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {paymentMethodBadge(saleDetail.sale.paymentMethod)}
+                  {statusBadge(saleDetail.sale.status)}
+                  {sourceBadge(saleDetail.sale.source)}
+                </div>
+              </div>
+
+              <div className="border-b border-zinc-200/50 px-6 py-3 dark:border-zinc-800/50">
+                <DetailRow
+                  label="Fecha"
+                  value={formatDateTimeFull(saleDetail.sale.createdAt)}
+                />
+                <DetailRow
+                  label="Cliente"
+                  value={
+                    saleDetail.sale.customerName &&
+                    saleDetail.sale.customerName.trim() !== ""
+                      ? saleDetail.sale.customerName
+                      : "Consumidor Final"
+                  }
+                  muted={
+                    saleDetail.sale.customerName == null ||
+                    saleDetail.sale.customerName.trim() === ""
+                  }
+                />
+                <DetailRow
+                  label="Atendido por"
+                  value={saleDetail.sale.staffName ?? "—"}
+                  muted={saleDetail.sale.staffName == null}
+                />
+              </div>
+
+              <div className="px-6 py-5">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  Productos
+                </p>
+                {saleDetail.items.length === 0 ? (
+                  <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                    Esta venta no tiene productos asociados.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
+                    {saleDetail.items.map((item, i) => (
+                      <li
+                        key={`${item.productName}-${i}`}
+                        className="flex items-baseline justify-between gap-4 py-3"
+                      >
+                        <p className="min-w-0 flex-1 text-[15px] text-foreground">
+                          <span className="tabular-nums text-[#8E8E93] dark:text-[#98989D]">
+                            {item.quantity}
+                          </span>
+                          <span className="mx-1 text-[#8E8E93] dark:text-[#98989D]">
+                            ×
+                          </span>
+                          <span className="font-medium">{item.productName}</span>
+                        </p>
+                        <span className="whitespace-nowrap font-mono text-[15px] font-semibold tabular-nums text-foreground">
+                          {formatMoneyArs(item.lineSubtotal)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 p-6 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+              No se encontró la venta.
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

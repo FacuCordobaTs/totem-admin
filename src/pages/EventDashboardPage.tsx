@@ -230,20 +230,26 @@ export function EventDashboardPage() {
                 <EventSalesConfig event={event} onUpdated={loadEvent} />
               </Section>
 
-              <Section title="Inventario">
-                <EventInventoryTab eventId={id} />
-              </Section>
-
-              <Section title="Barras">
-                <EventBarsTab eventId={id} embedded />
-              </Section>
-
               <Section title="Personal">
                 <EventStaffTab eventId={id} embedded />
               </Section>
 
               <Section title="Gastos">
                 <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
+              </Section>
+            </div>
+          )}
+
+          {activeTab === "logistics" && (
+            <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
+              <Section title="Inventario del evento">
+                <EventInventoryTab
+                  eventId={id}
+                  onLogisticsChange={bump}
+                />
+              </Section>
+              <Section title="Barras">
+                <EventBarsTab eventId={id} embedded />
               </Section>
             </div>
           )}

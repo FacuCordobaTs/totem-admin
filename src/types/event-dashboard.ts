@@ -75,10 +75,12 @@ export type EventBarRow = {
   isActive: boolean | null
   createdAt: Date | string | null
   updatedAt: Date | string | null
-  staffCount: number
-  productCount: number
-  /** Sum of bar_inventory.currentStock for this bar (decimal string). */
-  totalStock: string
+  /** Nombres de staff asignados a esta barra (orden alfabético). */
+  staffList: string[]
+  /** Nombres de productos activos en el menú de esta barra. */
+  productList: string[]
+  /** Stock por ítem en equivalente botellas/unidades para la tarjeta. */
+  inventoryList: { name: string; bottles: number }[]
   /** Sum of completed sale totals attributed to this bar (decimal string). */
   totalSales: string
 }
@@ -117,6 +119,8 @@ export type BarInventoryItemRow = {
   baseUnit: "ML" | "GRAMS" | "UNIT"
   packageSize: string
   eventStockAllocated: string
+  /** eventInventory menos suma de stock en todas las barras (unidades base). */
+  unallocatedEventStock: string
   barInventoryRowId: string | null
   barCurrentStock: string
 }

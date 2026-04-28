@@ -12,12 +12,7 @@ import {
   recipeApiLineToDraft,
   type RecipeDraftLine,
 } from "@/lib/inventory-recipe-helpers"
-import {
-  bottleStockPreviewLine,
-  hasBottlePackage,
-  stockBaseToBottleDraft,
-  unitLabel,
-} from "@/lib/inventory-units"
+import { hasBottlePackage, stockBaseToBottleDraft } from "@/lib/inventory-units"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -79,19 +74,18 @@ function formatMoneyArs(value: string): string {
   }).format(n)
 }
 
-function bottleLoadPreview(row: EventInvRow, bottles: number, perVol: number): string {
+function bottleLoadPreview(row: EventInvRow, bottles: number): string {
   if (!Number.isFinite(bottles) || bottles <= 0) {
-    return "Ingresá la cantidad de botellas."
+    return "Ingresá cuántas botellas sumás."
   }
   if (row.baseUnit === "UNIT") {
-    return `Sumás ${bottles.toLocaleString("es-AR")} unidades al stock del evento.`
+    return `Sumás ${bottles.toLocaleString("es-AR")} unidades al depósito del evento.`
   }
-  if (!Number.isFinite(perVol) || perVol <= 0) {
-    return "Indicá ml (o g) por botella o configurá el tamaño del envase del insumo."
+  const per = Number.parseFloat(row.packageSize ?? "0")
+  if (!Number.isFinite(per) || per <= 0) {
+    return "Este insumo necesita un formato definido en el catálogo antes de cargar por envases."
   }
-  const total = bottles * perVol
-  const u = row.baseUnit === "GRAMS" ? "g" : "ml"
-  return `Estás sumando ${total.toLocaleString("es-AR", { maximumFractionDigits: 2 })} ${u} de ${row.name}.`
+  return `Se suman ${bottles.toLocaleString("es-AR")} envases al depósito (mismo formato que figura en el insumo).`
 }
 
 function lineIsSavable(
@@ -121,17 +115,16 @@ function kindToBaseUnit(k: MaterialKind): ApiInventoryItem["baseUnit"] {
 
 type Props = {
   eventId: string
+  /** Refresh padres (p. ej. resumen de gastos) al cargar stock con costo */
+  onLogisticsChange?: () => void
 }
 
-export function EventInventoryTab({ eventId }: Props) {
+export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
   const token = useAuthStore((s) => s.token)
 
   const [insumos, setInsumos] = useState<EventInvRow[]>([])
   const [insLoading, setInsLoading] = useState(true)
   const [insError, setInsError] = useState<string | null>(null)
-  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({})
-  const [stockBusy, setStockBusy] = useState<Record<string, boolean>>({})
-
   const [catalogProducts, setCatalogProducts] = useState<ApiProduct[]>([])
   const [eventMenuRows, setEventMenuRows] = useState<EventMenuProductRow[]>([])
   const [menuLoading, setMenuLoading] = useState(true)
@@ -147,8 +140,9 @@ export function EventInventoryTab({ eventId }: Props) {
 
   const [bottleDlgRow, setBottleDlgRow] = useState<EventInvRow | null>(null)
   const [bottleCount, setBottleCount] = useState("1")
-  const [bottleMl, setBottleMl] = useState("")
   const [bottleSaving, setBottleSaving] = useState(false)
+  const [bottleCostType, setBottleCostType] = useState<"TOTAL" | "UNIT">("TOTAL")
+  const [bottleCostAmount, setBottleCostAmount] = useState("")
 
   const [createProductOpen, setCreateProductOpen] = useState(false)
   const [cpName, setCpName] = useState("")
@@ -175,16 +169,6 @@ export function EventInventoryTab({ eventId }: Props) {
         { method: "GET", token }
       )
       setInsumos(res.items)
-      setStockDrafts(
-        Object.fromEntries(
-          res.items.map((i) => [
-            i.id,
-            hasBottlePackage(i)
-              ? stockBaseToBottleDraft(i.stockAllocated, i.packageSize)
-              : i.stockAllocated,
-          ])
-        )
-      )
     } catch (e) {
       setInsumos([])
       setInsError(
@@ -227,35 +211,6 @@ export function EventInventoryTab({ eventId }: Props) {
   useEffect(() => {
     void loadMenu()
   }, [loadMenu])
-
-  async function patchStock(row: EventInvRow) {
-    if (!token) return
-    const raw = (stockDrafts[row.id] ?? row.stockAllocated).trim().replace(",", ".")
-    const n = Number.parseFloat(raw)
-    if (Number.isNaN(n) || n < 0) {
-      toast.error("Ingresá una cantidad válida (≥ 0)")
-      return
-    }
-    const usePackages = hasBottlePackage(row)
-    setStockBusy((b) => ({ ...b, [row.id]: true }))
-    try {
-      await apiFetch(`/events/${eventId}/inventory`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          inventoryItemId: row.id,
-          stockAllocated: n,
-          stockInputAs: usePackages ? "PACKAGES" : "BASE_UNITS",
-        }),
-      })
-      toast.success("Stock actualizado")
-      await loadInsumos()
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "No se pudo guardar el stock")
-    } finally {
-      setStockBusy((b) => ({ ...b, [row.id]: false }))
-    }
-  }
 
   async function submitNewInsumo(e: React.FormEvent) {
     e.preventDefault()
@@ -398,8 +353,8 @@ export function EventInventoryTab({ eventId }: Props) {
   function openBottleDialog(row: EventInvRow) {
     setBottleDlgRow(row)
     setBottleCount("1")
-    const d = row.packageSize ?? ""
-    setBottleMl(d === "" || d === "0.00" ? "" : String(Number.parseFloat(d)))
+    setBottleCostType("TOTAL")
+    setBottleCostAmount("")
   }
 
   async function submitBottleLoad(e: React.FormEvent) {
@@ -410,32 +365,29 @@ export function EventInventoryTab({ eventId }: Props) {
       toast.error("Cantidad de botellas inválida")
       return
     }
-    let customBody: { customContentValue: number } | object = {}
-    if (bottleDlgRow.baseUnit !== "UNIT") {
-      const raw = bottleMl.trim()
-      if (raw !== "") {
-        const c = Number.parseFloat(raw.replace(",", "."))
-        if (!Number.isFinite(c) || c <= 0) {
-          toast.error("Volumen por botella inválido")
-          return
-        }
-        customBody = { customContentValue: c }
-      }
-    }
     setBottleSaving(true)
     try {
+      const costRaw = bottleCostAmount.trim().replace(",", ".")
+      const costN = costRaw === "" ? NaN : Number.parseFloat(costRaw)
+      const withCost =
+        costRaw !== "" && Number.isFinite(costN) && costN > 0
+      const body: Record<string, unknown> = {
+        inventoryItemId: bottleDlgRow.id,
+        quantityOfBottles: n,
+        eventId,
+      }
+      if (withCost) {
+        body.costType = bottleCostType
+        body.costAmount = costN
+      }
       await apiFetch("/inventory/load-bottles", {
         method: "POST",
         token,
-        body: JSON.stringify({
-          inventoryItemId: bottleDlgRow.id,
-          quantityOfBottles: n,
-          eventId,
-          ...customBody,
-        }),
+        body: JSON.stringify(body),
       })
       toast.success("Carga sumada al stock del evento")
       setBottleDlgRow(null)
+      onLogisticsChange?.()
       await loadInsumos()
     } catch (err) {
       toast.error(
@@ -541,18 +493,17 @@ export function EventInventoryTab({ eventId }: Props) {
                   <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                     Insumo
                   </TableHead>
-                  <TableHead className="hidden text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D] sm:table-cell">
-                    Unidad
-                  </TableHead>
-                  <TableHead className="min-w-[160px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Stock del evento
+                  <TableHead className="min-w-[140px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Stock
                   </TableHead>
                   <TableHead className="min-w-[200px] w-[220px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {insumos.map((row) => {
-                  const busy = stockBusy[row.id]
+                  const stockDisplay = hasBottlePackage(row)
+                    ? stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
+                    : row.stockAllocated
                   return (
                     <TableRow
                       key={row.id}
@@ -561,79 +512,22 @@ export function EventInventoryTab({ eventId }: Props) {
                       <TableCell className="pl-6 py-3.5 font-semibold text-black dark:text-white">
                         {row.name}
                       </TableCell>
-                      <TableCell className="hidden py-3.5 text-[#8E8E93] dark:text-[#98989D] sm:table-cell">
-                        {unitLabel(row.baseUnit)}
-                      </TableCell>
                       <TableCell className="py-3.5">
-                        {hasBottlePackage(row) ? (
-                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                            ¿Cuántas botellas ingresan?
-                          </p>
-                        ) : null}
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          className="h-10 max-w-[180px] rounded-xl border-zinc-200/50 bg-white font-mono tabular-nums dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
-                          disabled={busy}
-                          value={
-                            stockDrafts[row.id] ??
-                            (hasBottlePackage(row)
-                              ? stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
-                              : row.stockAllocated)
-                          }
-                          onChange={(e) =>
-                            setStockDrafts((d) => ({
-                              ...d,
-                              [row.id]: e.target.value,
-                            }))
-                          }
-                          onBlur={() => void patchStock(row)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.currentTarget.blur()
-                            }
-                          }}
-                        />
-                        {hasBottlePackage(row) ? (
-                          <p className="mt-1.5 text-[12px] leading-snug text-foreground/90">
-                            {bottleStockPreviewLine(
-                              Number.parseFloat(
-                                (
-                                  stockDrafts[row.id] ??
-                                  stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
-                                )
-                                  .trim()
-                                  .replace(",", ".")
-                              ) || 0,
-                              row.packageSize,
-                              row.baseUnit
-                            )}
-                          </p>
-                        ) : null}
+                        <p className="text-lg font-bold tabular-nums tracking-tight text-black dark:text-white">
+                          {stockDisplay}
+                        </p>
                       </TableCell>
                       <TableCell className="py-3.5 text-right">
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => openBottleDialog(row)}
-                            className="h-10 gap-1.5 rounded-xl border-zinc-200/50 px-3 text-[13px] font-semibold dark:border-zinc-700/80"
-                            title="Cargar por botellas"
-                          >
-                            <Wine className="h-4 w-4" />
-                            Botellas
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            disabled={busy}
-                            onClick={() => void patchStock(row)}
-                            className="h-9 rounded-lg px-4 text-[14px] font-semibold transition-all duration-200 active:opacity-50"
-                          >
-                            Guardar
-                          </Button>
-                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openBottleDialog(row)}
+                          className="h-10 gap-1.5 rounded-xl border-zinc-200/50 px-3 text-[13px] font-semibold dark:border-zinc-700/80"
+                          title="Cargar por botellas"
+                        >
+                          <Wine className="h-4 w-4" />
+                          Botellas
+                        </Button>
                       </TableCell>
                     </TableRow>
                   )
@@ -668,7 +562,7 @@ export function EventInventoryTab({ eventId }: Props) {
                     onChange={(e) => setNewInsumoName(e.target.value)}
                     required
                     className={inputClass}
-                    placeholder="Ej. Fernet 750ml"
+                    placeholder="Ej. Fernet"
                   />
                 </div>
                 <div className="space-y-3">
@@ -684,13 +578,13 @@ export function EventInventoryTab({ eventId }: Props) {
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
                       <SelectItem value="liquid" className="rounded-lg py-2">
-                        Líquido (ml)
+                        Líquido
                       </SelectItem>
                       <SelectItem value="solid" className="rounded-lg py-2">
-                        Sólido (g)
+                        Sólido
                       </SelectItem>
                       <SelectItem value="unit" className="rounded-lg py-2">
-                        Unidad indivisible (uds.)
+                        Por unidad
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -698,10 +592,10 @@ export function EventInventoryTab({ eventId }: Props) {
                 <div className="space-y-3">
                   <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                     {newInsumoKind === "liquid"
-                      ? "Tamaño de la botella/envase (ml)"
+                      ? "Referencia del formato de envase"
                       : newInsumoKind === "solid"
-                        ? "Peso del envase (g)"
-                        : "Unidades por paquete (opcional)"}{" "}
+                        ? "Referencia del formato de paquete"
+                        : "Unidades por lote"}{" "}
                     <span className="font-normal normal-case text-[#8E8E93]/80 dark:text-[#98989D]/80">
                       (opcional)
                     </span>
@@ -736,8 +630,8 @@ export function EventInventoryTab({ eventId }: Props) {
                         Number.isFinite(pkgNum) &&
                         pkgNum > 0
                       return useBottles
-                        ? "La cantidad se interpreta en botellas/envases; el backend guarda ml o g totales."
-                        : "La cantidad está en ml, g o unidades según el tipo."
+                        ? "Indicá cuántos envases sumás al depósito; la equivalencia sigue lo configurado en Inventario PRO."
+                        : "Indicá la cantidad según el tipo de insumo."
                     })()}
                   </p>
                 </div>
@@ -782,8 +676,8 @@ export function EventInventoryTab({ eventId }: Props) {
                     Cargar por botellas
                   </DialogTitle>
                   <p className="mt-2 text-[14px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                    Sumá stock al total del evento. Para fijar el número exacto en depósito, usá el
-                    campo de la tabla y &quot;Guardar&quot;.
+                    Sumá envases al depósito del evento. El formato queda definido por el insumo en
+                    Inventario PRO.
                   </p>
                 </DialogHeader>
               </div>
@@ -806,40 +700,58 @@ export function EventInventoryTab({ eventId }: Props) {
                     required
                   />
                 </div>
-                {bottleDlgRow?.baseUnit !== "UNIT" ? (
-                  <div className="space-y-3">
-                    <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                      {bottleDlgRow?.baseUnit === "GRAMS"
-                        ? "Peso por envase (g)"
-                        : "Volumen por botella (ml)"}
-                    </label>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={bottleMl}
-                      onChange={(e) => setBottleMl(e.target.value)}
-                      className={cn(inputClass, "h-12 font-mono text-[17px]")}
-                      placeholder={
-                        bottleDlgRow?.packageSize &&
-                        bottleDlgRow.packageSize !== "0.00"
-                          ? `Predeterminado: ${bottleDlgRow.packageSize}`
-                          : "Ej. 750"
-                      }
-                    />
-                  </div>
-                ) : null}
                 <div className="rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/80 px-4 py-3 dark:border-zinc-800/50 dark:bg-black/30">
                   <p className="text-[14px] leading-relaxed text-foreground">
                     {bottleDlgRow
                       ? bottleLoadPreview(
                           bottleDlgRow,
-                          Number.parseInt(bottleCount, 10) || 0,
-                          bottleMl.trim() === ""
-                            ? Number.parseFloat(bottleDlgRow.packageSize ?? "0")
-                            : Number.parseFloat(bottleMl.replace(",", "."))
+                          Number.parseInt(bottleCount, 10) || 0
                         )
                       : ""}
                   </p>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Costo (opcional)
+                  </p>
+                  <Select
+                    value={bottleCostType}
+                    onValueChange={(v) => setBottleCostType(v as "TOTAL" | "UNIT")}
+                  >
+                    <SelectTrigger
+                      className={cn(inputClass, "h-12")}
+                      aria-label="Tipo de costo"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="TOTAL">Costo total de la compra</SelectItem>
+                      <SelectItem value="UNIT">Costo por botella</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Monto en ARS"
+                    value={bottleCostAmount}
+                    onChange={(e) => setBottleCostAmount(e.target.value)}
+                    className={cn(inputClass, "h-12 font-mono")}
+                  />
+                  {(() => {
+                    const n = Number.parseInt(bottleCount, 10)
+                    const raw = bottleCostAmount.trim().replace(",", ".")
+                    const c = raw === "" ? NaN : Number.parseFloat(raw)
+                    if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(c) || c <= 0) {
+                      return null
+                    }
+                    const total = bottleCostType === "UNIT" ? c * n : c
+                    return (
+                      <p className="text-[14px] font-medium text-[#FF9500]">
+                        Se registrará un gasto total de {formatMoneyArs(total.toFixed(2))}.
+                      </p>
+                    )
+                  })()}
                 </div>
               </div>
               <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
@@ -1028,7 +940,7 @@ export function EventInventoryTab({ eventId }: Props) {
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
                       <SelectItem value="GLASS" className="rounded-lg py-2">
-                        Vaso / medida (ml, g en receta)
+                        Medida en receta
                       </SelectItem>
                       <SelectItem value="BOTTLE" className="rounded-lg py-2">
                         Botella entera
@@ -1149,7 +1061,7 @@ export function EventInventoryTab({ eventId }: Props) {
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
                       <SelectItem value="GLASS" className="rounded-lg py-2">
-                        Vaso / medida (ml, g en receta)
+                        Medida en receta
                       </SelectItem>
                       <SelectItem value="BOTTLE" className="rounded-lg py-2">
                         Botella entera

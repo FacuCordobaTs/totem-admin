@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { MoreVertical, Plus, Wine } from "lucide-react"
+import { Package, Plus, Settings, Users, Wine } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
@@ -13,12 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { BarConfigSheet } from "@/components/events/bar-config-sheet"
 
@@ -72,16 +66,13 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
   const [createName, setCreateName] = useState("")
   const [createBusy, setCreateBusy] = useState(false)
 
-  const [editBar, setEditBar] = useState<EventBarRow | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editBusy, setEditBusy] = useState(false)
-
   const [configBar, setConfigBar] = useState<EventBarRow | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!token) return
-    setLoading(true)
+    const silent = opts?.silent === true
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const res = await apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, {
@@ -93,13 +84,21 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
       setBars([])
       setError(e instanceof ApiError ? e.message : "No se pudieron cargar las barras")
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [token, eventId])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    setConfigBar((prev) => {
+      if (!prev) return null
+      const next = bars.find((b) => b.id === prev.id)
+      return next ?? prev
+    })
+  }, [bars])
 
   async function submitCreate() {
     const name = createName.trim()
@@ -119,46 +118,6 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo crear la barra")
     } finally {
       setCreateBusy(false)
-    }
-  }
-
-  function openEdit(bar: EventBarRow) {
-    setEditBar(bar)
-    setEditName(bar.name)
-  }
-
-  async function submitEdit() {
-    const name = editName.trim()
-    if (!token || !editBar || !name || editBusy) return
-    setEditBusy(true)
-    try {
-      await apiFetch(`/events/${eventId}/bars/${editBar.id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ name }),
-      })
-      toast.success("Barra actualizada")
-      setEditBar(null)
-      await load()
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "No se pudo actualizar la barra")
-    } finally {
-      setEditBusy(false)
-    }
-  }
-
-  async function setBarActive(bar: EventBarRow, isActive: boolean) {
-    if (!token) return
-    try {
-      await apiFetch(`/events/${eventId}/bars/${bar.id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ isActive }),
-      })
-      toast.success(isActive ? "Barra reactivada" : "Barra desactivada")
-      await load()
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "No se pudo cambiar el estado")
     }
   }
 
@@ -260,78 +219,89 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
                     ) : null}
                   </div>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[#8E8E93] hover:bg-zinc-500/10 dark:text-[#98989D]"
-                      aria-label={`Acciones para ${bar.name}`}
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="w-56 rounded-xl border-zinc-200/50 p-1 dark:border-zinc-800/50"
-                  >
-                    <DropdownMenuItem
-                      className="rounded-lg py-2.5 text-[15px]"
-                      onSelect={() => {
-                        setConfigBar(bar)
-                        setConfigOpen(true)
-                      }}
-                    >
-                      Configurar barra
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="rounded-lg py-2.5 text-[15px]"
-                      onSelect={() => openEdit(bar)}
-                    >
-                      Editar
-                    </DropdownMenuItem>
-                    {bar.isActive !== false ? (
-                      <DropdownMenuItem
-                        className="rounded-lg py-2.5 text-[15px]"
-                        onSelect={() => void setBarActive(bar, false)}
-                      >
-                        Desactivar
-                      </DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuItem
-                        className="rounded-lg py-2.5 text-[15px]"
-                        onSelect={() => void setBarActive(bar, true)}
-                      >
-                        Reactivar
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-xl text-[#8E8E93] hover:bg-zinc-500/10 dark:text-[#98989D]"
+                  aria-label={`Configurar ${bar.name}`}
+                  onClick={() => {
+                    setConfigBar(bar)
+                    setConfigOpen(true)
+                  }}
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
               </CardHeader>
-              <CardContent className="px-5 pb-5 pt-0">
-                <div className="flex items-baseline justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                      Ventas
-                    </p>
-                    <p className="mt-1 truncate text-xl font-bold tabular-nums tracking-tight text-foreground">
-                      {formatCurrencyArs(bar.totalSales ?? "0")}
-                    </p>
+              <CardContent className="space-y-3 px-5 pb-5 pt-0">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    Ventas
+                  </p>
+                  <p className="mt-1 truncate text-xl font-bold tabular-nums tracking-tight text-foreground">
+                    {formatCurrencyArs(bar.totalSales ?? "0")}
+                  </p>
+                </div>
+                <div className="space-y-3 border-t border-zinc-200/40 pt-3 dark:border-zinc-800/40">
+                  <div className="flex gap-2.5">
+                    <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
+                    <div className="min-w-0 flex-1">
+                      {(bar.staffList?.length ?? 0) > 0 ? (
+                        <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                          {bar.staffList.map((name, i) => (
+                            <li key={`${name}-${i}`} className="truncate">
+                              {name}
+                              {i < bar.staffList.length - 1 ? "," : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                          Sin personal asignado
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex shrink-0 gap-5 text-right text-sm text-[#8E8E93] dark:text-[#98989D]">
-                    <span>
-                      <span className="font-semibold tabular-nums text-foreground">
-                        {bar.staffCount ?? 0}
-                      </span>{" "}
-                      staff
-                    </span>
-                    <span>
-                      <span className="font-semibold tabular-nums text-foreground">
-                        {bar.productCount ?? 0}
-                      </span>{" "}
-                      productos
-                    </span>
+                  <div className="flex gap-2.5">
+                    <Package className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
+                    <div className="min-w-0 flex-1">
+                      {(bar.productList?.length ?? 0) > 0 ? (
+                        <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                          {bar.productList.map((name, i) => (
+                            <li key={`${name}-${i}`} className="truncate">
+                              {name}
+                              {i < bar.productList.length - 1 ? "," : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                          Menú vacío
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2.5">
+                    <Wine className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
+                    <div className="min-w-0 flex-1">
+                      {(bar.inventoryList?.length ?? 0) > 0 ? (
+                        <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                          {bar.inventoryList.map((inv, i) => (
+                            <li
+                              key={`${inv.name}-${i}`}
+                              className="truncate"
+                            >
+                              {inv.bottles} botellas de {inv.name}
+                              {i < bar.inventoryList.length - 1 ? "," : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                          Sin stock en barra
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -395,65 +365,6 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={editBar !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditBar(null)
-        }}
-      >
-        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-md dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-          <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
-            <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                <Wine className="h-6 w-6 text-[#FF9500]" />
-              </span>
-              <DialogHeader className="flex-1 text-left">
-                <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
-                  Editar barra
-                </DialogTitle>
-              </DialogHeader>
-            </div>
-          </div>
-          <div className="space-y-3 p-6">
-            <label
-              className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
-              htmlFor="bar-name-edit"
-            >
-              Nombre
-            </label>
-            <Input
-              id="bar-name-edit"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className={inputClass}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void submitEdit()
-              }}
-            />
-          </div>
-          <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
-            <DialogFooter className="flex-col gap-3 sm:flex-col">
-              <Button
-                type="button"
-                disabled={!editName.trim() || editBusy}
-                onClick={() => void submitEdit()}
-                className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
-              >
-                {editBusy ? "Guardando…" : "Guardar"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditBar(null)}
-                className="h-11 w-full rounded-xl border-zinc-200/50 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
-              >
-                Cancelar
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <BarConfigSheet
         open={configOpen}
         onOpenChange={(open) => {
@@ -462,6 +373,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
         }}
         eventId={eventId}
         bar={configBar}
+        onBarUpdated={() => void load({ silent: true })}
       />
     </div>
   )
