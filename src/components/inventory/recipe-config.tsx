@@ -29,6 +29,7 @@ import {
 import { Plus, Save, Pencil, Trash2 } from "lucide-react"
 import type { ApiInventoryItem } from "@/components/inventory/raw-materials"
 import { RecipeIngredientRow } from "@/components/inventory/recipe-ingredient-row"
+import { ProductImageUploader } from "@/components/inventory/product-image-uploader"
 import { apiFetch, ApiError } from "@/lib/api"
 import {
   draftLineQuantityForApi,
@@ -56,6 +57,7 @@ export interface ApiProduct {
   price: string
   isActive: boolean | null
   saleType?: ProductSaleType
+  imageUrl?: string | null
   recipes: ApiProductRecipeLine[]
 }
 
@@ -351,6 +353,13 @@ export function RecipeConfig({
                     </SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+                  Imagen (tienda pública)
+                </label>
+                <ProductImageUploader product={selectedProduct} onUpdated={onChanged} />
               </div>
 
               <div className="space-y-3">

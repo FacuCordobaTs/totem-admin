@@ -61,6 +61,7 @@ export type EventMenuProductRow = {
   catalogIsActive: boolean | null
   isActiveForEvent: boolean
   priceOverride: string | null
+  imageUrl?: string | null
 }
 
 export type EventMenuProductsResponse = {
