@@ -233,10 +233,6 @@ export function EventDashboardPage() {
               <Section title="Personal">
                 <EventStaffTab eventId={id} embedded />
               </Section>
-
-              <Section title="Gastos">
-                <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
-              </Section>
             </div>
           )}
 
@@ -275,6 +271,12 @@ export function EventDashboardPage() {
           {activeTab === "metrics" && (
             <div className="px-6 py-8 sm:px-10 sm:py-10">
               <EventOverviewTab eventId={id} refreshTrigger={refreshTick} />
+            </div>
+          )}
+
+          {activeTab === "expenses" && (
+            <div className="px-6 py-8 sm:px-10 sm:py-10">
+              <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
             </div>
           )}
         </div>

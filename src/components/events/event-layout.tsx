@@ -10,6 +10,7 @@ export const EVENT_SECTIONS = [
   { label: "Stock & Barras", value: "logistics" },
   { label: "Entradas", value: "tickets" },
   { label: "Ventas", value: "metrics" },
+  { label: "Gastos", value: "expenses" },
 ] as const
 
 export type EventSectionValue = (typeof EVENT_SECTIONS)[number]["value"]
