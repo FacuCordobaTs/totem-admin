@@ -68,10 +68,10 @@ export function Sidebar({
           <Link
             to={homeHref}
             onClick={onNavigate}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#FF9500]/15 text-[17px] font-bold text-[#FF9500] transition-opacity active:opacity-70"
+            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl transition-opacity active:opacity-70"
             aria-label="Inicio"
           >
-            T
+            <img src="/logo.png" alt="Crow" className="h-full w-full object-cover" />
           </Link>
         </div>
 
@@ -142,10 +142,10 @@ export function Sidebar({
       <div className="flex h-16 items-center justify-center border-b border-zinc-200/50 dark:border-zinc-800/50">
         <Link
           to={homeHref}
-          className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#FF9500]/15 text-[17px] font-bold text-[#FF9500] transition-opacity active:opacity-70"
+          className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl transition-opacity active:opacity-70"
           aria-label="Inicio"
         >
-          T
+          <img src="/logo.png" alt="Crow" className="h-full w-full object-cover" />
         </Link>
       </div>
 

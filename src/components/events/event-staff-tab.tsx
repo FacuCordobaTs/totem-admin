@@ -5,11 +5,19 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type {
   EventAssignmentStaffRow,
+  EventBarsResponse,
   EventStaffListResponse,
 } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
   Table,
@@ -19,7 +27,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Users } from "lucide-react"
 
 function TableSkeleton() {
   return (
@@ -32,12 +39,12 @@ function TableSkeleton() {
 
 type Props = {
   eventId: string
-  embedded?: boolean
 }
 
-export function EventStaffTab({ eventId, embedded = false }: Props) {
+export function EventStaffTab({ eventId }: Props) {
   const token = useAuthStore((s) => s.token)
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
+  const [bars, setBars] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
@@ -47,14 +54,18 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const staffRes = await apiFetch<EventStaffListResponse>(
-        `/events/${eventId}/staff`,
-        {
+      const [staffRes, barsRes] = await Promise.all([
+        apiFetch<EventStaffListResponse>(`/events/${eventId}/staff`, {
           method: "GET",
           token,
-        }
-      )
+        }),
+        apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, {
+          method: "GET",
+          token,
+        }),
+      ])
       setRows(staffRes.staff)
+      setBars(barsRes.bars)
     } catch (e) {
       setRows([])
       setError(
@@ -122,13 +133,15 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
           : s
       )
     )
-    void postAssign(
-      {
-        staffId: member.id,
-        isAssigned: checked,
-      },
-      prevRows
-    )
+    void postAssign({ staffId: member.id, isAssigned: checked }, prevRows)
+  }
+
+  function onBarChange(member: EventAssignmentStaffRow, barId: string | null) {
+    if (pendingIds.has(member.id)) return
+    const prevRows = rows
+    addPending(member.id)
+    setRows((r) => r.map((s) => (s.id === member.id ? { ...s, barId } : s)))
+    void postAssign({ staffId: member.id, isAssigned: true, barId }, prevRows)
   }
 
   if (loading) {
@@ -145,29 +158,6 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
 
   return (
     <div className="space-y-8">
-      {!embedded ? (
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-            <Users className="h-6 w-6 text-[#FF9500]" />
-          </span>
-          <div>
-            <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-              Equipo
-            </p>
-            <h2 className="mt-1 text-[28px] font-bold tracking-tight text-black dark:text-white md:text-[34px]">
-              Turno en este evento
-            </h2>
-            <p className="mt-2 max-w-2xl text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-              Marcá quién trabaja el evento. La asignación a una barra física se hace desde{" "}
-              <span className="font-semibold text-black dark:text-white">
-                Barras → configuración → Personal
-              </span>
-              .
-            </p>
-          </div>
-        </div>
-      ) : null}
-
       {rows.length === 0 ? (
         <Card className="rounded-2xl border border-dashed border-zinc-200/50 bg-white dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
           <CardContent className="py-12 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]">
@@ -193,8 +183,11 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
                 <TableHead className="w-[120px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                   Rol
                 </TableHead>
-                <TableHead className="w-[160px] text-center text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="w-[140px] text-center text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
                   ¿Trabaja hoy?
+                </TableHead>
+                <TableHead className="w-[180px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  Barra asignada
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -227,6 +220,31 @@ export function EventStaffTab({ eventId, embedded = false }: Props) {
                           }
                         />
                       </div>
+                    </TableCell>
+                    <TableCell className="py-3">
+                      {member.isAssigned && bars.length > 0 ? (
+                        <Select
+                          value={member.barId ?? "none"}
+                          onValueChange={(v) =>
+                            onBarChange(member, v === "none" ? null : v)
+                          }
+                          disabled={busy}
+                        >
+                          <SelectTrigger className="h-8 w-[160px] rounded-xl border-zinc-200/50 bg-white text-[13px] dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+                            <SelectValue placeholder="Sin barra" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Sin barra</SelectItem>
+                            {bars.map((bar) => (
+                              <SelectItem key={bar.id} value={bar.id}>
+                                {bar.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">—</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 )

@@ -229,10 +229,6 @@ export function EventDashboardPage() {
               <Section title="Configuración de Ventas">
                 <EventSalesConfig event={event} onUpdated={loadEvent} />
               </Section>
-
-              <Section title="Personal">
-                <EventStaffTab eventId={id} embedded />
-              </Section>
             </div>
           )}
 
@@ -247,6 +243,12 @@ export function EventDashboardPage() {
               <Section title="Barras">
                 <EventBarsTab eventId={id} embedded />
               </Section>
+            </div>
+          )}
+
+          {activeTab === "staff" && (
+            <div className="px-6 py-8 sm:px-10 sm:py-10">
+              <EventStaffTab eventId={id} />
             </div>
           )}
 
