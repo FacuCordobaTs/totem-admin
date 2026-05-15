@@ -9,7 +9,7 @@ import type {
   EventExpensesResponse,
 } from "@/types/event-dashboard"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
