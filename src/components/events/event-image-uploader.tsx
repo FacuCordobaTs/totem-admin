@@ -9,9 +9,10 @@ import { cn } from "@/lib/utils"
 type Props = {
   event: ApiEvent
   onUpdated: () => void
+  compact?: boolean
 }
 
-export function EventImageUploader({ event, onUpdated }: Props) {
+export function EventImageUploader({ event, onUpdated, compact = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -91,81 +92,143 @@ export function EventImageUploader({ event, onUpdated }: Props) {
         </p>
       ) : null}
 
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-xl border-2 border-dashed border-zinc-600 bg-zinc-950",
-          "min-h-[200px] transition-colors duration-200",
-          !imageUrl && "flex flex-col items-center justify-center gap-4 px-6 py-14"
-        )}
-      >
-        {busy ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-            <Loader2 className="h-9 w-9 animate-spin text-[#FF9500]" aria-hidden />
-          </div>
-        ) : null}
+      {compact ? (
+        <div className="relative w-full" style={{ aspectRatio: "9/16" }}>
+          <div
+            className={cn(
+              "absolute inset-0 overflow-hidden rounded-xl border-2 border-dashed border-zinc-600 bg-zinc-950",
+              !imageUrl && "flex flex-col items-center justify-center gap-3"
+            )}
+          >
+            {busy ? (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+                <Loader2 className="h-8 w-8 animate-spin text-[#FF9500]" aria-hidden />
+              </div>
+            ) : null}
 
-        {imageUrl ? (
-          <>
-            <img
-              src={imageUrl}
-              alt={event.name}
-              className="max-h-[320px] w-full object-cover"
-              loading="lazy"
-              decoding="async"
-            />
-            <div className="absolute right-3 top-3 flex gap-2">
+            {imageUrl ? (
+              <>
+                <img
+                  src={imageUrl}
+                  alt={event.name}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <div className="absolute right-2 top-2 flex flex-col gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy || !token}
+                    onClick={pickFile}
+                    className="h-8 rounded-lg border border-zinc-600 bg-zinc-900/90 text-[12px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-zinc-800"
+                  >
+                    <Upload className="mr-1 h-3 w-3" />
+                    Cambiar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={busy || !token}
+                    onClick={() => void remove()}
+                    className="h-8 rounded-lg bg-red-600/95 text-[12px] font-semibold text-white shadow-lg hover:bg-red-600"
+                  >
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    Quitar
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <ImagePlus className="h-8 w-8 text-zinc-600" strokeWidth={1.25} aria-hidden />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || !token}
+                  onClick={pickFile}
+                  className="h-8 rounded-lg bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90"
+                >
+                  Subir flyer
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "relative overflow-hidden rounded-xl border-2 border-dashed border-zinc-600 bg-zinc-950",
+            "min-h-[200px] transition-colors duration-200",
+            !imageUrl && "flex flex-col items-center justify-center gap-4 px-6 py-14"
+          )}
+        >
+          {busy ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+              <Loader2 className="h-9 w-9 animate-spin text-[#FF9500]" aria-hidden />
+            </div>
+          ) : null}
+
+          {imageUrl ? (
+            <>
+              <img
+                src={imageUrl}
+                alt={event.name}
+                className="max-h-[320px] w-full object-cover"
+                loading="lazy"
+                decoding="async"
+              />
+              <div className="absolute right-3 top-3 flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy || !token}
+                  onClick={pickFile}
+                  className="h-9 rounded-lg border border-zinc-600 bg-zinc-900/90 text-[13px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-zinc-800"
+                >
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  Cambiar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={busy || !token}
+                  onClick={() => void remove()}
+                  className="h-9 rounded-lg bg-red-600/95 text-[13px] font-semibold text-white shadow-lg hover:bg-red-600"
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  Quitar
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-700 bg-black">
+                <ImagePlus className="h-7 w-7 text-zinc-400" strokeWidth={1.25} aria-hidden />
+              </div>
+              <div className="text-center">
+                <p className="text-[15px] font-semibold tracking-tight text-white">
+                  Imagen del evento
+                </p>
+                <p className="mt-1 max-w-sm text-[13px] text-zinc-500">
+                  JPEG, PNG, WebP o GIF · máx. 5 MB
+                </p>
+              </div>
               <Button
                 type="button"
-                size="sm"
-                variant="secondary"
                 disabled={busy || !token}
                 onClick={pickFile}
-                className="h-9 rounded-lg border border-zinc-600 bg-zinc-900/90 text-[13px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-zinc-800"
+                className="h-11 rounded-xl bg-[#FF9500] px-6 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
               >
-                <Upload className="mr-1.5 h-3.5 w-3.5" />
-                Cambiar
+                Subir imagen
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={busy || !token}
-                onClick={() => void remove()}
-                className="h-9 rounded-lg bg-red-600/95 text-[13px] font-semibold text-white shadow-lg hover:bg-red-600"
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                Quitar
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-700 bg-black">
-              <ImagePlus className="h-7 w-7 text-zinc-400" strokeWidth={1.25} aria-hidden />
-            </div>
-            <div className="text-center">
-              <p className="text-[15px] font-semibold tracking-tight text-white">
-                Imagen del evento
-              </p>
-              <p className="mt-1 max-w-sm text-[13px] text-zinc-500">
-                JPEG, PNG, WebP o GIF · máx. 5 MB
-              </p>
-            </div>
-            <Button
-              type="button"
-              disabled={busy || !token}
-              onClick={pickFile}
-              className="h-11 rounded-xl bg-[#FF9500] px-6 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
-            >
-              Subir imagen
-            </Button>
-          </>
-        )}
-      </div>
-
-      {imageUrl ? (
-        <p className="break-all text-center text-[11px] text-zinc-500">{imageUrl}</p>
-      ) : null}
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

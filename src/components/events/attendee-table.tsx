@@ -63,18 +63,18 @@ type TicketsResponse = { tickets: ApiTicketRow[] }
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 
 const filterTriggerClass =
-  "h-10 min-w-[140px] rounded-xl border-transparent bg-white px-3 text-[14px] text-foreground shadow-none dark:bg-[#1C1C1E]"
+  "h-10 min-w-[140px] rounded-xl border-white/[0.1] bg-white/[0.05] px-3 text-[14px] text-foreground shadow-none"
 
 function emailSentBadge(emailSentAt: string | null) {
   if (emailSentAt != null && emailSentAt !== "") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/45">
         Email Enviado
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+    <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/45">
       Email Pendiente
     </span>
   )
@@ -84,19 +84,19 @@ function statusPill(status: ApiTicketRow["status"]) {
   switch (status) {
     case "PENDING":
       return (
-        <span className="inline-flex rounded-full bg-[#FF9500]/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#FF9500]">
-          Emitida
+        <span className="text-[11px] font-normal lowercase text-white/40">
+          emitida
         </span>
       )
     case "USED":
       return (
-        <span className="inline-flex rounded-full bg-zinc-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-          Usada
+        <span className="text-[11px] font-normal lowercase text-white/20">
+          usada
         </span>
       )
     case "CANCELLED":
       return (
-        <span className="inline-flex rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+        <span className="inline-flex rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-500">
           Cancelada
         </span>
       )
@@ -347,7 +347,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               placeholder="Buscar asistente"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-11 rounded-xl border-transparent bg-background pl-10 text-[15px] shadow-none placeholder:text-[#8E8E93] focus-visible:ring-1 focus-visible:ring-[#FF9500]/40"
+              className="h-11 rounded-xl border-white/[0.1] bg-white/[0.05] pl-10 text-[15px] shadow-none placeholder:text-white/30 focus-visible:border-white/20 focus-visible:ring-0"
             />
           </div>
           <div className="flex gap-2">
@@ -388,17 +388,20 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
         ) : null}
 
         {/* Lista grouped-inset: sin bordes pesados, divisor con sangría */}
-        <div className="overflow-hidden rounded-2xl bg-background">
+        <div className="overflow-hidden rounded-2xl ">
           <Table>
             <TableHeader>
-              <TableRow className="border-b border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
-                <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+              <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                <TableHead className="w-12 pl-4 text-[11px] font-normal lowercase text-white/45">
+                  Nº
+                </TableHead>
+                <TableHead className="pl-6 text-[11px] font-normal lowercase text-white/45">
                   Asistente
                 </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Tipo
                 </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Estado
                 </TableHead>
                 <TableHead className="w-12 pr-4" />
@@ -408,30 +411,33 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               <TableBody>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <TableRow key={i} className="border-0 hover:bg-transparent">
-                    <TableCell className="pl-6 py-4" colSpan={4}>
+                    <TableCell className="pl-6 py-4" colSpan={5}>
                       <div className="h-5 animate-pulse rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60" />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             ) : (
-              <TableBody className="[&>tr:not(:first-child)>td:not(:first-child)]:border-t [&>tr:not(:first-child)>td]:border-zinc-200/50 dark:[&>tr:not(:first-child)>td]:border-zinc-800/50">
+              <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
                 {filtered.length === 0 ? (
                   <TableRow className="border-0 hover:bg-transparent">
                     <TableCell
-                      colSpan={4}
+                      colSpan={5}
                       className="py-14 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]"
                     >
                       Sin resultados
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((t) => (
+                  filtered.map((t, index) => (
                     <TableRow
                       key={t.id}
                       onClick={() => setDetail(t)}
-                      className="group cursor-pointer border-0 transition-colors duration-150 hover:bg-[#F2F2F7]/80 dark:hover:bg-zinc-800/30"
+                      className="group cursor-pointer border-0 transition-colors duration-150 hover:bg-white/[0.03]"
                     >
+                      <TableCell className="pl-4 py-3.5 font-mono text-[12px] tabular-nums text-zinc-400 dark:text-zinc-600">
+                        {filtered.length - index}
+                      </TableCell>
                       <TableCell className="pl-6 py-3.5 text-[15px] font-medium text-foreground">
                         {t.buyerName ?? "—"}
                       </TableCell>
@@ -465,11 +471,11 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
         >
           <SheetContent
             side="right"
-            className="w-full gap-0 border-l border-zinc-200/50 bg-background p-0 shadow-none ring-0 dark:border-zinc-800/50 sm:max-w-md"
+            className="w-full gap-0 border-l border-white/[0.06] bg-[#0a0a0a] p-0 shadow-none ring-0 sm:max-w-md"
           >
             {detail ? (
               <>
-                <SheetHeader className="border-zinc-200/50 dark:border-zinc-800/50">
+                <SheetHeader className="border-white/[0.06]">
                   <SheetTitle className="text-xl font-bold tracking-tight text-foreground">
                     {detail.buyerName ?? "Sin nombre"}
                   </SheetTitle>
@@ -506,7 +512,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   />
                 </div>
 
-                <div className="space-y-2 border-t border-zinc-200/50 p-4 dark:border-zinc-800/50">
+                <div className="space-y-2 border-t border-white/[0.06] p-4">
                   <Button
                     type="button"
                     onClick={() => {
@@ -529,21 +535,21 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                     onClick={() => {
                       void handleSendQrEmail()
                     }}
-                    className="h-11 w-full gap-2 rounded-xl border-zinc-300 bg-white text-[15px] font-semibold text-foreground dark:border-zinc-600 dark:bg-zinc-800"
+                    className="h-11 w-full gap-2 rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 hover:border-white/25"
                   >
                     <Mail className="h-4 w-4 shrink-0" />
                     {actionLoading === "email" ? "Enviando…" : "Enviar QR por Email"}
                   </Button>
                   <Button
                     type="button"
-                    variant="destructive"
+                    variant="ghost"
                     disabled={
                       actionLoading !== null ||
                       detail.status === "USED" ||
                       detail.status === "CANCELLED"
                     }
                     onClick={() => setCancelConfirmOpen(true)}
-                    className="h-11 w-full gap-2 rounded-xl text-[15px] font-semibold"
+                    className="h-11 w-full gap-2 rounded-xl text-[15px] font-semibold text-red-500/70 hover:bg-red-500/10 hover:text-red-500"
                   >
                     <Ban className="h-4 w-4 shrink-0" />
                     {actionLoading === "cancel" ? "Anulando…" : "Anular Entrada"}
@@ -555,7 +561,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
         </Sheet>
 
         <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
-          <DialogContent className="rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+          <DialogContent className="rounded-2xl border border-white/[0.08] bg-[#111111]">
             <DialogHeader>
               <DialogTitle className="text-lg font-semibold text-foreground">
                 Anular entrada
@@ -569,7 +575,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-xl border-zinc-200/50 dark:border-zinc-700"
+                className="rounded-xl border-white/[0.15] bg-transparent text-white/70 hover:border-white/25"
                 disabled={actionLoading === "cancel"}
                 onClick={() => setCancelConfirmOpen(false)}
               >

@@ -39,9 +39,10 @@ function TableSkeleton() {
 
 type Props = {
   eventId: string
+  eventStatus?: "draft" | "active" | "finished"
 }
 
-export function EventStaffTab({ eventId }: Props) {
+export function EventStaffTab({ eventId, eventStatus }: Props) {
   const token = useAuthStore((s) => s.token)
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
   const [bars, setBars] = useState<{ id: string; name: string }[]>([])
@@ -159,7 +160,7 @@ export function EventStaffTab({ eventId }: Props) {
   return (
     <div className="space-y-8">
       {rows.length === 0 ? (
-        <Card className="rounded-2xl border border-dashed border-zinc-200/50 bg-white dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+        <Card className="rounded-2xl ">
           <CardContent className="py-12 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]">
             No hay personal activo en la Productora. Gestioná el equipo en{" "}
             <Button
@@ -173,20 +174,22 @@ export function EventStaffTab({ eventId }: Props) {
           </CardContent>
         </Card>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50">
+        <div className="overflow-hidden rounded-2xl ">
           <Table>
             <TableHeader>
-              <TableRow className="border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
-                <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+              <TableRow className="border-white/[0.06] hover:bg-transparent">
+                <TableHead className="pl-6 text-[11px] font-normal lowercase text-white/45">
                   Nombre
                 </TableHead>
-                <TableHead className="w-[120px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="w-[120px] text-[11px] font-normal lowercase text-white/45">
                   Rol
                 </TableHead>
-                <TableHead className="w-[140px] text-center text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                  ¿Trabaja hoy?
+                {eventStatus === "active" || eventStatus == null ? (
+                <TableHead className="w-[140px] text-center text-[11px] font-normal lowercase text-white/45">
+                  ¿trabaja hoy?
                 </TableHead>
-                <TableHead className="w-[180px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                ) : null}
+                <TableHead className="w-[180px] text-[11px] font-normal lowercase text-white/45">
                   Barra asignada
                 </TableHead>
               </TableRow>
@@ -197,16 +200,17 @@ export function EventStaffTab({ eventId }: Props) {
                 return (
                   <TableRow
                     key={member.id}
-                    className="border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
+                    className="border-white/[0.06] transition-colors duration-200 hover:bg-white/[0.03]"
                   >
                     <TableCell className="pl-6 py-3.5 font-semibold text-black dark:text-white">
                       {member.name}
                     </TableCell>
                     <TableCell className="py-3.5">
-                      <span className="inline-flex rounded-md bg-zinc-500/10 px-2 py-0.5 text-[11px] font-semibold text-[#8E8E93] dark:text-[#98989D]">
+                      <span className="inline-flex rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold text-white/45">
                         {staffRoleLabel(member.role)}
                       </span>
                     </TableCell>
+                    {(eventStatus === "active" || eventStatus == null) ? (
                     <TableCell className="py-3.5 text-center">
                       <div className="flex justify-center">
                         <Switch
@@ -221,6 +225,7 @@ export function EventStaffTab({ eventId }: Props) {
                         />
                       </div>
                     </TableCell>
+                    ) : null}
                     <TableCell className="py-3">
                       {member.isAssigned && bars.length > 0 ? (
                         <Select
@@ -230,7 +235,7 @@ export function EventStaffTab({ eventId }: Props) {
                           }
                           disabled={busy}
                         >
-                          <SelectTrigger className="h-8 w-[160px] rounded-xl border-zinc-200/50 bg-white text-[13px] dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+                          <SelectTrigger className="h-8 w-[160px] rounded-xl border-white/[0.12]  text-[13px]">
                             <SelectValue placeholder="Sin barra" />
                           </SelectTrigger>
                           <SelectContent>

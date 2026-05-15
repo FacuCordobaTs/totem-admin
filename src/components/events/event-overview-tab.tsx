@@ -18,7 +18,6 @@ import {
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type {
-  EventMenuProductsResponse,
   EventSaleRowApi,
   EventSalesPageResponse,
   EventSummaryResponse,
@@ -28,7 +27,7 @@ import { cn } from "@/lib/utils"
 const SALES_PAGE_SIZE = 50
 
 const cardClass =
-  "rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50 "
+  "rounded-2xl  "
 
 type SaleStatus = "PENDING" | "PAYMENT_FAILED" | "COMPLETED" | "REFUNDED"
 
@@ -53,17 +52,6 @@ type SaleDetailItem = {
 type SaleDetailResponse = {
   sale: SaleDetailSale
   items: SaleDetailItem[]
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-background p-6">
-      <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">{label}</p>
-      <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-foreground">
-        {value}
-      </p>
-    </div>
-  )
 }
 
 function formatMoneyArs(value: string): string {
@@ -134,27 +122,21 @@ function statusLabel(status: SaleStatus | null): string {
 
 function paymentMethodBadge(method: EventSaleRowApi["paymentMethod"]) {
   return (
-    <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+    <span className="inline-flex rounded-full bg-white/[0.07] px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/45">
       {paymentMethodLabel(method)}
     </span>
   )
 }
 
 function statusBadge(status: SaleStatus | null) {
-  const map: Record<SaleStatus, string> = {
-    COMPLETED: "bg-[#34C759]/15 text-[#34C759]",
-    PENDING: "bg-[#FF9500]/15 text-[#FF9500]",
-    PAYMENT_FAILED: "bg-[#FF3B30]/15 text-[#FF3B30]",
-    REFUNDED: "bg-[#8E8E93]/15 text-[#8E8E93] dark:text-[#98989D]",
-  }
-  const cls = status
-    ? map[status]
-    : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+  const isError = status === "PAYMENT_FAILED"
   return (
     <span
       className={cn(
         "inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide",
-        cls
+        isError
+          ? "bg-red-500/15 text-red-500"
+          : "bg-white/[0.07] text-white/45"
       )}
     >
       {statusLabel(status)}
@@ -163,32 +145,11 @@ function statusBadge(status: SaleStatus | null) {
 }
 
 function sourceBadge(source: EventSaleRowApi["source"]) {
-  switch (source) {
-    case "POS":
-      return (
-        <span className="inline-flex rounded-full bg-zinc-200 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100">
-          POS
-        </span>
-      )
-    case "APP":
-      return (
-        <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-          APP
-        </span>
-      )
-    case "WEB":
-      return (
-        <span className="inline-flex rounded-full bg-[#FF9500]/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#FF9500]">
-          WEB
-        </span>
-      )
-    default:
-      return (
-        <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {source}
-        </span>
-      )
-  }
+  return (
+    <span className="inline-flex rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/45">
+      {source}
+    </span>
+  )
 }
 
 function DetailRow({
@@ -235,9 +196,6 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
   const [salesLoadingMore, setSalesLoadingMore] = useState(false)
   const [salesError, setSalesError] = useState<string | null>(null)
 
-  const [menuProducts, setMenuProducts] = useState<{ id: string; name: string }[]>([])
-  const [menuLoading, setMenuLoading] = useState(true)
-
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null)
   const [saleDetail, setSaleDetail] = useState<SaleDetailResponse | null>(null)
   const [saleDetailLoading, setSaleDetailLoading] = useState(false)
@@ -283,26 +241,6 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
     }
   }, [token, eventId, refreshTrigger])
 
-  const loadMenu = useCallback(async () => {
-    if (!token) return
-    setMenuLoading(true)
-    try {
-      const res = await apiFetch<EventMenuProductsResponse>(
-        `/events/${eventId}/products`,
-        { method: "GET", token }
-      )
-      const list = res.products
-        .filter((p) => p.isActiveForEvent && p.catalogIsActive !== false)
-        .map((p) => ({ id: p.id, name: p.name }))
-        .sort((a, b) => a.name.localeCompare(b.name))
-      setMenuProducts(list)
-    } catch {
-      setMenuProducts([])
-    } finally {
-      setMenuLoading(false)
-    }
-  }, [token, eventId, refreshTrigger])
-
   useEffect(() => {
     void loadSummary()
   }, [loadSummary])
@@ -310,10 +248,6 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
   useEffect(() => {
     void loadSalesInitial()
   }, [loadSalesInitial])
-
-  useEffect(() => {
-    void loadMenu()
-  }, [loadMenu])
 
   useEffect(() => {
     if (!selectedSaleId || !token) {
@@ -374,54 +308,42 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
       {summaryError ? (
         <p className="text-base text-red-600 dark:text-red-400">{summaryError}</p>
       ) : null}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <StatCard
-          label="Ingresos en barras"
-          value={
-            summaryLoading
-              ? "…"
-              : formatMoneyArs(summary?.barProductRevenue ?? summary?.totalRevenue ?? "0")
-          }
-        />
-        <StatCard
-          label="Consumos"
-          value={summaryLoading ? "…" : String(summary?.digitalConsumptionsSold ?? "—")}
-        />
-      </div>
+      {summaryLoading ? (
+        <div className="h-10 animate-pulse rounded-xl bg-zinc-200/50 dark:bg-zinc-700/50" />
+      ) : summary ? (
+        <FinancialEquation summary={summary} />
+      ) : null}
 
-      <div className="grid gap-8 lg:grid-cols-3 lg:items-start">
-        <div className="space-y-8 lg:col-span-2">
+      <div className="space-y-8">
+        <div className="space-y-8">
           <section className={cn(cardClass, "overflow-hidden")}>
-            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+            <div className="border-b border-white/[0.06] p-6">
               <h3 className="text-2xl font-bold tracking-tight text-foreground">
                 Últimas ventas
               </h3>
-              <p className="mt-1 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                Tocá una fila para ver el detalle completo de la venta.
-              </p>
             </div>
             <div className="p-5 pt-4">
               {salesError ? (
-                <p className="text-base text-red-600 dark:text-red-400">{salesError}</p>
+                <p className="text-base text-red-400">{salesError}</p>
               ) : (
                 <>
-                  <div className="overflow-hidden rounded-xl border border-zinc-200/50 dark:border-zinc-800/50">
+                  <div className="overflow-hidden rounded-xl">
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
-                          <TableHead className="w-[72px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                        <TableRow className="border-white/[0.06] hover:bg-transparent">
+                          <TableHead className="w-[72px] text-[11px] font-normal lowercase text-white/45">
                             Nº
                           </TableHead>
-                          <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                          <TableHead className="text-[11px] font-normal lowercase text-white/45">
                             Cliente
                           </TableHead>
-                          <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                          <TableHead className="text-[11px] font-normal lowercase text-white/45">
                             Hora
                           </TableHead>
-                          <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                          <TableHead className="text-[11px] font-normal lowercase text-white/45">
                             Origen
                           </TableHead>
-                          <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                          <TableHead className="text-right text-[11px] font-normal lowercase text-white/45">
                             Total
                           </TableHead>
                         </TableRow>
@@ -457,7 +379,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                               <TableRow
                                 key={s.id}
                                 onClick={() => setSelectedSaleId(s.id)}
-                                className="cursor-pointer border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
+                                className="cursor-pointer border-white/[0.06] transition-colors duration-200 hover:bg-white/[0.03]"
                               >
                                 <TableCell className="py-3 font-mono text-[13px] tabular-nums text-[#8E8E93] dark:text-[#98989D]">
                                   #{sales.length - index}
@@ -495,7 +417,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                         variant="outline"
                         disabled={salesLoadingMore}
                         onClick={() => void loadMoreSales()}
-                        className="h-10 rounded-xl border-zinc-200/50 px-6 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                        className="h-10 rounded-xl border-white/[0.15] bg-transparent px-6 text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
                       >
                         {salesLoadingMore ? "Cargando…" : "Cargar más"}
                       </Button>
@@ -506,41 +428,6 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
             </div>
           </section>
         </div>
-
-        <section className={cn(cardClass, "lg:sticky lg:top-6 lg:self-start")}>
-          <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
-            <h3 className="text-2xl font-bold tracking-tight text-foreground">
-              Menú activo
-            </h3>
-          </div>
-          <div className="p-5 pt-4">
-            {menuLoading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-7 animate-pulse rounded-lg bg-zinc-200/50 dark:bg-zinc-700/50"
-                  />
-                ))}
-              </div>
-            ) : menuProducts.length === 0 ? (
-              <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-                Ningún producto activo. Activá ítems en Inventario del evento.
-              </p>
-            ) : (
-              <ul className="max-h-[min(50vh,420px)] divide-y divide-zinc-200/50 overflow-y-auto rounded-xl border border-zinc-200/50 dark:divide-zinc-800/50 dark:border-zinc-800/50">
-                {menuProducts.map((p) => (
-                  <li
-                    key={p.id}
-                    className="px-4 py-3 text-[17px] font-medium leading-snug text-black dark:text-white"
-                  >
-                    {p.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
       </div>
 
       <Sheet
@@ -549,8 +436,8 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
           if (!open) setSelectedSaleId(null)
         }}
       >
-        <SheetContent className="bg-white dark:border-zinc-800/50 dark:bg-background">
-          <SheetHeader className="border-b border-zinc-200/50 px-6 py-4 dark:border-zinc-800/50">
+        <SheetContent className="border-l border-white/[0.06] bg-[#0a0a0a]">
+          <SheetHeader className="border-b border-white/[0.06] px-6 py-4">
             <SheetTitle className="text-[17px] font-semibold tracking-tight text-foreground">
               Detalle de venta
             </SheetTitle>
@@ -586,8 +473,8 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
             </div>
           ) : saleDetail ? (
             <div className="flex-1 overflow-y-auto">
-              <div className="border-b border-zinc-200/50 px-6 py-6 dark:border-zinc-800/50">
-                <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+              <div className="border-b border-white/[0.06] px-6 py-6">
+                <p className="text-[13px] font-normal lowercase text-white/45">
                   Total
                 </p>
                 <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-foreground">
@@ -600,7 +487,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                 </div>
               </div>
 
-              <div className="border-b border-zinc-200/50 px-6 py-3 dark:border-zinc-800/50">
+              <div className="border-b border-white/[0.06] px-6 py-3">
                 <DetailRow
                   label="Fecha"
                   value={formatDateTimeFull(saleDetail.sale.createdAt)}
@@ -626,7 +513,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
               </div>
 
               <div className="px-6 py-5">
-                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <p className="mb-3 text-[11px] font-normal lowercase text-white/45">
                   Productos
                 </p>
                 {saleDetail.items.length === 0 ? (
@@ -634,7 +521,7 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
                     Esta venta no tiene productos asociados.
                   </p>
                 ) : (
-                  <ul className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
+                  <ul className="divide-y divide-white/[0.06]">
                     {saleDetail.items.map((item, i) => (
                       <li
                         key={`${item.productName}-${i}`}
@@ -665,6 +552,72 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
           )}
         </SheetContent>
       </Sheet>
+    </div>
+  )
+}
+
+function formatMoneyShort(value: string | null | undefined): string {
+  if (value == null) return "—"
+  const n = Number.parseFloat(value)
+  if (Number.isNaN(n)) return "—"
+  const isInt = Number.isInteger(n)
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    minimumFractionDigits: isInt ? 0 : 2,
+    maximumFractionDigits: isInt ? 0 : 2,
+  }).format(n)
+}
+
+function FinancialEquation({ summary }: { summary: EventSummaryResponse }) {
+  const netNum = summary.netProfit != null ? Number.parseFloat(summary.netProfit) : NaN
+  const netPositive = !Number.isNaN(netNum) && netNum >= 0
+
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 rounded-2xl  px-5 py-4 text-[14px]">
+      <a href="#entradas" className="group inline-flex items-baseline gap-1.5 hover:underline">
+        <span className="text-[#8E8E93] dark:text-[#98989D]">Entradas</span>
+        <span className="font-semibold tabular-nums text-foreground">
+          {formatMoneyShort(summary.ticketRevenue)}
+        </span>
+      </a>
+      <span className="text-[#8E8E93] dark:text-[#98989D]">+</span>
+      <a href="#bar" className="group inline-flex items-baseline gap-1.5 hover:underline">
+        <span className="text-[#8E8E93] dark:text-[#98989D]">Bar</span>
+        <span className="font-semibold tabular-nums text-foreground">
+          {formatMoneyShort(summary.barSalesRevenue)}
+        </span>
+      </a>
+      <span className="text-[#8E8E93] dark:text-[#98989D]">=</span>
+      <span className="inline-flex items-baseline gap-1.5">
+        <span className="text-[#8E8E93] dark:text-[#98989D]">Ingresos</span>
+        <span className="font-bold tabular-nums text-foreground">
+          {formatMoneyShort(summary.grossRevenue)}
+        </span>
+      </span>
+      {summary.canViewFinancials ? (
+        <>
+          <span className="text-[#8E8E93] dark:text-[#98989D]">—</span>
+          <span className="inline-flex items-baseline gap-1.5">
+            <span className="text-[#8E8E93] dark:text-[#98989D]">Gastos</span>
+            <span className="font-semibold tabular-nums text-red-600 dark:text-red-400">
+              {formatMoneyShort(summary.totalExpenses)}
+            </span>
+          </span>
+          <span className="text-[#8E8E93] dark:text-[#98989D]">=</span>
+          <span className="inline-flex items-baseline gap-1.5">
+            <span className="text-[#8E8E93] dark:text-[#98989D]">Resultado neto</span>
+            <span
+              className={cn(
+                "font-bold tabular-nums",
+                netPositive ? "text-white" : "text-red-500"
+              )}
+            >
+              {formatMoneyShort(summary.netProfit)}
+            </span>
+          </span>
+        </>
+      ) : null}
     </div>
   )
 }

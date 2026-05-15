@@ -37,7 +37,19 @@ type TicketTypesProps = {
 }
 
 const inputClass =
-  "h-11 rounded-xl border border-zinc-200/50 bg-[#F2F2F7] px-4 text-[17px] transition-all duration-200 focus-visible:ring-[#FF9500] dark:border-zinc-800/50 dark:bg-black dark:text-white"
+  "h-11 rounded-xl border border-white/[0.1] bg-white/[0.05] px-4 text-[17px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
+
+function formatTicketPrice(price: string | number): string {
+  const n = typeof price === "string" ? Number.parseFloat(price) : price
+  if (Number.isNaN(n)) return "—"
+  return (
+    "$ " +
+    new Intl.NumberFormat("es-AR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(Math.round(n))
+  )
+}
 
 export function TicketTypes({
   eventId,
@@ -142,22 +154,22 @@ export function TicketTypes({
             {ticket.name}
           </h3>
           {isSoldOut ? (
-            <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#FF9500]">
+            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
               Agotado
             </span>
           ) : null}
         </div>
-        <p className="mt-0.5 text-sm text-[#8E8E93] dark:text-[#98989D]">
-          ${Number(ticket.price).toFixed(2)}
+        <p className="mt-0.5 text-[14px] font-medium text-foreground">
+          {formatTicketPrice(ticket.price)}
         </p>
         <div className="mt-2 w-full">
-          <div className="mb-1 flex items-center justify-between text-[10px] font-medium uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-            <span>{limit == null ? `${sold} emitidas` : `${sold}/${limit}`}</span>
-            <span>{limit == null ? "∞" : `${percentage.toFixed(0)}%`}</span>
+          <div className="mb-1 flex items-center justify-between text-[12px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+            <span>{limit == null ? `${sold} emitidas · sin límite` : `${sold} / ${limit}`}</span>
+            {limit != null ? <span>{percentage.toFixed(0)}%</span> : null}
           </div>
           <Progress
             value={limit == null ? (sold > 0 ? 100 : 8) : percentage}
-            className="h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-700 [&>div]:rounded-full [&>div]:bg-[#FF9500]"
+            className="h-1.5 overflow-hidden rounded-full bg-white/10 [&>div]:rounded-full [&>div]:bg-white/50"
           />
         </div>
       </>
@@ -174,7 +186,7 @@ export function TicketTypes({
       >
         <h2
           className={cn(
-            "font-bold tracking-tight text-foreground",
+            "font-medium tracking-tight text-foreground",
             isCompact ? "text-2xl" : "text-2xl"
           )}
         >
@@ -197,12 +209,12 @@ export function TicketTypes({
 
       <div
         className={cn(
-          "rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50",
+          "rounded-2xl",
           isCompact ? "mt-0" : "mt-4"
         )}
       >
         {error ? (
-          <p className="border-b border-zinc-200/50 p-4 text-[15px] text-red-600 dark:border-zinc-800/50 dark:text-red-400">
+          <p className="border-b border-white/[0.06] p-4 text-[15px] text-red-400">
             {error}
           </p>
         ) : null}
@@ -217,14 +229,14 @@ export function TicketTypes({
             {types.map((ticket) => (
               <div
                 key={ticket.id}
-                className="rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/50 p-3 dark:border-zinc-800/50 dark:bg-black/25"
+                className="rounded-xl p-3"
               >
                 <CompactTypeCard ticket={ticket} />
               </div>
             ))}
           </div>
         ) : (
-          <div className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
+          <div className="divide-y divide-white/[0.06]">
             {types.map((ticket) => {
               const limit = ticket.stockLimit
               const sold = ticket.sold
@@ -243,25 +255,25 @@ export function TicketTypes({
                         {ticket.name}
                       </h3>
                       {isSoldOut ? (
-                        <span className="rounded-full bg-[#FF9500]/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#FF9500]">
+                        <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/50">
                           Agotado
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-0.5 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-                      ${Number(ticket.price).toFixed(2)}
+                    <p className="mt-0.5 text-[15px] font-medium text-foreground">
+                      {formatTicketPrice(ticket.price)}
                     </p>
                   </div>
                   <div className="w-full sm:w-44">
-                    <div className="mb-1 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    <div className="mb-1 flex items-center justify-between text-[12px] font-medium text-[#8E8E93] dark:text-[#98989D]">
                       <span>
-                        {limit == null ? `${sold} emitidas` : `${sold}/${limit}`}
+                        {limit == null ? `${sold} emitidas · sin límite` : `${sold} / ${limit}`}
                       </span>
-                      <span>{limit == null ? "∞" : `${percentage.toFixed(0)}%`}</span>
+                      {limit != null ? <span>{percentage.toFixed(0)}%</span> : null}
                     </div>
                     <Progress
                       value={limit == null ? (sold > 0 ? 100 : 8) : percentage}
-                      className="h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-700 [&>div]:rounded-full [&>div]:bg-[#FF9500]"
+                      className="h-1.5 overflow-hidden rounded-full bg-white/10 [&>div]:rounded-full [&>div]:bg-white/50"
                     />
                   </div>
                 </div>
@@ -274,12 +286,12 @@ export function TicketTypes({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           showCloseButton
-          className="max-h-[min(90vh,800px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-background p-0 sm:max-w-lg dark:border-zinc-800/50"
+          className="max-h-[min(90vh,800px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-lg"
         >
-          <div className="border-b border-zinc-200/50 px-5 py-5 dark:border-zinc-800/50">
+          <div className="border-b border-white/[0.06] px-5 py-5">
             <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                <Plus className="h-6 w-6 text-[#FF9500]" />
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+                <Plus className="h-6 w-6 text-white/30" />
               </span>
               <DialogHeader className="flex-1 gap-1 text-left sm:text-left">
                 <DialogTitle className="text-[20px] font-bold tracking-tight text-black dark:text-white">
@@ -304,7 +316,7 @@ export function TicketTypes({
               ) : null}
               <div className="space-y-2">
                 <label
-                  className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                  className="text-[13px] font-normal text-white/45"
                   htmlFor="tt-name"
                 >
                   Nombre
@@ -320,7 +332,7 @@ export function TicketTypes({
               </div>
               <div className="space-y-2">
                 <label
-                  className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                  className="text-[13px] font-normal text-white/45"
                   htmlFor="tt-price"
                 >
                   Precio
@@ -337,7 +349,7 @@ export function TicketTypes({
               </div>
               <div className="space-y-2">
                 <label
-                  className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                  className="text-[13px] font-normal text-white/45"
                   htmlFor="tt-stock"
                 >
                   Tope de stock (opcional)
@@ -353,7 +365,7 @@ export function TicketTypes({
               </div>
             </div>
 
-            <div className="mt-auto border-t border-zinc-200/50 bg-[#F2F2F7]/80 p-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+            <div className="mt-auto border-t border-white/[0.06] bg-black/40 p-4">
               <DialogFooter className="flex-col gap-2 sm:flex-col">
                 <Button
                   type="submit"
@@ -366,7 +378,7 @@ export function TicketTypes({
                   type="button"
                   variant="outline"
                   onClick={() => setOpen(false)}
-                  className="h-11 w-full rounded-xl border-zinc-200/50 text-[17px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                  className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[17px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
                 >
                   Cancelar
                 </Button>

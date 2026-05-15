@@ -2,17 +2,19 @@ import { useCallback, useEffect, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { Beer, Loader2, Lock, Ticket, TrendingUp, Wallet } from "lucide-react"
+import { Lock, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-function formatMoneyArs(value: string): string {
-  const n = Number.parseFloat(value)
+function formatMoney(value: string | number | null | undefined): string {
+  if (value == null) return "—"
+  const n = typeof value === "string" ? Number.parseFloat(value) : value
   if (Number.isNaN(n)) return "—"
+  const isInt = Number.isInteger(n)
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: isInt ? 0 : 2,
+    maximumFractionDigits: isInt ? 0 : 2,
   }).format(n)
 }
 
@@ -55,8 +57,8 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
 
   if (loading) {
     return (
-      <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50">
-        <Loader2 className="h-8 w-8 animate-spin text-[#FF9500]" aria-hidden />
+      <div className="flex min-h-[160px] items-center justify-center rounded-2xl ">
+        <Loader2 className="h-6 w-6 animate-spin text-white/30" aria-hidden />
       </div>
     )
   }
@@ -74,209 +76,139 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
   const cap = data.ticketCapacity
   const doorPct = sold > 0 ? Math.min(100, Math.round((checked / sold) * 1000) / 10) : 0
 
+  const canjePct =
+    data.digitalConsumptionsGenerated > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (data.digitalConsumptionsRedeemed / data.digitalConsumptionsGenerated) * 1000
+          ) / 10
+        )
+      : 0
+
   const netNum = data.netProfit != null ? Number.parseFloat(data.netProfit) : NaN
   const netPositive = !Number.isNaN(netNum) && netNum >= 0
 
   return (
-    <div className="space-y-10">
-      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        {/* Total revenue */}
-        <article
-          className={cn(
-            "flex flex-col justify-between rounded-2xl border bg-background p-6 shadow-none transition-colors",
-            "border-emerald-500/20 dark:border-emerald-500/25"
-          )}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8E8E93] dark:text-[#98989D]">
-                Ingresos totales
-              </p>
-              <p className="mt-3 text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
-                {formatMoneyArs(data.grossRevenue)}
-              </p>
-            </div>
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <TrendingUp className="h-5 w-5" aria-hidden />
-            </span>
-          </div>
-          <p className="mt-6 text-[13px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-            Entradas y ventas registradas en el evento.
-          </p>
-        </article>
-
-        {/* Net profit */}
-        <article
-          className={cn(
-            "flex flex-col justify-between rounded-2xl border bg-background p-6",
-            data.canViewFinancials
-              ? netPositive
-                ? "border-[#FF9500]/25 dark:border-[#FF9500]/30"
-                : "border-red-500/20 dark:border-red-500/25"
-              : "border-zinc-200/50 dark:border-zinc-800/50"
-          )}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8E8E93] dark:text-[#98989D]">
-                Resultado neto
-              </p>
-              {data.canViewFinancials && data.netProfit != null ? (
-                <p
-                  className={cn(
-                    "mt-3 truncate text-2xl font-bold tabular-nums tracking-tight sm:text-3xl",
-                    netPositive ? "text-[#FF9500]" : "text-red-600 dark:text-red-400"
-                  )}
-                >
-                  {formatMoneyArs(data.netProfit)}
-                </p>
-              ) : (
-                <div className="mt-3 flex items-center gap-2 text-[15px] font-medium text-[#8E8E93] dark:text-[#98989D]">
-                  <Lock className="h-4 w-4 shrink-0" aria-hidden />
-                  <span>Restringido</span>
-                </div>
-              )}
-            </div>
-            <span
-              className={cn(
-                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                data.canViewFinancials
-                  ? netPositive
-                    ? "bg-[#FF9500]/10 text-[#FF9500]"
-                    : "bg-red-500/10 text-red-600 dark:text-red-400"
-                  : "bg-zinc-200/50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-              )}
-            >
-              <Wallet className="h-5 w-5" aria-hidden />
-            </span>
-          </div>
-          <p className="mt-6 text-[13px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-            {data.canViewFinancials
-              ? "Ingresos totales menos gastos del evento."
-              : "Solo administradores y gerentes ven gastos y beneficio neto."}
-          </p>
-        </article>
-
-        {/* Tickets */}
-        <article className="flex flex-col justify-between rounded-2xl border border-zinc-200/50 bg-background p-6 dark:border-zinc-800/50">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8E8E93] dark:text-[#98989D]">
-                Entradas
-              </p>
-              <p className="mt-3 text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
-                {cap != null ? (
-                  <>
-                    {formatInt(sold)}
-                    <span className="text-lg font-semibold text-[#8E8E93] dark:text-[#98989D]">
-                      {" "}
-                      / {formatInt(cap)}
-                    </span>
-                  </>
-                ) : (
-                  <>{formatInt(sold)}</>
-                )}
-              </p>
-            </div>
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-zinc-200/40 text-foreground dark:bg-zinc-800 dark:text-white">
-              <Ticket className="h-5 w-5" aria-hidden />
-            </span>
-          </div>
-          <p className="mt-2 text-[13px] font-medium tabular-nums text-[#8E8E93] dark:text-[#98989D]">
-            Ingresos por entradas: {formatMoneyArs(data.ticketRevenue)}
-          </p>
-          <p className="mt-1 text-[12px] leading-snug text-[#8E8E93] dark:text-[#98989D]">
-            Cifras de entradas excluyen canceladas.
-          </p>
-          <div className="mt-5 space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-              <span>Puerta</span>
-              <span className="tabular-nums">
-                {formatInt(checked)} / {formatInt(sold)} ingresados
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-[#FF9500] transition-[width] duration-500"
-                style={{ width: `${doorPct}%` }}
-                role="progressbar"
-                aria-valuenow={doorPct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              />
-            </div>
-          </div>
-        </article>
-
-        {/* Bar / consumos */}
-        <article className="flex flex-col justify-between rounded-2xl border border-zinc-200/50 bg-background p-6 dark:border-zinc-800/50">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8E8E93] dark:text-[#98989D]">
-                Bar & consumos
-              </p>
-              <p className="mt-3 text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
-                {formatInt(data.digitalConsumptionsGenerated)}
-              </p>
-            </div>
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-zinc-200/40 text-foreground dark:bg-zinc-800 dark:text-white">
-              <Beer className="h-5 w-5" aria-hidden />
-            </span>
-          </div>
-          <p className="mt-2 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-            Consumiciones digitales emitidas (no canceladas).
-          </p>
-          <p className="mt-3 text-[13px] font-medium tabular-nums text-[#8E8E93] dark:text-[#98989D]">
-            Ventas registradas: {formatMoneyArs(data.barSalesRevenue)}
-          </p>
-          <div className="mt-5 space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-              <span>Canje</span>
-              <span className="tabular-nums">
-                {formatInt(data.digitalConsumptionsRedeemed)} / {formatInt(data.digitalConsumptionsGenerated)}{" "}
-                canjeados
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-zinc-500 transition-[width] duration-500 dark:bg-zinc-400"
-                style={{
-                  width: `${
-                    data.digitalConsumptionsGenerated > 0
-                      ? Math.min(
-                          100,
-                          Math.round(
-                            (data.digitalConsumptionsRedeemed / data.digitalConsumptionsGenerated) *
-                              1000
-                          ) / 10
-                        )
-                      : 0
-                  }%`,
-                }}
-                role="progressbar"
-                aria-valuenow={
-                  data.digitalConsumptionsGenerated > 0
-                    ? Math.round(
-                        (data.digitalConsumptionsRedeemed / data.digitalConsumptionsGenerated) * 100
-                      )
-                    : 0
-                }
-                aria-valuemin={0}
-                aria-valuemax={100}
-              />
-            </div>
-          </div>
-        </article>
-      </div>
-
-      {data.canViewFinancials && data.totalExpenses != null ? (
-        <p className="text-center text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-          Gastos operativos acumulados:{" "}
-          <span className="font-semibold tabular-nums text-foreground">
-            {formatMoneyArs(data.totalExpenses)}
-          </span>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {/* Ingresos totales */}
+      <MetricCard label="ingresos totales">
+        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
+          {formatMoney(data.grossRevenue)}
         </p>
-      ) : null}
+      </MetricCard>
+
+      {/* Gastos operativos */}
+      <MetricCard label="gastos operativos">
+        {data.canViewFinancials && data.totalExpenses != null ? (
+          <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
+            {formatMoney(data.totalExpenses)}
+          </p>
+        ) : (
+          <RestrictedValue />
+        )}
+      </MetricCard>
+
+      {/* Resultado neto */}
+      <MetricCard label="resultado neto">
+        {data.canViewFinancials && data.netProfit != null ? (
+          <p
+            className={cn(
+              "text-2xl font-bold tabular-nums tracking-tight sm:text-3xl",
+              netPositive ? "text-white" : "text-red-500"
+            )}
+          >
+            {formatMoney(data.netProfit)}
+          </p>
+        ) : (
+          <RestrictedValue />
+        )}
+      </MetricCard>
+
+      {/* Entradas */}
+      <MetricCard label="entradas">
+        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
+          {cap != null ? (
+            <>
+              {formatInt(sold)}
+              <span className="text-lg font-medium text-[#8E8E93] dark:text-[#98989D]">
+                {" "}
+                / {formatInt(cap)}
+              </span>
+            </>
+          ) : (
+            formatInt(sold)
+          )}
+        </p>
+        <div className="mt-4 space-y-1.5">
+          <div className="flex items-center justify-between text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+            <span>Puerta</span>
+            <span className="tabular-nums">
+              {formatInt(checked)} / {formatInt(sold)}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-white/50 transition-[width] duration-500"
+              style={{ width: `${doorPct}%` }}
+              role="progressbar"
+              aria-valuenow={doorPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
+          </div>
+        </div>
+      </MetricCard>
+
+      {/* Bar & consumos */}
+      <MetricCard label="bar & consumos">
+        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
+          {formatInt(data.digitalConsumptionsGenerated)}
+        </p>
+        <div className="mt-4 space-y-1.5">
+          <div className="flex items-center justify-between text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+            <span>Canje</span>
+            <span className="tabular-nums">
+              {formatInt(data.digitalConsumptionsRedeemed)} /{" "}
+              {formatInt(data.digitalConsumptionsGenerated)}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-white/50 transition-[width] duration-500"
+              style={{ width: `${canjePct}%` }}
+              role="progressbar"
+              aria-valuenow={canjePct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
+          </div>
+        </div>
+      </MetricCard>
+    </div>
+  )
+}
+
+function MetricCard({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <article className="flex flex-col gap-3 rounded-2xl  p-5">
+      <p className="text-[12px] font-normal lowercase text-white/45">{label}</p>
+      {children}
+    </article>
+  )
+}
+
+function RestrictedValue() {
+  return (
+    <div className="flex items-center gap-2 text-[15px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+      <Lock className="h-4 w-4 shrink-0" aria-hidden />
+      <span>Restringido</span>
     </div>
   )
 }

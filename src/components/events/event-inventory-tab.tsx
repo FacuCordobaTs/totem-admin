@@ -34,6 +34,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -43,10 +49,10 @@ import {
 import { Package, Pencil, Plus, Wine } from "lucide-react"
 
 const inputClass =
-  "h-11 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[#FF9500]/30 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+  "h-11 rounded-xl border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
 
 const selectTriggerClass =
-  "h-11 min-w-[160px] flex-1 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+  "h-11 min-w-[160px] flex-1 rounded-xl border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200"
 
 type EventInvRow = {
   id: string
@@ -55,6 +61,7 @@ type EventInvRow = {
   packageSize: string
   eventInventoryId: string | null
   stockAllocated: string
+  initialStock?: string | null
 }
 
 type EventInventoryListResponse = {
@@ -72,6 +79,32 @@ function formatMoneyArs(value: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n)
+}
+
+function formatStockWithUnit(row: EventInvRow): string {
+  if (hasBottlePackage(row)) {
+    const bottles = stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
+    const n = Number.parseFloat(bottles)
+    return `${Number.isNaN(n) ? "—" : Math.round(n).toLocaleString("es-AR")} botellas`
+  }
+  const n = Number.parseFloat(row.stockAllocated)
+  const val = Number.isNaN(n) ? "—" : n.toLocaleString("es-AR")
+  switch (row.baseUnit) {
+    case "ML":
+      return `${val} ml`
+    case "GRAMS":
+      return `${val} g`
+    default:
+      return `${val} unidades`
+  }
+}
+
+function isLowStock(row: EventInvRow): boolean {
+  if (!row.initialStock) return false
+  const current = Number.parseFloat(row.stockAllocated)
+  const initial = Number.parseFloat(row.initialStock)
+  if (Number.isNaN(current) || Number.isNaN(initial) || initial === 0) return false
+  return current / initial < 0.2
 }
 
 function bottleLoadPreview(row: EventInvRow, bottles: number): string {
@@ -151,13 +184,12 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
   const [cpLines, setCpLines] = useState<RecipeDraftLine[]>([])
   const [cpSaving, setCpSaving] = useState(false)
 
-  const [editOpen, setEditOpen] = useState(false)
-  const [editProductId, setEditProductId] = useState<string | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editPrice, setEditPrice] = useState("")
-  const [editSaleType, setEditSaleType] = useState<ProductSaleType>("GLASS")
-  const [editLines, setEditLines] = useState<RecipeDraftLine[]>([])
-  const [editSaving, setEditSaving] = useState(false)
+  const [editSheetOpen, setEditSheetOpen] = useState(false)
+  const [editSheetRow, setEditSheetRow] = useState<EventMenuProductRow | null>(null)
+  const [editSheetName, setEditSheetName] = useState("")
+  const [editSheetPrice, setEditSheetPrice] = useState("")
+  const [editSheetActive, setEditSheetActive] = useState(false)
+  const [editSheetSaving, setEditSheetSaving] = useState(false)
 
   const loadInsumos = useCallback(async () => {
     if (!token) return
@@ -280,52 +312,42 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
     }
   }
 
-  function openEdit(productId: string) {
-    const full = catalogProducts.find((p) => p.id === productId)
-    if (!full) return
-    setEditProductId(productId)
-    setEditName(full.name)
-    setEditPrice(full.price)
-    setEditSaleType(full.saleType ?? "GLASS")
-    setEditLines(
-      full.recipes.map((r) => {
-        const mat = insumos.find((m) => m.id === r.inventoryItemId)
-        return recipeApiLineToDraft(r, mat)
-      })
-    )
-    setEditOpen(true)
+  function openEditSheet(p: EventMenuProductRow) {
+    setEditSheetRow(p)
+    setEditSheetName(p.name)
+    setEditSheetPrice(p.price)
+    setEditSheetActive(p.isActiveForEvent && p.catalogIsActive !== false)
+    setEditSheetOpen(true)
   }
 
-  async function saveEdit() {
-    if (!token || !editProductId) return
-    setEditSaving(true)
+  async function saveEditSheet() {
+    if (!token || !editSheetRow) return
+    setEditSheetSaving(true)
     try {
-      await apiFetch(`/inventory/products/${editProductId}`, {
+      const productId = editSheetRow.id
+      await apiFetch(`/inventory/products/${productId}`, {
         method: "PUT",
         token,
         body: JSON.stringify({
-          name: editName.trim(),
-          price: editPrice,
-          saleType: editSaleType,
-          recipes: editLines
-            .filter((l) => lineIsSavable(l, insumos, editSaleType))
-            .map((l) => ({
-              inventoryItemId: l.inventoryItemId,
-              quantityUsed: draftLineQuantityForApi(
-                l,
-                insumos.find((m) => m.id === l.inventoryItemId)
-              ),
-            })),
+          name: editSheetName.trim(),
+          price: editSheetPrice,
         }),
       })
-      setEditOpen(false)
-      setEditProductId(null)
+      if (editSheetActive !== (editSheetRow.isActiveForEvent && editSheetRow.catalogIsActive !== false)) {
+        await apiFetch(`/events/${eventId}/products/toggle`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({ productId, isActive: editSheetActive }),
+        })
+      }
+      setEditSheetOpen(false)
+      setEditSheetRow(null)
       toast.success("Producto actualizado")
       await loadMenu()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo guardar")
     } finally {
-      setEditSaving(false)
+      setEditSheetSaving(false)
     }
   }
 
@@ -336,15 +358,6 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
       return
     }
     setCpLines((prev) => [
-      ...prev,
-      { inventoryItemId: first, quantityUsed: "1", useFullBottle: false },
-    ])
-  }
-
-  function addEditLine() {
-    const first = insumos[0]?.id
-    if (!first) return
-    setEditLines((prev) => [
       ...prev,
       { inventoryItemId: first, quantityUsed: "1", useFullBottle: false },
     ])
@@ -468,7 +481,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
             <div className="h-44 w-full animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-900/50" />
           </div>
         ) : insumos.length === 0 ? (
-          <Card className="rounded-2xl border border-dashed border-zinc-200/50 bg-white dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+          <Card className="rounded-2xl ">
             <CardContent className="flex flex-col items-center gap-5 py-12 text-center">
               <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-zinc-500/10">
                 <Package className="h-7 w-7 text-[#8E8E93]" />
@@ -486,43 +499,49 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
             </CardContent>
           </Card>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50">
+          <div className="overflow-hidden rounded-2xl ">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
-                  <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="pl-6 text-[11px] font-normal lowercase text-white/45">
                     Insumo
                   </TableHead>
-                  <TableHead className="min-w-[140px] text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <TableHead className="min-w-[140px] text-[11px] font-normal lowercase text-white/45">
                     Stock
+                  </TableHead>
+                  <TableHead className="min-w-[120px] text-[11px] font-normal lowercase text-white/45">
+                    Stock inicial
                   </TableHead>
                   <TableHead className="min-w-[200px] w-[220px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {insumos.map((row) => {
-                  const stockDisplay = hasBottlePackage(row)
-                    ? stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
-                    : row.stockAllocated
                   return (
                     <TableRow
                       key={row.id}
-                      className="border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
+                      className="border-white/[0.06] transition-colors duration-200 hover:bg-white/[0.03]"
                     >
                       <TableCell className="pl-6 py-3.5 font-semibold text-black dark:text-white">
                         {row.name}
                       </TableCell>
                       <TableCell className="py-3.5">
-                        <p className="text-lg font-bold tabular-nums tracking-tight text-black dark:text-white">
-                          {stockDisplay}
+                        <p className={cn(
+                          "text-base font-semibold tabular-nums tracking-tight",
+                          isLowStock(row) ? "text-[#FF9500]" : "text-foreground"
+                        )}>
+                          {formatStockWithUnit(row)}
                         </p>
+                      </TableCell>
+                      <TableCell className="py-3.5 text-[14px] text-[#8E8E93] dark:text-[#98989D]">
+                        {row.initialStock != null && row.initialStock !== "" ? formatStockWithUnit({ ...row, stockAllocated: row.initialStock }) : "—"}
                       </TableCell>
                       <TableCell className="py-3.5 text-right">
                         <Button
                           type="button"
                           variant="outline"
                           onClick={() => openBottleDialog(row)}
-                          className="h-10 gap-1.5 rounded-xl border-zinc-200/50 px-3 text-[13px] font-semibold dark:border-zinc-700/80"
+                          className="h-10 gap-1.5 rounded-xl border-white/[0.15] bg-transparent px-3 text-[13px] font-semibold text-white/70 hover:border-white/25"
                           title="Cargar por botellas"
                         >
                           <Wine className="h-4 w-4" />
@@ -538,11 +557,11 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
         )}
 
         <Dialog open={newInsumoOpen} onOpenChange={setNewInsumoOpen}>
-          <DialogContent className="max-h-[min(90vh,760px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-md dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+          <DialogContent className="max-h-[min(90vh,760px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
+            <div className="border-b border-white/[0.06] p-6">
               <div className="flex gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                  <Package className="h-6 w-6 text-[#FF9500]" />
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+                  <Package className="h-6 w-6 text-white/30" />
                 </span>
                 <DialogHeader className="flex-1 text-left">
                   <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
@@ -554,7 +573,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
             <form onSubmit={submitNewInsumo} className="flex flex-col overflow-y-auto">
               <div className="space-y-6 p-8 pt-6">
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Nombre
                   </label>
                   <Input
@@ -566,7 +585,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   />
                 </div>
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Tipo
                   </label>
                   <Select
@@ -576,7 +595,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     <SelectTrigger className={inputClass}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                    <SelectContent className="rounded-xl border-white/[0.08]">
                       <SelectItem value="liquid" className="rounded-lg py-2">
                         Líquido
                       </SelectItem>
@@ -590,7 +609,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   </Select>
                 </div>
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     {newInsumoKind === "liquid"
                       ? "Referencia del formato de envase"
                       : newInsumoKind === "solid"
@@ -610,7 +629,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   />
                 </div>
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Stock inicial en el evento
                   </label>
                   <Input
@@ -636,7 +655,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   </p>
                 </div>
               </div>
-              <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+              <div className="border-t border-white/[0.06] bg-black/40 p-5">
                 <DialogFooter className="flex-col gap-3 sm:flex-col">
                   <Button
                     type="submit"
@@ -649,7 +668,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     type="button"
                     variant="outline"
                     onClick={() => setNewInsumoOpen(false)}
-                    className="h-11 w-full rounded-xl border-zinc-200/50 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                    className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
                   >
                     Cancelar
                   </Button>
@@ -665,11 +684,11 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
             if (!open) setBottleDlgRow(null)
           }}
         >
-          <DialogContent className="max-h-[min(90vh,760px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-md dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+          <DialogContent className="max-h-[min(90vh,760px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
+            <div className="border-b border-white/[0.06] p-6">
               <div className="flex gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                  <Wine className="h-6 w-6 text-[#FF9500]" />
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+                  <Wine className="h-6 w-6 text-white/30" />
                 </span>
                 <DialogHeader className="flex-1 text-left">
                   <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
@@ -688,7 +707,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   {bottleDlgRow?.name}
                 </p>
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Cantidad de botellas
                   </label>
                   <Input
@@ -700,7 +719,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     required
                   />
                 </div>
-                <div className="rounded-xl border border-zinc-200/50 bg-[#F2F2F7]/80 px-4 py-3 dark:border-zinc-800/50 dark:bg-black/30">
+                <div className="rounded-xl bg-white/[0.04] px-4 py-3">
                   <p className="text-[14px] leading-relaxed text-foreground">
                     {bottleDlgRow
                       ? bottleLoadPreview(
@@ -712,7 +731,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                 </div>
 
                 <div className="space-y-3">
-                  <p className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <p className="text-[13px] font-normal text-white/45">
                     Costo (opcional)
                   </p>
                   <Select
@@ -747,14 +766,14 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     }
                     const total = bottleCostType === "UNIT" ? c * n : c
                     return (
-                      <p className="text-[14px] font-medium text-[#FF9500]">
+                      <p className="text-[14px] font-medium text-white/60">
                         Se registrará un gasto total de {formatMoneyArs(total.toFixed(2))}.
                       </p>
                     )
                   })()}
                 </div>
               </div>
-              <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+              <div className="border-t border-white/[0.06] bg-black/40 p-5">
                 <DialogFooter className="flex-col gap-3 sm:flex-col">
                   <Button
                     type="submit"
@@ -767,7 +786,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     type="button"
                     variant="outline"
                     onClick={() => setBottleDlgRow(null)}
-                    className="h-11 w-full rounded-xl border-zinc-200/50 dark:border-zinc-800/50"
+                    className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-white/70 hover:border-white/25"
                   >
                     Cancelar
                   </Button>
@@ -809,88 +828,112 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
             No hay productos en el catálogo.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50">
+          <div className="overflow-hidden rounded-2xl ">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
-                  <TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="pl-6 text-[11px] font-normal lowercase text-white/45">
                     Producto
                   </TableHead>
-                  <TableHead className="hidden text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D] md:table-cell">
+                  <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 md:table-cell">
                     Precio
                   </TableHead>
-                  <TableHead className="text-center text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <TableHead className="text-center text-[11px] font-normal lowercase text-white/45">
                     En el evento
                   </TableHead>
                   <TableHead className="w-[100px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {eventMenuRows.map((p) => {
-                  const disabled = pendingToggleId === p.id || p.catalogIsActive === false
-                  const checked = p.isActiveForEvent && p.catalogIsActive !== false
-                  return (
-                    <TableRow
-                      key={p.id}
-                      className="border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
-                    >
-                      <TableCell className="pl-6 py-3.5">
-                        <p className="font-semibold leading-tight text-black dark:text-white">
-                          {p.name}
-                        </p>
-                        {p.catalogIsActive === false ? (
-                          <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
-                            Inactivo en catálogo
-                          </p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="hidden py-3.5 text-[#8E8E93] dark:text-[#98989D] md:table-cell">
-                        {formatMoneyArs(p.price)}
-                        {p.priceOverride != null && p.priceOverride !== "" ? (
-                          <span className="ml-2 text-xs font-medium text-[#FF9500]">
-                            (evento: {formatMoneyArs(p.priceOverride)})
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="py-3.5 text-center">
-                        <Switch
-                          checked={checked}
-                          disabled={disabled}
-                          onCheckedChange={(v) => void onToggleProduct(p, v)}
-                          aria-label={
-                            checked
-                              ? `Quitar ${p.name} del menú del evento`
-                              : `Agregar ${p.name} al menú del evento`
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="py-3.5 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => openEdit(p.id)}
-                          aria-label={`Editar ${p.name}`}
-                          className="h-10 w-10 rounded-xl transition-all duration-200 hover:bg-zinc-500/10 active:opacity-50"
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-500/10">
-                            <Pencil className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
-                          </span>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                {(() => {
+                  const active = eventMenuRows.filter(
+                    (p) => p.isActiveForEvent && p.catalogIsActive !== false
                   )
-                })}
+                  const inactive = eventMenuRows.filter(
+                    (p) => !p.isActiveForEvent || p.catalogIsActive === false
+                  )
+                  const renderRow = (p: EventMenuProductRow, dimmed = false) => {
+                    const disabled = pendingToggleId === p.id || p.catalogIsActive === false
+                    const checked = p.isActiveForEvent && p.catalogIsActive !== false
+                    return (
+                      <TableRow
+                        key={p.id}
+                        className={cn(
+                          "border-white/[0.06] transition-colors duration-200 hover:bg-white/[0.03]",
+                          dimmed && "opacity-50"
+                        )}
+                      >
+                        <TableCell className="pl-6 py-3.5">
+                          <p className="font-semibold leading-tight text-black dark:text-white">
+                            {p.name}
+                          </p>
+                          {p.catalogIsActive === false ? (
+                            <p className="mt-1 text-sm text-white/40">
+                              Inactivo en catálogo
+                            </p>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="hidden py-3.5 text-[#8E8E93] dark:text-[#98989D] md:table-cell">
+                          {formatMoneyArs(p.price)}
+                          {p.priceOverride != null && p.priceOverride !== "" ? (
+                            <span className="ml-2 text-xs font-medium text-white/40">
+                              (evento: {formatMoneyArs(p.priceOverride)})
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="py-3.5 text-center">
+                          <Switch
+                            checked={checked}
+                            disabled={disabled}
+                            onCheckedChange={(v) => void onToggleProduct(p, v)}
+                            aria-label={
+                              checked
+                                ? `Quitar ${p.name} del menú del evento`
+                                : `Agregar ${p.name} al menú del evento`
+                            }
+                          />
+                        </TableCell>
+                        <TableCell className="py-3.5 text-right">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => openEditSheet(p)}
+                            aria-label={`Editar ${p.name}`}
+                            className="h-10 w-10 rounded-xl transition-all duration-200 hover:bg-white/[0.07] active:opacity-50"
+                          >
+                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06]">
+                              <Pencil className="h-4 w-4 text-white/30" />
+                            </span>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  }
+                  return (
+                    <>
+                      {active.map((p) => renderRow(p, false))}
+                      {inactive.length > 0 && active.length > 0 ? (
+                        <TableRow className="border-0 hover:bg-transparent">
+                          <TableCell colSpan={4} className="px-6 py-2">
+                            <div className="border-t border-white/[0.06]" />
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                      {inactive.map((p) => renderRow(p, true))}
+                    </>
+                  )
+                })()}
               </TableBody>
             </Table>
           </div>
         )}
 
         <Dialog open={createProductOpen} onOpenChange={setCreateProductOpen}>
-          <DialogContent className="max-h-[min(92vh,900px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-lg dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+          <DialogContent className="max-h-[min(92vh,900px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-lg">
+            <div className="border-b border-white/[0.06] p-6">
               <div className="flex gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                  <Plus className="h-6 w-6 text-[#FF9500]" />
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+                  <Plus className="h-6 w-6 text-white/30" />
                 </span>
                 <DialogHeader className="flex-1 text-left">
                   <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
@@ -905,7 +948,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
             >
               <div className="space-y-6 p-8 pt-6">
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Nombre
                   </label>
                   <Input
@@ -916,7 +959,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   />
                 </div>
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Precio
                   </label>
                   <Input
@@ -928,7 +971,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   />
                 </div>
                 <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                  <label className="text-[13px] font-normal text-white/45">
                     Tipo de venta (stock)
                   </label>
                   <Select
@@ -938,7 +981,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     <SelectTrigger className={inputClass}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                    <SelectContent className="rounded-xl border-white/[0.08]">
                       <SelectItem value="GLASS" className="rounded-lg py-2">
                         Medida en receta
                       </SelectItem>
@@ -950,7 +993,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                 </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                    <label className="text-[13px] font-normal text-white/45">
                       Receta
                     </label>
                     <Button
@@ -974,7 +1017,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                         materials={insumos as ApiInventoryItem[]}
                         saleType={cpSaleType}
                         selectTriggerClass={selectTriggerClass}
-                        quantityInputClass="h-10 w-28 rounded-xl border-zinc-200/50 bg-white text-center font-mono dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+                        quantityInputClass="h-10 w-28 rounded-xl border-white/[0.1] bg-white/[0.05] text-center font-mono"
                         onChange={(i, patch) =>
                           setCpLines((prev) =>
                             prev.map((l, j) => (j === i ? { ...l, ...patch } : l))
@@ -988,7 +1031,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   </div>
                 </div>
               </div>
-              <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+              <div className="border-t border-white/[0.06] bg-black/40 p-5">
                 <DialogFooter className="flex-col gap-3 sm:flex-col">
                   <Button
                     type="submit"
@@ -1001,7 +1044,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                     type="button"
                     variant="outline"
                     onClick={() => setCreateProductOpen(false)}
-                    className="h-11 w-full rounded-xl border-zinc-200/50 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                    className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
                   >
                     Cancelar
                   </Button>
@@ -1011,128 +1054,60 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="max-h-[min(92vh,900px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-lg dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-            <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
-              <div className="flex gap-5">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                  <Pencil className="h-6 w-6 text-[#FF9500]" />
-                </span>
-                <DialogHeader className="flex-1 text-left">
-                  <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
-                    Editar producto y receta
-                  </DialogTitle>
-                </DialogHeader>
-              </div>
-            </div>
-            <div className="flex max-h-[calc(92vh-10rem)] flex-col overflow-y-auto">
-              <div className="space-y-6 p-8 pt-6">
-                <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Nombre
-                  </label>
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Precio
-                  </label>
-                  <Input
-                    value={editPrice}
-                    onChange={(e) => setEditPrice(e.target.value)}
-                    className={cn(inputClass, "font-mono")}
-                    inputMode="decimal"
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Tipo de venta (stock)
-                  </label>
-                  <Select
-                    value={editSaleType}
-                    onValueChange={(v) => setEditSaleType(v as ProductSaleType)}
-                  >
-                    <SelectTrigger className={inputClass}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                      <SelectItem value="GLASS" className="rounded-lg py-2">
-                        Medida en receta
-                      </SelectItem>
-                      <SelectItem value="BOTTLE" className="rounded-lg py-2">
-                        Botella entera
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <label className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                      Receta
-                    </label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={addEditLine}
-                      className="h-12 rounded-2xl px-4 text-sm font-semibold"
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
-                        <Plus className="h-4 w-4" />
-                      </span>
-                      Línea
-                    </Button>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    {editLines.map((line, index) => (
-                      <RecipeIngredientRow
-                        key={`${line.inventoryItemId}-${index}`}
-                        line={line}
-                        index={index}
-                        materials={insumos as ApiInventoryItem[]}
-                        saleType={editSaleType}
-                        selectTriggerClass={selectTriggerClass}
-                        quantityInputClass="h-10 w-28 rounded-xl border-zinc-200/50 bg-white text-center font-mono dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
-                        onChange={(i, patch) =>
-                          setEditLines((prev) =>
-                            prev.map((l, j) => (j === i ? { ...l, ...patch } : l))
-                          )
-                        }
-                        onRemove={(i) =>
-                          setEditLines((prev) => prev.filter((_, j) => j !== i))
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
-                <DialogFooter className="flex-col gap-3 sm:flex-col">
-                  <Button
-                    type="button"
-                    disabled={editSaving || !editName.trim()}
-                    onClick={() => void saveEdit()}
-                    className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
-                  >
-                    {editSaving ? "Guardando…" : "Guardar"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setEditOpen(false)}
-                    className="h-11 w-full rounded-xl border-zinc-200/50 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
-                  >
-                    Cerrar
-                  </Button>
-                </DialogFooter>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
+
+      <Sheet open={editSheetOpen} onOpenChange={(open) => { if (!open) { setEditSheetOpen(false); setEditSheetRow(null) } }}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 border-l border-white/[0.06] bg-[#0a0a0a] p-0 sm:max-w-md">
+          <SheetHeader className="border-b border-white/[0.06] px-6 py-5">
+            <SheetTitle className="text-[18px] font-bold tracking-tight text-foreground">
+              Editar producto
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
+            <div className="space-y-2">
+              <label className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+                Nombre
+              </label>
+              <Input
+                value={editSheetName}
+                onChange={(e) => setEditSheetName(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+                Precio
+              </label>
+              <Input
+                value={editSheetPrice}
+                onChange={(e) => setEditSheetPrice(e.target.value)}
+                inputMode="decimal"
+                className={cn(inputClass, "font-mono")}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <label className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
+                Estado en el evento
+              </label>
+              <Switch
+                checked={editSheetActive}
+                onCheckedChange={setEditSheetActive}
+                aria-label="Estado en el evento"
+              />
+            </div>
+          </div>
+          <div className="border-t border-white/[0.06] p-5">
+            <Button
+              type="button"
+              disabled={editSheetSaving || !editSheetName.trim()}
+              onClick={() => void saveEditSheet()}
+              className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90"
+            >
+              {editSheetSaving ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

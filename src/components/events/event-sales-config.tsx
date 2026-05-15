@@ -23,6 +23,20 @@ function fromDatetimeLocalToIso(local: string): string | null {
   return d.toISOString()
 }
 
+function slugify(raw: string): string {
+  return raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "")
+}
+
+function isValidSlug(s: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s)
+}
+
 type Props = {
   event: ApiEvent
   onUpdated: () => void | Promise<void>
@@ -32,22 +46,31 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
+  const [slug, setSlug] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setTicketsLocal(toDatetimeLocalValue(event.ticketsAvailableFrom))
     setConsumptionsLocal(toDatetimeLocalValue(event.consumptionsAvailableFrom))
+    setSlug(event.slug ?? "")
     setError(null)
   }, [
     event.id,
     event.ticketsAvailableFrom,
     event.consumptionsAvailableFrom,
+    event.slug,
   ])
+
+  const slugTrimmed = slug.trim()
+  const slugError =
+    slugTrimmed !== "" && !isValidSlug(slugTrimmed)
+      ? "Solo minúsculas, números y guiones (ej: fiesta-verano)"
+      : null
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!token) return
+    if (!token || slugError) return
     setSaving(true)
     setError(null)
     try {
@@ -75,6 +98,7 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
         body: JSON.stringify({
           ticketsAvailableFrom: ticketsPayload,
           consumptionsAvailableFrom: consumptionsPayload,
+          slug: slugTrimmed === "" ? null : slugTrimmed,
         }),
       })
       await onUpdated()
@@ -107,9 +131,6 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
             onChange={(e) => setTicketsLocal(e.target.value)}
             className="h-10 w-full rounded-lg border border-zinc-200/80 bg-white px-3 text-[15px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-[#FF9500] dark:border-zinc-700 dark:bg-zinc-950"
           />
-          <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-            Vacío = disponible de inmediato (según el evento activo).
-          </p>
         </div>
         <div className="space-y-2">
           <label
@@ -125,10 +146,43 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
             onChange={(e) => setConsumptionsLocal(e.target.value)}
             className="h-10 w-full rounded-lg border border-zinc-200/80 bg-white px-3 text-[15px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-[#FF9500] dark:border-zinc-700 dark:bg-zinc-950"
           />
-          <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-            Vacío = disponible de inmediato.
-          </p>
         </div>
+      </div>
+
+      <div className="mt-6 space-y-2">
+        <label
+          htmlFor={`event-slug-${event.id}`}
+          className="block text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]"
+        >
+          URL del evento
+        </label>
+        <div className="flex items-center gap-0 rounded-lg border border-zinc-200/80 bg-white focus-within:ring-1 focus-within:ring-[#FF9500] dark:border-zinc-700 dark:bg-zinc-950">
+          <span className="select-none whitespace-nowrap pl-3 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+            crow.ar/e/
+          </span>
+          <input
+            id={`event-slug-${event.id}`}
+            type="text"
+            value={slug}
+            placeholder="mi-evento"
+            maxLength={100}
+            onChange={(e) => setSlug(e.target.value.toLowerCase())}
+            onBlur={() => setSlug((s) => slugify(s))}
+            className="h-10 min-w-0 flex-1 bg-transparent pr-3 text-[15px] text-foreground outline-none"
+          />
+        </div>
+        {slugError ? (
+          <p className="text-[12px] text-red-500 dark:text-red-400">{slugError}</p>
+        ) : slugTrimmed ? (
+          <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
+            Link público:{" "}
+            <span className="font-mono">crow.ar/e/{slugTrimmed}</span>
+          </p>
+        ) : (
+          <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
+            Sin slug — el link usa el ID del evento.
+          </p>
+        )}
       </div>
 
       {error ? (
@@ -140,7 +194,7 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
       <div className="mt-6 flex justify-end">
         <Button
           type="submit"
-          disabled={saving}
+          disabled={saving || !!slugError}
           className="h-10 min-w-[140px] rounded-xl bg-[#FF9500] px-5 text-[14px] font-semibold text-white shadow-none hover:bg-[#FF9500]/90 disabled:opacity-50"
         >
           {saving ? (

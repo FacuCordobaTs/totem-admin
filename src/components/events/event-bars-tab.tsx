@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { BarConfigSheet } from "@/components/events/bar-config-sheet"
 
 const inputClass =
-  "h-11 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+  "h-11 rounded-xl border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
 
 function GridSkeleton() {
   return (
@@ -25,7 +25,7 @@ function GridSkeleton() {
       {Array.from({ length: 4 }).map((_, i) => (
         <div
           key={i}
-          className="h-64 animate-pulse rounded-2xl border border-zinc-200/50 bg-zinc-200/40 dark:border-zinc-800/50 dark:bg-zinc-800/40"
+          className="h-64 animate-pulse rounded-2xl "
         />
       ))}
     </div>
@@ -177,7 +177,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
       )}
 
       {bars.length === 0 ? (
-        <Card className="rounded-2xl border border-dashed border-zinc-200/50 bg-white dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+        <Card className="rounded-2xl ">
           <CardContent className="flex flex-col items-center gap-5 py-14 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-zinc-500/10">
               <Wine className="h-7 w-7 text-[#8E8E93]" />
@@ -202,8 +202,8 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
               key={bar.id}
               className={
                 bar.isActive === false
-                  ? "rounded-2xl border border-dashed border-zinc-200/50 bg-background opacity-90 dark:border-zinc-800/50"
-                  : "rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50"
+                  ? "rounded-2xl  opacity-60"
+                  : "rounded-2xl bg-background border-none"
               }
             >
               <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 p-5 pb-3">
@@ -213,7 +213,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
                       {bar.name}
                     </h3>
                     {bar.isActive === false ? (
-                      <span className="rounded-md bg-zinc-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+                      <span className="rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/40">
                         Inactiva
                       </span>
                     ) : null}
@@ -223,7 +223,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 shrink-0 rounded-xl text-[#8E8E93] hover:bg-zinc-500/10 dark:text-[#98989D]"
+                  className="h-9 w-9 shrink-0 rounded-xl text-white/30 hover:bg-white/[0.07] hover:text-white/70"
                   aria-label={`Configurar ${bar.name}`}
                   onClick={() => {
                     setConfigBar(bar)
@@ -235,14 +235,14 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
               </CardHeader>
               <CardContent className="space-y-3 px-5 pb-5 pt-0">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                    Ventas
+                  <p className="text-[12px] font-medium text-zinc-400 dark:text-zinc-500">
+                    ventas
                   </p>
-                  <p className="mt-1 truncate text-xl font-bold tabular-nums tracking-tight text-foreground">
+                  <p className="mt-1 truncate text-2xl font-bold tabular-nums tracking-tight text-foreground">
                     {formatCurrencyArs(bar.totalSales ?? "0")}
                   </p>
                 </div>
-                <div className="space-y-3 border-t border-zinc-200/40 pt-3 dark:border-zinc-800/40">
+                <div className="space-y-3 border-t border-white/[0.06] pt-3">
                   <div className="flex gap-2.5">
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
                     <div className="min-w-0 flex-1">
@@ -311,11 +311,11 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-md dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-          <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
+          <div className="border-b border-white/[0.06] p-6">
             <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                <Wine className="h-6 w-6 text-[#FF9500]" />
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+                <Wine className="h-6 w-6 text-white/30" />
               </span>
               <DialogHeader className="flex-1 text-left">
                 <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
@@ -326,7 +326,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
           </div>
           <div className="space-y-3 p-6">
             <label
-              className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+              className="text-[13px] font-normal text-white/45"
               htmlFor="bar-name-create"
             >
               Nombre
@@ -342,7 +342,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
               }}
             />
           </div>
-          <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+          <div className="border-t border-white/[0.06] bg-black/40 p-5">
             <DialogFooter className="flex-col gap-3 sm:flex-col">
               <Button
                 type="button"
@@ -356,7 +356,7 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
                 type="button"
                 variant="outline"
                 onClick={() => setCreateOpen(false)}
-                className="h-11 w-full rounded-xl border-zinc-200/50 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
               >
                 Cancelar
               </Button>

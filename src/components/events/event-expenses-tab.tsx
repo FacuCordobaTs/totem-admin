@@ -46,11 +46,8 @@ const CATEGORY_OPTIONS: { value: EventExpenseCategory; label: string }[] = [
 ]
 
 /** Música con tinte de acento app */
-function categoryBadgeClass(category: EventExpenseCategory): string {
-  if (category === "MUSIC") {
-    return "bg-[#FF9500]/15 text-[#FF9500]"
-  }
-  return "bg-zinc-500/10 text-[#8E8E93] dark:text-[#98989D]"
+function categoryBadgeClass(_category: EventExpenseCategory): string {
+  return "bg-white/[0.07] text-white/45"
 }
 
 function formatMoneyArs(value: string): string {
@@ -85,10 +82,10 @@ function sumAmounts(rows: EventExpenseRow[]): string {
 }
 
 const inputClass =
-  "h-11 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+  "h-11 rounded-xl border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
 
 const selectClass =
-  "h-11 w-full rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+  "h-11 w-full rounded-xl border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200"
 
 function TableSkeleton() {
   return (
@@ -246,47 +243,45 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
         </div>
       )}
 
-      <Card className="rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50 lg:max-w-md">
-        <CardHeader className="pb-2 md:p-6 md:pb-2">
+      <div className="rounded-2xl bg-background lg:max-w-md border-0">
+        <div className="pb-2 md:p-6 md:pb-2">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF9500]/15">
-              <Receipt className="h-5 w-5 text-[#FF9500]" />
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.07]">
+              <Receipt className="h-5 w-5 text-white/30" />
             </span>
-            <CardTitle className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+            <CardTitle className="text-[13px] font-normal lowercase text-white/45">
               Total de gastos
             </CardTitle>
           </div>
-        </CardHeader>
-        <CardContent className="md:px-6 md:pb-6">
+        </div>
+        <div className="md:px-6 md:pb-6">
           <p className="text-[34px] font-bold tabular-nums tracking-tight text-black dark:text-white">
             {totalLabel}
           </p>
-          <p className="mt-1 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-            Suma de ítems cargados en este evento
-          </p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+ 
 
       {expenses.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-zinc-200/50 px-5 py-12 text-center text-[15px] text-[#8E8E93] dark:border-zinc-800/50 dark:text-[#98989D]">
+        <p className="rounded-2xl  px-5 py-12 text-center text-[15px] text-white/40">
           No hay gastos registrados. Cargá costos operativos para ver el resultado neto del
           evento.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-zinc-200/50 bg-background dark:border-zinc-800/50">
+        <div className="overflow-hidden rounded-2xl ">
           <Table>
             <TableHeader>
-              <TableRow className="border-zinc-200/50 hover:bg-transparent dark:border-zinc-800/50">
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+              <TableRow className="border-white/[0.06] hover:bg-transparent">
+                <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Fecha
                 </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Descripción
                 </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Categoría
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+                <TableHead className="text-right text-[11px] font-normal lowercase text-white/45">
                   Monto
                 </TableHead>
                 <TableHead className="w-[80px]" />
@@ -301,7 +296,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
                 return (
                   <TableRow
                     key={row.id}
-                    className="border-zinc-200/50 transition-colors duration-200 hover:bg-[#F2F2F7]/80 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
+                    className="border-white/[0.06] transition-colors duration-200 hover:bg-white/[0.03]"
                   >
                     <TableCell className="whitespace-nowrap py-3 text-[#8E8E93] dark:text-[#98989D]">
                       {formatExpenseDate(row.date)}
@@ -327,7 +322,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
                         disabled={busy}
                         aria-label={`Eliminar gasto ${row.description}`}
                         onClick={() => void deleteExpense(row)}
-                        className="h-9 w-9 rounded-xl text-[#8E8E93] hover:bg-red-500/10 hover:text-red-600 dark:text-[#98989D]"
+                        className="h-9 w-9 rounded-xl text-white/30 hover:bg-red-500/10 hover:text-red-500"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -341,11 +336,11 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white p-0 sm:max-w-md dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
-          <div className="border-b border-zinc-200/50 p-6 dark:border-zinc-800/50">
+        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
+          <div className="border-b border-white/[0.06] p-6">
             <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-                <Receipt className="h-6 w-6 text-[#FF9500]" />
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+                <Receipt className="h-6 w-6 text-white/30" />
               </span>
               <DialogHeader className="flex-1 text-left">
                 <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
@@ -357,7 +352,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
           <div className="space-y-5 p-6">
             <div className="space-y-2">
               <label
-                className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                className="text-[13px] font-normal text-white/45"
                 htmlFor="expense-desc"
               >
                 Descripción
@@ -381,7 +376,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
                 <SelectTrigger className={selectClass}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                <SelectContent className="rounded-xl border-white/[0.08]">
                   {CATEGORY_OPTIONS.map((c) => (
                     <SelectItem key={c.value} value={c.value} className="rounded-lg py-2">
                       {c.label}
@@ -392,7 +387,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
             </div>
             <div className="space-y-2">
               <label
-                className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                className="text-[13px] font-normal text-white/45"
                 htmlFor="expense-amount"
               >
                 Monto (ARS)
@@ -408,7 +403,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
               />
             </div>
           </div>
-          <div className="border-t border-zinc-200/50 bg-white/70 p-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+          <div className="border-t border-white/[0.06] bg-black/40 p-5">
             <DialogFooter className="flex-col gap-3 sm:flex-col">
               <Button
                 type="button"
@@ -422,7 +417,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
                 type="button"
                 variant="outline"
                 onClick={() => setDialogOpen(false)}
-                className="h-11 w-full rounded-xl border-zinc-200/50 text-[15px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
+                className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
               >
                 Cancelar
               </Button>

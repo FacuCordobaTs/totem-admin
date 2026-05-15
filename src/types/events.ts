@@ -2,6 +2,8 @@ export type ApiEvent = {
   id: string
   tenantId: string
   name: string
+  /** URL-friendly identifier: crow.ar/e/{slug}. null = sin slug personalizado. */
+  slug: string | null
   date: string
   location: string | null
   /** URL pública (R2 u otro CDN) */

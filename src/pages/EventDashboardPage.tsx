@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useParams } from "react-router"
-import { EventLayout, sectionTitle } from "@/components/events/event-layout"
+import { EventLayout, NAV_SECTIONS } from "@/components/events/event-layout"
 import { TicketTypes } from "@/components/events/ticket-types"
 import {
   AttendeeTable,
@@ -16,16 +16,10 @@ import { EventSummaryDashboard } from "@/components/events/event-summary-dashboa
 import { EventImageUploader } from "@/components/events/event-image-uploader"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { apiFetch, ApiError } from "@/lib/api"
 import { getEventShopUrl } from "@/lib/client-app-url"
 import { useAuthStore } from "@/stores/auth-store"
-import { Check, ChevronLeft, Copy, Loader2, MoreHorizontal, Plus } from "lucide-react"
+import { ChevronLeft, Loader2, Plus } from "lucide-react"
 import type { ApiEvent } from "@/types/events"
 
 function formatEventDate(iso: string): string {
@@ -48,22 +42,7 @@ function deriveStatus(ev: {
   return d.getTime() < Date.now() ? "finished" : "active"
 }
 
-const minimalShell =
-  "min-h-screen bg-[#F2F2F7] text-black transition-colors duration-200 dark:bg-black dark:text-white"
-
-function MinimalBackBar() {
-  return (
-    <div className="border-b border-zinc-200/50 bg-white/70 px-4 py-3 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
-      <Link
-        to="/events"
-        className="inline-flex items-center gap-1.5 text-[15px] font-medium text-[#8E8E93] transition-colors hover:text-foreground dark:text-[#98989D]"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        Volver
-      </Link>
-    </div>
-  )
-}
+const SECTION_IDS = NAV_SECTIONS.map((s) => s.id)
 
 export function EventDashboardPage() {
   const { id } = useParams<{ id: string }>()
@@ -73,13 +52,12 @@ export function EventDashboardPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [activeTab, setActiveTab] = useState("general")
+  const [activeSection, setActiveSection] = useState<string>("resumen")
   const [refreshTick, setRefreshTick] = useState(0)
   const [saleOpen, setSaleOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
 
   const attendeeTableRef = useRef<AttendeeTableHandle>(null)
-
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
 
   const publicShopUrl = id ? getEventShopUrl(id) : ""
@@ -94,6 +72,24 @@ export function EventDashboardPage() {
       /* clipboard unavailable */
     }
   }
+
+  // Scroll-spy: active section = last section whose top is above the header
+  useEffect(() => {
+    const handleScroll = () => {
+      const HEADER_HEIGHT = 130
+      let current = SECTION_IDS[0]
+      for (const sectionId of SECTION_IDS) {
+        const el = document.getElementById(sectionId)
+        if (!el) continue
+        if (el.getBoundingClientRect().top <= HEADER_HEIGHT + 24) {
+          current = sectionId
+        }
+      }
+      setActiveSection(current)
+    }
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    return () => window.removeEventListener("scroll", handleScroll)
+  }, [])
 
   const loadEvent = useCallback(async () => {
     if (!token || !id) return
@@ -117,264 +113,144 @@ export function EventDashboardPage() {
     void loadEvent()
   }, [loadEvent])
 
-  if (!id) {
-    return <Navigate to="/events" replace />
-  }
+  if (!id) return <Navigate to="/events" replace />
 
   if (loading) {
     return (
-      <div className={`flex min-h-screen flex-col ${minimalShell}`}>
-        <MinimalBackBar />
-        <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-[#FF9500]" />
-          <p className="text-[15px] text-[#8E8E93]">Cargando evento…</p>
-        </div>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#F2F2F7] dark:bg-[#0a0a0a]">
+        <Loader2 className="h-6 w-6 animate-spin text-[#FF9500]" />
+        <p className="text-[15px] text-zinc-500">Cargando evento…</p>
       </div>
     )
   }
 
   if (loadError || !event) {
     return (
-      <div className={`flex min-h-screen flex-col ${minimalShell}`}>
-        <MinimalBackBar />
-        <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
-          <div className="max-w-md text-center">
-            <p className="text-[17px] font-semibold text-red-600 dark:text-red-400">
-              {loadError ?? "No disponible"}
-            </p>
-            <Button
-              asChild
-              variant="ghost"
-              className="mt-6 h-11 rounded-xl text-[15px] font-semibold text-[#FF9500]"
-            >
-              <Link to="/events">Volver a eventos</Link>
-            </Button>
-          </div>
-        </div>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#F2F2F7] dark:bg-[#0a0a0a]">
+        <p className="text-[17px] font-semibold text-red-600 dark:text-red-400">
+          {loadError ?? "No disponible"}
+        </p>
+        <Button asChild variant="ghost" className="text-[#FF9500]">
+          <Link to="/events">
+            <ChevronLeft className="mr-1 h-4 w-4" />
+            Volver a eventos
+          </Link>
+        </Button>
       </div>
     )
   }
 
-  const subtitle = [formatEventDate(event.date), event.location].filter(Boolean).join(" · ")
+  const subtitle = [formatEventDate(event.date), event.location]
+    .filter(Boolean)
+    .join(" · ")
 
   return (
     <EventLayout
       eventName={event.name}
       eventSubtitle={subtitle}
       status={deriveStatus(event)}
-      activeSection={activeTab}
-      onSectionChange={setActiveTab}
+      activeSection={activeSection}
+      shopUrl={publicShopUrl}
+      linkCopied={linkCopied}
+      onCopyLink={() => void copyPublicShopLink()}
     >
-      <div className="flex min-h-0 flex-1 flex-col lg:min-h-screen">
-        {/* Header traslúcido: solo título + 1 acción primaria opcional */}
-        <header className="sticky top-0 z-20 shrink-0 border-b border-zinc-200/50 bg-[#F2F2F7]/70 px-6 py-5 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 sm:px-10 sm:py-6">
+      <div className="mx-auto max-w-6xl space-y-24 px-4 py-10 pb-32 sm:px-8">
+
+        {/* Resumen */}
+        <section id="resumen" className="scroll-mt-36 space-y-10">
+          <SectionHeading>Resumen</SectionHeading>
+          <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
+          <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
+            <EventImageUploader event={event} onUpdated={loadEvent} compact />
+            <EventSalesConfig event={event} onUpdated={loadEvent} />
+          </div>
+        </section>
+
+        {/* Entradas */}
+        <section id="entradas" className="scroll-mt-36 space-y-8">
           <div className="flex items-center justify-between gap-4">
-            <h1 className="truncate text-2xl font-bold tracking-tight text-foreground">
-              {sectionTitle(activeTab)}
-            </h1>
-
-            {activeTab === "tickets" ? (
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  type="button"
-                  onClick={() => setSaleOpen(true)}
-                  className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-[#FF9500]/90 active:opacity-80"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="hidden sm:inline">Venta manual</span>
-                  <span className="sm:hidden">Venta</span>
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 rounded-xl text-[#8E8E93] hover:bg-zinc-500/10 dark:text-[#98989D]"
-                      aria-label="Más acciones"
-                    >
-                      <MoreHorizontal className="h-5 w-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
-                    <DropdownMenuItem
-                      className="rounded-lg text-[15px]"
-                      onSelect={() => attendeeTableRef.current?.exportCsv()}
-                    >
-                      Exportar CSV
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ) : null}
+            <SectionHeading>Entradas</SectionHeading>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                onClick={() => setSaleOpen(true)}
+                className="h-9 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-80"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Venta manual</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => attendeeTableRef.current?.exportCsv()}
+                className="h-9 rounded-xl border-zinc-300 px-3 text-[13px] font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+              >
+                Exportar CSV
+              </Button>
+            </div>
           </div>
-        </header>
+          <TicketTypes
+            eventId={id}
+            refreshTrigger={refreshTick}
+            onChanged={bump}
+            layout="compact"
+          />
+          <AttendeeTable
+            ref={attendeeTableRef}
+            eventId={id}
+            refreshTrigger={refreshTick}
+            layout="canvas"
+            hideExportButton
+          />
+        </section>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {activeTab === "general" && (
-            <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
-              <PublicShopLinkBanner
-                url={publicShopUrl}
-                copied={linkCopied}
-                onCopy={() => void copyPublicShopLink()}
-              />
-              <Section title="Resumen ejecutivo">
-                <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
-              </Section>
+        {/* Bar */}
+        <section id="bar" className="scroll-mt-36 space-y-10">
+          <SectionHeading>Bar</SectionHeading>
+          <EventInventoryTab eventId={id} onLogisticsChange={bump} />
+          <EventBarsTab eventId={id} embedded />
+        </section>
 
-              <Section title="Identidad del evento">
-                <EventImageUploader event={event} onUpdated={loadEvent} />
-              </Section>
+        {/* Personal */}
+        <section id="personal" className="scroll-mt-36 space-y-10">
+          <SectionHeading>Personal</SectionHeading>
+          <EventStaffTab eventId={id} eventStatus={deriveStatus(event)} />
+        </section>
 
-              <Section title="Configuración de Ventas">
-                <EventSalesConfig event={event} onUpdated={loadEvent} />
-              </Section>
-            </div>
-          )}
-
-          {activeTab === "logistics" && (
-            <div className="space-y-12 px-6 py-8 sm:px-10 sm:py-10">
-              <Section title="Inventario del evento">
-                <EventInventoryTab
-                  eventId={id}
-                  onLogisticsChange={bump}
-                />
-              </Section>
-              <Section title="Barras">
-                <EventBarsTab eventId={id} embedded />
-              </Section>
-            </div>
-          )}
-
-          {activeTab === "staff" && (
-            <div className="px-6 py-8 sm:px-10 sm:py-10">
-              <EventStaffTab eventId={id} />
-            </div>
-          )}
-
-          {activeTab === "tickets" && (
-            <div className="flex flex-col gap-10 px-6 py-8 pb-32 sm:px-10 sm:py-10 lg:pb-10">
-              <TicketTypes
-                eventId={id}
-                refreshTrigger={refreshTick}
-                onChanged={bump}
-                layout="compact"
-              />
-              <AttendeeTable
-                ref={attendeeTableRef}
-                eventId={id}
-                refreshTrigger={refreshTick}
-                layout="canvas"
-                hideExportButton
-              />
-            </div>
-          )}
-
-          {activeTab === "metrics" && (
-            <div className="px-6 py-8 sm:px-10 sm:py-10">
-              <EventOverviewTab eventId={id} refreshTrigger={refreshTick} />
-            </div>
-          )}
-
-          {activeTab === "expenses" && (
-            <div className="px-6 py-8 sm:px-10 sm:py-10">
-              <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
-            </div>
-          )}
-        </div>
-
-        {/* Mobile FAB: sola acción primaria. El resto vive en ⋯ del header */}
-        {activeTab === "tickets" ? (
-          <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end px-5 pb-5 lg:hidden">
-            <Button
-              type="button"
-              onClick={() => setSaleOpen(true)}
-              className="pointer-events-auto h-14 gap-2 rounded-full bg-[#FF9500] px-6 text-[15px] font-semibold text-white shadow-none transition-all duration-200 active:opacity-70"
-            >
-              <Plus className="h-5 w-5" />
-              Venta manual
-            </Button>
-          </div>
-        ) : null}
+        {/* Finanzas */}
+        <section id="finanzas" className="scroll-mt-36 space-y-10">
+          <SectionHeading>Finanzas</SectionHeading>
+          <EventOverviewTab eventId={id} refreshTrigger={refreshTick} />
+          <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
+        </section>
       </div>
+
+      {/* Mobile FAB for manual sale */}
+      {activeSection === "entradas" && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end px-5 pb-5 lg:hidden">
+          <Button
+            type="button"
+            onClick={() => setSaleOpen(true)}
+            className="pointer-events-auto h-14 gap-2 rounded-full bg-[#FF9500] px-6 text-[15px] font-semibold text-white active:opacity-70"
+          >
+            <Plus className="h-5 w-5" />
+            Venta manual
+          </Button>
+        </div>
+      )}
 
       <ManualSaleDialog
         eventId={id}
         open={saleOpen}
         onOpenChange={setSaleOpen}
-        onSold={() => {
-          bump()
-        }}
+        onSold={bump}
       />
     </EventLayout>
   )
 }
 
-function PublicShopLinkBanner({
-  url,
-  copied,
-  onCopy,
-}: {
-  url: string
-  copied: boolean
-  onCopy: () => void
-}) {
-  if (!url) return null
-
+function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <section
-      className="relative overflow-hidden rounded-3xl border-2 sm:p-8"
-      aria-labelledby="public-shop-heading"
-    >
-      <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#FF9500]/20 blur-3xl dark:bg-[#FF9500]/15" />
-      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10">
-        <div className="min-w-0 space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#FF9500]">
-            Venta al público
-          </p>
-          <h2
-            id="public-shop-heading"
-            className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl"
-          >
-            Link de la tienda del evento
-          </h2>
-          <p className="max-w-xl text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-            Compartí este enlace por WhatsApp, redes o mail. Quienes lo abran pueden comprar
-            entradas sin acceder al panel de administración.
-          </p>
-          <p className="truncate rounded-xl border border-zinc-200/60 bg-white/60 px-3 py-2 font-mono text-[13px] text-foreground/90 dark:border-zinc-700/60 dark:bg-black/40">
-            {url}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center lg:flex-col xl:flex-row">
-          <Button
-            type="button"
-            onClick={onCopy}
-            className="h-14 gap-2 rounded-2xl bg-[#FF9500] px-8 text-[16px] font-semibold text-white shadow-md transition-all hover:bg-[#FF9500]/90 active:scale-[0.98] active:opacity-90 sm:h-16 sm:px-10 sm:text-[17px]"
-          >
-            {copied ? (
-              <>
-                <Check className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.25} />
-                ¡Copiado al portapapeles!
-              </>
-            ) : (
-              <>
-                <Copy className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.25} />
-                Copiar link de venta
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight text-foreground">{title}</h2>
-      {children}
-    </section>
+    <h2 className="text-xl font-medium tracking-tight sm:text-2xl">{children}</h2>
   )
 }

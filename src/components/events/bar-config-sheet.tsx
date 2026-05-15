@@ -28,7 +28,7 @@ import { Slider } from "@/components/ui/slider"
 import { Input } from "@/components/ui/input"
 
 const inputClass =
-  "h-11 rounded-xl border-zinc-200/50 bg-white px-4 text-[15px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+  "h-11 rounded-xl border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
 
 function formatMoneyArs(value: string): string {
   const n = Number.parseFloat(value)
@@ -355,12 +355,12 @@ export function BarConfigSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 border-l border-zinc-200/50 bg-[#F2F2F7] p-0 dark:border-zinc-800/50 dark:bg-black sm:max-w-xl"
+        className="flex w-full flex-col gap-0 border-l border-white/[0.06] bg-[#0a0a0a] p-0 sm:max-w-xl"
       >
-        <SheetHeader className="border-b border-zinc-200/50 bg-white/70 px-5 py-6 pr-14 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70">
+        <SheetHeader className="border-b border-white/[0.06] px-5 py-6 pr-14">
           <div className="flex gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-              <SlidersHorizontal className="h-6 w-6 text-[#FF9500]" />
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+              <SlidersHorizontal className="h-6 w-6 text-white/30" />
             </span>
             <div className="min-w-0 text-left">
               <SheetTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
@@ -387,7 +387,7 @@ export function BarConfigSheet({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="shrink-0 px-5 pt-5">
-              <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-200/50 bg-white p-1 dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+              <div className="flex flex-wrap gap-1 rounded-xl bg-white/[0.05] p-1">
                 {(
                   [
                     { id: "menu" as const, label: "Menú" },
@@ -403,8 +403,8 @@ export function BarConfigSheet({
                     className={cn(
                       "rounded-lg px-4 py-2 text-[13px] font-semibold transition-all duration-200 active:opacity-50",
                       section === t.id
-                        ? "bg-black text-white dark:bg-white dark:text-black"
-                        : "text-[#8E8E93] hover:bg-[#F2F2F7] dark:text-[#98989D] dark:hover:bg-zinc-800/50"
+                        ? "bg-white/[0.10] text-white"
+                        : "text-white/35 hover:bg-white/[0.06] hover:text-white/60"
                     )}
                   >
                     {t.label}
@@ -416,9 +416,9 @@ export function BarConfigSheet({
             {section === "settings" ? (
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
                 <div className="space-y-8">
-                  <div className="rounded-2xl border border-zinc-200/50 bg-white p-5 dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+                  <div className="rounded-2xl bg-white/[0.04] p-5">
                     <label
-                      className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                      className="text-[13px] font-normal text-white/45"
                       htmlFor="bar-settings-name"
                     >
                       Nombre de la barra
@@ -442,7 +442,7 @@ export function BarConfigSheet({
                     </Button>
                   </div>
 
-                  <div className="rounded-2xl border border-red-200/40 bg-white p-5 dark:border-red-900/40 dark:bg-[#1C1C1E]">
+                  <div className="rounded-2xl bg-white/[0.04] p-5">
                     <h4 className="text-[15px] font-semibold text-black dark:text-white">
                       Estado de la barra
                     </h4>
@@ -484,16 +484,16 @@ export function BarConfigSheet({
                     .
                   </p>
                 ) : (
-                  <ul className="divide-y divide-zinc-200/50 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white dark:divide-zinc-800/50 dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+                  <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl bg-white/[0.04]">
                     {menuProducts.map((p) => {
                       const busy = pendingProductIds.has(p.id)
                       return (
                         <li
                           key={p.id}
-                          className="flex items-center gap-3 px-4 py-3 transition-colors duration-200 active:bg-[#F2F2F7]/80 dark:active:bg-zinc-800/40"
+                          className="flex items-center gap-3 px-4 py-3 transition-colors duration-200 hover:bg-white/[0.03]"
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#FF9500]/15">
-                            <Package className="h-4 w-4 text-[#FF9500]" />
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                            <Package className="h-4 w-4 text-white/30" />
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold leading-tight text-black dark:text-white">
@@ -526,17 +526,17 @@ export function BarConfigSheet({
                     No hay personal en la Productora para este tenant.
                   </p>
                 ) : (
-                  <ul className="divide-y divide-zinc-200/50 overflow-hidden rounded-2xl border border-zinc-200/50 bg-white dark:divide-zinc-800/50 dark:border-zinc-800/50 dark:bg-[#1C1C1E]">
+                  <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl bg-white/[0.04]">
                     {eventStaff.map((member) => {
                       const busy = staffPendingIds.has(member.id)
                       const onThisBar = member.barId === bar.id
                       return (
                         <li
                           key={member.id}
-                          className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors duration-200 active:bg-[#F2F2F7]/80 dark:active:bg-zinc-800/40"
+                          className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors duration-200 hover:bg-white/[0.03]"
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#FF9500]/15">
-                            <Users className="h-4 w-4 text-[#FF9500]" />
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                            <Users className="h-4 w-4 text-white/30" />
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold leading-tight text-black dark:text-white">
@@ -600,7 +600,7 @@ export function BarConfigSheet({
                       return (
                         <li
                           key={item.inventoryItemId}
-                          className="rounded-2xl border border-zinc-200/50 bg-white p-4 dark:border-zinc-800/50 dark:bg-[#1C1C1E]"
+                          className="rounded-2xl bg-white/[0.04] p-4"
                         >
                           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                             <p className="font-semibold text-black dark:text-white">
@@ -611,7 +611,7 @@ export function BarConfigSheet({
                                 className={cn(
                                   "transition-colors duration-200",
                                   isChanged
-                                    ? "font-semibold text-[#FF9500]"
+                                    ? "font-semibold text-white/70"
                                     : "text-foreground"
                                 )}
                               >
@@ -646,7 +646,7 @@ export function BarConfigSheet({
                                 variant="outline"
                                 disabled={applying}
                                 onClick={() => void releaseBarStockToGlobalPool(item)}
-                                className="h-10 rounded-xl border-zinc-300 dark:border-zinc-600"
+                                className="h-10 rounded-xl border-white/[0.15] bg-transparent text-white/70 hover:border-white/25"
                               >
                                 Usar stock global del evento
                               </Button>
