@@ -9,7 +9,6 @@ import { RecipeIngredientRow } from "@/components/inventory/recipe-ingredient-ro
 import {
   draftLineQuantityForApi,
   materialSupportsFullBottle,
-  recipeApiLineToDraft,
   type RecipeDraftLine,
 } from "@/lib/inventory-recipe-helpers"
 import { hasBottlePackage, stockBaseToBottleDraft } from "@/lib/inventory-units"
@@ -158,7 +157,6 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
   const [insumos, setInsumos] = useState<EventInvRow[]>([])
   const [insLoading, setInsLoading] = useState(true)
   const [insError, setInsError] = useState<string | null>(null)
-  const [catalogProducts, setCatalogProducts] = useState<ApiProduct[]>([])
   const [eventMenuRows, setEventMenuRows] = useState<EventMenuProductRow[]>([])
   const [menuLoading, setMenuLoading] = useState(true)
   const [menuError, setMenuError] = useState<string | null>(null)
@@ -223,10 +221,9 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
           token,
         }),
       ])
-      setCatalogProducts(invRes.products)
+      console.log("invRes", invRes)
       setEventMenuRows(evRes.products)
     } catch (e) {
-      setCatalogProducts([])
       setEventMenuRows([])
       setMenuError(
         e instanceof ApiError ? e.message : "No se pudo cargar productos del evento"
