@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useSearchParams } from "react-router"
+import { Link, useSearchParams } from "react-router"
+import { ChevronLeft } from "lucide-react"
 import { toast } from "sonner"
-import { Sidebar } from "@/components/dashboard/sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuthStore } from "@/stores/auth-store"
@@ -166,11 +166,19 @@ export function SettingsPage() {
   )
 
   return (
-    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
-      <Sidebar />
-      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
-        <Header />
-        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
+    <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
+      <Header />
+      <main className="flex-1">
+        <div className="px-6 py-10 lg:px-10 lg:py-12">
+          <div className="mb-2">
+            <Link
+              to="/eventos"
+              className="inline-flex items-center gap-1 text-sm text-[#8E8E93] transition-colors hover:text-foreground dark:text-[#98989D]"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Volver a eventos
+            </Link>
+          </div>
           <div className="mx-auto max-w-2xl space-y-10">
             <header className="space-y-1">
               <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">

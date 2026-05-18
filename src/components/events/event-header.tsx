@@ -50,7 +50,7 @@ export function EventHeader({
       <div className="flex flex-col gap-6 px-4 py-6 lg:flex-row lg:items-start lg:justify-between lg:px-6">
         <div className="flex min-w-0 flex-1 gap-4">
           <Link
-            to="/events"
+            to="/eventos"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200/50 bg-white text-[#8E8E93] transition-all duration-200 active:opacity-50 dark:border-zinc-800/50 dark:bg-[#1C1C1E] dark:text-[#98989D]"
           >
             <ChevronLeft className="h-5 w-5" />

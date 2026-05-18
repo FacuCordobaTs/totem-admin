@@ -26,23 +26,14 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { TicketQrDialog } from "@/components/events/ticket-qr-dialog"
 import type { ApiTicketType } from "@/components/events/ticket-types"
-import { Ban, ChevronRight, Mail, Search } from "lucide-react"
+import { Mail, Plus, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -63,22 +54,7 @@ type TicketsResponse = { tickets: ApiTicketRow[] }
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 
 const filterTriggerClass =
-  "h-10 min-w-[140px] rounded-xl border-white/[0.1] bg-white/[0.05] px-3 text-[14px] text-foreground shadow-none"
-
-function emailSentBadge(emailSentAt: string | null) {
-  if (emailSentAt != null && emailSentAt !== "") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/45">
-        Email Enviado
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/45">
-      Email Pendiente
-    </span>
-  )
-}
+  "h-9 min-w-[130px] rounded-xl border-white/[0.1] bg-white/[0.05] px-3 text-[13px] text-foreground shadow-none"
 
 function statusPill(status: ApiTicketRow["status"]) {
   switch (status) {
@@ -121,6 +97,7 @@ type AttendeeTableProps = {
   refreshTrigger: number
   layout?: "default" | "canvas"
   hideExportButton?: boolean
+  onNewSale?: () => void
 }
 
 export type AttendeeTableHandle = {
@@ -129,7 +106,7 @@ export type AttendeeTableHandle = {
 
 export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>(
   function AttendeeTable(
-    { eventId, refreshTrigger, layout = "default", hideExportButton = false },
+    { eventId, refreshTrigger, hideExportButton = false, onNewSale },
     ref
   ) {
     const token = useAuthStore((s) => s.token)
@@ -147,10 +124,8 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     const [qrTicketId, setQrTicketId] = useState<string | null>(null)
     const [qrBuyerName, setQrBuyerName] = useState<string | null>(null)
     const [qrOpen, setQrOpen] = useState(false)
-    const [actionLoading, setActionLoading] = useState<"email" | "cancel" | null>(
-      null
-    )
-    const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+    const [actionLoading, setActionLoading] = useState<"email" | "cancel" | null>(null)
+    const [cancelConfirming, setCancelConfirming] = useState(false)
 
     const loadTicketTypes = useCallback(async () => {
       if (!token || !eventId) return
@@ -271,8 +246,6 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
 
     useImperativeHandle(ref, () => ({ exportCsv }), [exportCsv])
 
-    const isCanvas = layout === "canvas"
-
     const handleSendQrEmail = useCallback(async () => {
       if (!token || !detail) return
       setActionLoading("email")
@@ -300,7 +273,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           method: "POST",
           token,
         })
-        setCancelConfirmOpen(false)
+        setCancelConfirming(false)
         toast.success("Entrada anulada")
         await loadTickets({ silent: true })
       } catch (e) {
@@ -313,89 +286,89 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     }, [token, detail, loadTickets])
 
     useEffect(() => {
-      if (detail == null) setCancelConfirmOpen(false)
+      if (detail == null) setCancelConfirming(false)
     }, [detail])
 
     return (
-      <section className="w-full space-y-6">
-        {!isCanvas ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground">
-              Asistentes
-            </h2>
-            {!hideExportButton ? (
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={exportCsv}
-                disabled={loading || filtered.length === 0}
-                className="h-9 rounded-xl px-3 text-[14px] font-medium text-[#8E8E93] hover:text-foreground dark:text-[#98989D]"
-              >
-                Exportar CSV
-              </Button>
-            ) : null}
-          </div>
-        ) : (
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Asistentes</h2>
-        )}
-
-        {/* Toolbar: búsqueda principal + filtros sutiles */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8E8E93]" />
+      <section className="w-full space-y-5">
+        {/* Header: title + filters + new sale button all on one line */}
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">
+            Asistentes
+          </h2>
+          {!hideExportButton && (
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={exportCsv}
+              disabled={loading || filtered.length === 0}
+              className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/40 hover:text-foreground"
+            >
+              Exportar CSV
+            </Button>
+          )}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
             <Input
               placeholder="Buscar asistente"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-11 rounded-xl border-white/[0.1] bg-white/[0.05] pl-10 text-[15px] shadow-none placeholder:text-white/30 focus-visible:border-white/20 focus-visible:ring-0"
+              className="h-9 w-44 rounded-xl border-white/[0.1] bg-white/[0.05] pl-8 text-[13px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
             />
           </div>
-          <div className="flex gap-2">
-            <Select
-              value={filterTicketTypeId}
-              onValueChange={(v) => setFilterTicketTypeId(v)}
+          <Select
+            value={filterTicketTypeId}
+            onValueChange={(v) => setFilterTicketTypeId(v)}
+          >
+            <SelectTrigger className={filterTriggerClass}>
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl">
+              <SelectItem value="all">Todos los tipos</SelectItem>
+              {ticketTypes.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={filterStatus}
+            onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}
+          >
+            <SelectTrigger className={cn(filterTriggerClass, "min-w-[100px]")}>
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl">
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="PENDING">Emitidas</SelectItem>
+              <SelectItem value="USED">Usadas</SelectItem>
+            </SelectContent>
+          </Select>
+          {onNewSale ? (
+            <Button
+              type="button"
+              onClick={onNewSale}
+              className="h-9 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-80"
             >
-              <SelectTrigger className={filterTriggerClass}>
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                {ticketTypes.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filterStatus}
-              onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}
-            >
-              <SelectTrigger className={cn(filterTriggerClass, "min-w-[120px]")}>
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="PENDING">Emitidas</SelectItem>
-                <SelectItem value="USED">Usadas</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Venta manual</span>
+            </Button>
+          ) : null}
         </div>
 
         {error ? (
           <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p>
         ) : null}
 
-        {/* Lista grouped-inset: sin bordes pesados, divisor con sangría */}
-        <div className="overflow-hidden rounded-2xl ">
+        <div className="overflow-hidden rounded-2xl">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                <TableHead className="w-12 pl-4 text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-10 pl-4 text-[11px] font-normal lowercase text-white/45">
                   Nº
                 </TableHead>
-                <TableHead className="pl-6 text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Asistente
                 </TableHead>
                 <TableHead className="text-[11px] font-normal lowercase text-white/45">
@@ -404,14 +377,16 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                 <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Estado
                 </TableHead>
-                <TableHead className="w-12 pr-4" />
+                <TableHead className="text-[11px] font-normal lowercase text-white/45">
+                  Correo
+                </TableHead>
               </TableRow>
             </TableHeader>
             {loading ? (
               <TableBody>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <TableRow key={i} className="border-0 hover:bg-transparent">
-                    <TableCell className="pl-6 py-4" colSpan={5}>
+                    <TableCell className="py-4 pl-4" colSpan={5}>
                       <div className="h-5 animate-pulse rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60" />
                     </TableCell>
                   </TableRow>
@@ -423,7 +398,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   <TableRow className="border-0 hover:bg-transparent">
                     <TableCell
                       colSpan={5}
-                      className="py-14 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]"
+                      className="py-14 text-center text-[15px] text-white/40"
                     >
                       Sin resultados
                     </TableCell>
@@ -432,21 +407,21 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   filtered.map((t, index) => (
                     <TableRow
                       key={t.id}
-                      onClick={() => setDetail(t)}
-                      className="group cursor-pointer border-0 transition-colors duration-150 hover:bg-white/[0.03]"
+                      onClick={() => { setCancelConfirming(false); setDetail(t) }}
+                      className="cursor-pointer border-0 transition-colors duration-150 hover:bg-white/[0.03]"
                     >
-                      <TableCell className="pl-4 py-3.5 font-mono text-[12px] tabular-nums text-zinc-400 dark:text-zinc-600">
+                      <TableCell className="py-3.5 pl-4 font-mono text-[12px] tabular-nums text-zinc-600">
                         {filtered.length - index}
                       </TableCell>
-                      <TableCell className="pl-6 py-3.5 text-[15px] font-medium text-foreground">
+                      <TableCell className="py-3.5 pl-4 text-[15px] font-medium text-foreground">
                         {t.buyerName ?? "—"}
                       </TableCell>
-                      <TableCell className="py-3.5 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                      <TableCell className="py-3.5 text-[15px] text-white/50">
                         {t.ticketTypeName}
                       </TableCell>
                       <TableCell className="py-3.5">{statusPill(t.status)}</TableCell>
-                      <TableCell className="pr-4 py-3.5 text-right">
-                        <ChevronRight className="inline h-4 w-4 text-[#C7C7CC] transition-transform duration-150 group-hover:translate-x-0.5 dark:text-[#48484A]" />
+                      <TableCell className="py-3.5 pr-4 text-[13px] text-white/35">
+                        {t.buyerEmail ?? "—"}
                       </TableCell>
                     </TableRow>
                   ))
@@ -456,141 +431,149 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           </Table>
         </div>
 
-        <p className="px-1 text-[13px] text-[#8E8E93] dark:text-[#98989D]">
+        <p className="px-1 text-[13px] text-white/35">
           {loading
             ? "Cargando…"
-            : `${filtered.length} ${filtered.length === 1 ? "entrada" : "entradas"}`}
+            : `${filtered.length} ${filtered.length === 1 ? "resultado" : "resultados"}`}
         </p>
 
-        {/* Panel de detalle: todo lo secundario vive acá */}
-        <Sheet
+        {/* Detail dialog */}
+        <Dialog
           open={detail !== null}
-          onOpenChange={(open) => {
-            if (!open) setDetail(null)
+          onOpenChange={(o) => {
+            if (!o) {
+              setDetail(null)
+              setCancelConfirming(false)
+            }
           }}
         >
-          <SheetContent
-            side="right"
-            className="w-full gap-0 border-l border-white/[0.06] bg-[#0a0a0a] p-0 shadow-none ring-0 sm:max-w-md"
+          <DialogContent
+            showCloseButton
+            className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-[440px]"
           >
             {detail ? (
               <>
-                <SheetHeader className="border-white/[0.06]">
-                  <SheetTitle className="text-xl font-bold tracking-tight text-foreground">
-                    {detail.buyerName ?? "Sin nombre"}
-                  </SheetTitle>
-                  <SheetDescription className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-                    {detail.ticketTypeName}
-                  </SheetDescription>
-                </SheetHeader>
+                <div className="border-b border-white/[0.06] px-6 py-5">
+                  <DialogHeader className="gap-1 text-left sm:text-left">
+                    <DialogTitle className="text-[20px] font-bold tracking-tight text-foreground">
+                      {detail.buyerName ?? "Sin nombre"}
+                    </DialogTitle>
+                    <p className="text-[14px] text-white/40">{detail.ticketTypeName}</p>
+                  </DialogHeader>
+                </div>
 
-                <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-6 py-6">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-                      Estado
-                    </span>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {statusPill(detail.status)}
-                      {emailSentBadge(detail.emailSentAt ?? null)}
+                {!cancelConfirming ? (
+                  <>
+                    <div className="space-y-5 px-6 py-5">
+                      <div className="flex flex-wrap items-center gap-3">
+                        {statusPill(detail.status)}
+                        {detail.emailSentAt ? (
+                          <span className="text-[11px] text-white/35">email enviado</span>
+                        ) : (
+                          <span className="text-[11px] text-white/25">email pendiente</span>
+                        )}
+                      </div>
+
+                      <DetailRow label="correo">
+                        {detail.buyerEmail ? (
+                          <a
+                            href={`mailto:${detail.buyerEmail}`}
+                            className="break-words text-[15px] text-foreground underline-offset-2 hover:underline"
+                          >
+                            {detail.buyerEmail}
+                          </a>
+                        ) : (
+                          <span className="text-[15px] text-foreground">—</span>
+                        )}
+                      </DetailRow>
+
+                      <DetailRow label="fecha de compra">
+                        <span className="text-[15px] text-foreground">
+                          {formatShortDate(detail.createdAt)}
+                        </span>
+                      </DetailRow>
+
+                      <DetailRow label="fecha de uso">
+                        <span className="text-[15px] text-foreground">
+                          {formatShortDate(detail.scannedAt)}
+                        </span>
+                      </DetailRow>
                     </div>
-                  </div>
 
-                  <DetailRow
-                    label="Correo"
-                    value={detail.buyerEmail ?? "—"}
-                    mono={false}
-                  />
-                  <DetailRow
-                    label="Fecha de compra"
-                    value={formatShortDate(detail.createdAt)}
-                    mono={false}
-                  />
-                  <DetailRow
-                    label="Fecha de uso"
-                    value={formatShortDate(detail.scannedAt)}
-                    mono={false}
-                  />
-                </div>
-
-                <div className="space-y-2 border-t border-white/[0.06] p-4">
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setQrTicketId(detail.id)
-                      setQrBuyerName(detail.buyerName)
-                      setQrOpen(true)
-                    }}
-                    className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 active:opacity-70"
-                  >
-                    Ver QR
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={
-                      actionLoading !== null ||
-                      detail.status === "CANCELLED" ||
-                      (detail.buyerEmail?.trim() ?? "") === ""
-                    }
-                    onClick={() => {
-                      void handleSendQrEmail()
-                    }}
-                    className="h-11 w-full gap-2 rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 hover:border-white/25"
-                  >
-                    <Mail className="h-4 w-4 shrink-0" />
-                    {actionLoading === "email" ? "Enviando…" : "Enviar QR por Email"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={
-                      actionLoading !== null ||
-                      detail.status === "USED" ||
-                      detail.status === "CANCELLED"
-                    }
-                    onClick={() => setCancelConfirmOpen(true)}
-                    className="h-11 w-full gap-2 rounded-xl text-[15px] font-semibold text-red-500/70 hover:bg-red-500/10 hover:text-red-500"
-                  >
-                    <Ban className="h-4 w-4 shrink-0" />
-                    {actionLoading === "cancel" ? "Anulando…" : "Anular Entrada"}
-                  </Button>
-                </div>
+                    <div className="space-y-2 border-t border-white/[0.06] p-4">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          setQrTicketId(detail.id)
+                          setQrBuyerName(detail.buyerName)
+                          setQrOpen(true)
+                        }}
+                        className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 active:opacity-70"
+                      >
+                        Ver QR
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={
+                          actionLoading !== null ||
+                          detail.status === "CANCELLED" ||
+                          (detail.buyerEmail?.trim() ?? "") === ""
+                        }
+                        onClick={() => void handleSendQrEmail()}
+                        className="h-11 w-full gap-2 rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 hover:border-white/25"
+                      >
+                        <Mail className="h-4 w-4 shrink-0" />
+                        {actionLoading === "email" ? "Enviando…" : "Enviar QR por Email"}
+                      </Button>
+                      <div className="pt-4 text-center">
+                        <button
+                          type="button"
+                          disabled={
+                            actionLoading !== null ||
+                            detail.status === "USED" ||
+                            detail.status === "CANCELLED"
+                          }
+                          onClick={() => setCancelConfirming(true)}
+                          className="text-[14px] text-red-500/60 transition-colors hover:text-red-500/90 disabled:pointer-events-none disabled:opacity-40"
+                        >
+                          Anular Entrada
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="px-6 py-5">
+                      <p className="text-[15px] leading-relaxed text-white/60">
+                        ¿Confirmás que querés anular esta entrada? Esta acción no se puede
+                        deshacer.
+                      </p>
+                    </div>
+                    <div className="space-y-2 border-t border-white/[0.06] p-4">
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        className="h-11 w-full rounded-xl text-[15px] font-semibold"
+                        disabled={actionLoading === "cancel"}
+                        onClick={() => void handleConfirmCancelTicket()}
+                      >
+                        {actionLoading === "cancel" ? "Anulando…" : "Anular entrada"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 hover:border-white/25"
+                        disabled={actionLoading === "cancel"}
+                        onClick={() => setCancelConfirming(false)}
+                      >
+                        Volver
+                      </Button>
+                    </div>
+                  </>
+                )}
               </>
             ) : null}
-          </SheetContent>
-        </Sheet>
-
-        <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
-          <DialogContent className="rounded-2xl border border-white/[0.08] bg-[#111111]">
-            <DialogHeader>
-              <DialogTitle className="text-lg font-semibold text-foreground">
-                Anular entrada
-              </DialogTitle>
-              <DialogDescription className="text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                ¿Estás seguro de que deseas anular esta entrada? Esta acción no se puede
-                deshacer.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="gap-2 sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl border-white/[0.15] bg-transparent text-white/70 hover:border-white/25"
-                disabled={actionLoading === "cancel"}
-                onClick={() => setCancelConfirmOpen(false)}
-              >
-                Volver
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                className="rounded-xl font-semibold"
-                disabled={actionLoading === "cancel"}
-                onClick={() => void handleConfirmCancelTicket()}
-              >
-                {actionLoading === "cancel" ? "Anulando…" : "Anular entrada"}
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
 
@@ -614,26 +597,15 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
 
 function DetailRow({
   label,
-  value,
-  mono,
+  children,
 }: {
   label: string
-  value: string
-  mono: boolean
+  children: React.ReactNode
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
-        {label}
-      </p>
-      <p
-        className={cn(
-          "break-words text-[15px] text-foreground",
-          mono && "font-mono text-[13px]"
-        )}
-      >
-        {value}
-      </p>
+      <p className="text-[13px] font-medium text-white/40">{label}</p>
+      {children}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
-import { Sidebar } from "@/components/dashboard/sidebar"
+import { Link, useSearchParams } from "react-router"
+import { ChevronLeft, MoreHorizontal, UserPlus } from "lucide-react"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,7 +36,6 @@ import {
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile, type StaffRole } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
-import { MoreHorizontal, UserPlus } from "lucide-react"
 
 const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "BARTENDER", "SECURITY"]
 
@@ -80,6 +80,11 @@ export function StaffPage() {
   const [deactivateTarget, setDeactivateTarget] = useState<StaffProfile | null>(null)
   const [deactivateError, setDeactivateError] = useState<string | null>(null)
   const [deactivateLoading, setDeactivateLoading] = useState(false)
+
+  const [searchParams] = useSearchParams()
+  const fromEventId = searchParams.get("from")
+  const backHref = fromEventId ? `/eventos/${fromEventId}#personal` : "/eventos"
+  const backLabel = fromEventId ? "Volver al evento" : "Volver a eventos"
 
   const loadTeam = useCallback(async () => {
     if (!token) return
@@ -207,13 +212,24 @@ export function StaffPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
-      <Sidebar />
-      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
-        <Header />
-        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
+    <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
+      <Header />
+      <main className="flex-1">
+        <div className="px-6 py-10 lg:px-10 lg:py-12">
+          <div className="mb-2">
+            <Link
+              to={backHref}
+              className="inline-flex items-center gap-1 text-sm text-[#8E8E93] transition-colors hover:text-foreground dark:text-[#98989D]"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {backLabel}
+            </Link>
+          </div>
           <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
             <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8E8E93] dark:text-[#98989D]">
+                Staff global
+              </p>
               <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 Personal
               </h1>

@@ -1,5 +1,4 @@
-import { useState } from "react"
-import { ChevronDown, Menu } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -11,13 +10,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
-import { Sidebar } from "@/components/dashboard/sidebar"
 import { useAuthStore } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { apiFetch } from "@/lib/api"
@@ -31,7 +23,6 @@ function initials(name: string): string {
 
 export function Header() {
   const navigate = useNavigate()
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const staff = useAuthStore((s) => s.staff)
   const token = useAuthStore((s) => s.token)
   const logoutStore = useAuthStore((s) => s.logout)
@@ -39,8 +30,6 @@ export function Header() {
   const displayName = staff?.name ?? "Usuario"
   const displayEmail = staff?.email ?? ""
   const roleLabel = staff ? staffRoleLabel(staff.role) : ""
-  const isBartender = staff?.role === "BARTENDER"
-  const isSecurity = staff?.role === "SECURITY"
 
   async function handleLogout() {
     try {
@@ -53,32 +42,14 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-zinc-200/50 bg-white/70 px-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 lg:h-16 lg:px-8">
-      <div className="flex items-center gap-3">
-        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-          <SheetTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              type="button"
-              className="h-10 w-10 rounded-xl text-foreground lg:hidden"
-            >
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Abrir menú</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent
-            side="left"
-            className="w-64 border-zinc-800 bg-zinc-950 p-0 shadow-none ring-0 dark:bg-zinc-950 sm:max-w-[16rem]"
-          >
-            <SheetTitle className="sr-only">Menú de navegación</SheetTitle>
-            <Sidebar
-              layout="sheet"
-              onNavigate={() => setMobileNavOpen(false)}
-            />
-          </SheetContent>
-        </Sheet>
-      </div>
+    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-zinc-200/50 bg-white/70 px-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 lg:px-8">
+      <Link
+        to="/eventos"
+        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl transition-opacity active:opacity-70"
+        aria-label="Eventos"
+      >
+        <img src="/logo.png" alt="Crow" className="h-full w-full object-cover" />
+      </Link>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -115,9 +86,7 @@ export function Header() {
                 {displayName}
               </p>
               {roleLabel ? (
-                <p className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                  {roleLabel}
-                </p>
+                <p className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">{roleLabel}</p>
               ) : null}
               {displayEmail ? (
                 <p className="pt-2 text-[13px] leading-snug text-[#8E8E93] dark:text-[#98989D]">
@@ -128,9 +97,7 @@ export function Header() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-zinc-200/50 dark:bg-zinc-800/50" />
           <DropdownMenuItem asChild className="rounded-lg text-[15px]">
-            <Link to="/settings">
-              {isBartender || isSecurity ? "Mi perfil" : "Ajustes"}
-            </Link>
+            <Link to="/configuracion">Configuración</Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-zinc-200/50 dark:bg-zinc-800/50" />
           <DropdownMenuItem

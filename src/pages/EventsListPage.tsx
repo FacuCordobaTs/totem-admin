@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link } from "react-router"
-import { Sidebar } from "@/components/dashboard/sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import {
@@ -120,11 +119,10 @@ export function EventsListPage() {
   const needsProductora = !hasTenant
 
   return (
-    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
-      <Sidebar />
-      <main className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
-        <Header />
-        <div className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
+    <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
+      <Header />
+      <main className="flex-1">
+        <div className="px-6 py-10 lg:px-10 lg:py-12">
           {needsProductora ? (
             <div className="flex min-h-[calc(100vh-8rem)] flex-col items-center justify-center py-8">
               {isAdmin ? (
@@ -189,7 +187,7 @@ export function EventsListPage() {
                         >
                           <TableCell className="pl-6 py-3.5">
                             <Link
-                              to={`/events/${ev.id}`}
+                              to={`/eventos/${ev.id}`}
                               className="block font-semibold text-foreground"
                             >
                               {ev.name}
@@ -203,7 +201,7 @@ export function EventsListPage() {
                             {formatEventDateShort(ev.date)}
                           </TableCell>
                           <TableCell className="pr-4 py-3.5 text-right">
-                            <Link to={`/events/${ev.id}`} aria-label={`Abrir ${ev.name}`}>
+                            <Link to={`/eventos/${ev.id}`} aria-label={`Abrir ${ev.name}`}>
                               <ChevronRight className="inline h-4 w-4 text-[#C7C7CC] dark:text-[#48484A]" />
                             </Link>
                           </TableCell>

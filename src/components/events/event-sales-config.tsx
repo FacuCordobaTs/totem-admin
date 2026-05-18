@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react"
-import { Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiEvent } from "@/types/events"
@@ -39,10 +37,12 @@ function isValidSlug(s: string): boolean {
 
 type Props = {
   event: ApiEvent
+  formId: string
   onUpdated: () => void | Promise<void>
+  onStateChange: (state: { saving: boolean; hasSlugError: boolean }) => void
 }
 
-export function EventSalesConfig({ event, onUpdated }: Props) {
+export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Props) {
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
@@ -67,6 +67,10 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
     slugTrimmed !== "" && !isValidSlug(slugTrimmed)
       ? "Solo minúsculas, números y guiones (ej: fiesta-verano)"
       : null
+
+  useEffect(() => {
+    onStateChange({ saving, hasSlugError: !!slugError })
+  }, [saving, slugError, onStateChange])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -113,14 +117,15 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
 
   return (
     <form
+      id={formId}
       onSubmit={(e) => void handleSubmit(e)}
-      className="rounded-xl border border-zinc-200/50 bg-transparent p-5 dark:border-zinc-800/50"
+      className="rounded-xl bg-transparent py-5"
     >
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="space-y-2">
           <label
             htmlFor={`sales-tickets-${event.id}`}
-            className="block text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]"
+            className="block text-md font-medium text-[#98989D]"
           >
             Inicio de Venta de Entradas
           </label>
@@ -129,22 +134,22 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
             type="datetime-local"
             value={ticketsLocal}
             onChange={(e) => setTicketsLocal(e.target.value)}
-            className="h-10 w-full rounded-lg border border-zinc-200/80 bg-white px-3 text-[15px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-[#FF9500] dark:border-zinc-700 dark:bg-zinc-950"
+            className="w-full rounded-lg p-3 text-[15px] text-foreground outline-none bg-zinc-950"
           />
         </div>
         <div className="space-y-2">
           <label
             htmlFor={`sales-consumptions-${event.id}`}
-            className="block text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]"
+            className="block text-md font-medium text-[#98989D]"
           >
-            Inicio de Venta de Barras (Consumiciones)
+            Inicio de Venta de Barras Consumiciones
           </label>
           <input
             id={`sales-consumptions-${event.id}`}
             type="datetime-local"
             value={consumptionsLocal}
             onChange={(e) => setConsumptionsLocal(e.target.value)}
-            className="h-10 w-full rounded-lg border border-zinc-200/80 bg-white px-3 text-[15px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-[#FF9500] dark:border-zinc-700 dark:bg-zinc-950"
+            className="w-full rounded-lg p-3 text-[15px] text-foreground outline-none bg-zinc-950"
           />
         </div>
       </div>
@@ -152,13 +157,13 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
       <div className="mt-6 space-y-2">
         <label
           htmlFor={`event-slug-${event.id}`}
-          className="block text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]"
+          className="block text-md font-medium font-medium text-[#98989D]"
         >
           URL del evento
         </label>
-        <div className="flex items-center gap-0 rounded-lg border border-zinc-200/80 bg-white focus-within:ring-1 focus-within:ring-[#FF9500] dark:border-zinc-700 dark:bg-zinc-950">
-          <span className="select-none whitespace-nowrap pl-3 text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-            crow.ar/e/
+        <div className="flex items-center gap-0 rounded-lg bg-zinc-950 py-3">
+          <span className="select-none whitespace-nowrap pl-3 text-lg text-[#98989D]">
+            crow.ar/
           </span>
           <input
             id={`event-slug-${event.id}`}
@@ -168,15 +173,15 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
             maxLength={100}
             onChange={(e) => setSlug(e.target.value.toLowerCase())}
             onBlur={() => setSlug((s) => slugify(s))}
-            className="h-10 min-w-0 flex-1 bg-transparent pr-3 text-[15px] text-foreground outline-none"
+            className="min-w-0 flex-1 bg-transparent text-lg text-foreground outline-none"
           />
         </div>
         {slugError ? (
-          <p className="text-[12px] text-red-500 dark:text-red-400">{slugError}</p>
+          <p className="text-md text-red-500 dark:text-red-400">{slugError}</p>
         ) : slugTrimmed ? (
-          <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
+          <p className="text-md text-[#8E8E93] dark:text-[#98989D]">
             Link público:{" "}
-            <span className="font-mono">crow.ar/e/{slugTrimmed}</span>
+            <span className="font-mono">crow.ar/{slugTrimmed}</span>
           </p>
         ) : (
           <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
@@ -190,23 +195,6 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
           {error}
         </p>
       ) : null}
-
-      <div className="mt-6 flex justify-end">
-        <Button
-          type="submit"
-          disabled={saving || !!slugError}
-          className="h-10 min-w-[140px] rounded-xl bg-[#FF9500] px-5 text-[14px] font-semibold text-white shadow-none hover:bg-[#FF9500]/90 disabled:opacity-50"
-        >
-          {saving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-              Guardando…
-            </>
-          ) : (
-            "Guardar cambios"
-          )}
-        </Button>
-      </div>
     </form>
   )
 }

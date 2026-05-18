@@ -4,22 +4,13 @@ import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiTicketType } from "./ticket-types"
-import { ShoppingBag } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 
@@ -43,11 +34,20 @@ type ManualSaleDialogProps = {
   onSold: () => void
 }
 
-const inputClass =
-  "h-11 rounded-xl border border-zinc-200/50 bg-[#F2F2F7] px-4 text-[17px] transition-all duration-200 dark:border-zinc-800/50 dark:bg-black dark:text-white"
+function formatPrice(price: string | number): string {
+  const n = typeof price === "string" ? Number.parseFloat(price) : price
+  if (Number.isNaN(n)) return "—"
+  return (
+    "$ " +
+    new Intl.NumberFormat("es-AR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(Math.round(n))
+  )
+}
 
-const selectClass =
-  "h-11 w-full rounded-xl border border-zinc-200/50 bg-[#F2F2F7] px-4 text-[17px] dark:border-zinc-800/50 dark:bg-black dark:text-white"
+const inputClass =
+  "rounded-xl border border-white/[0.1] bg-white/[0.05] py-3 px-4 text-[15px] h-auto transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
 
 export function ManualSaleDialog({
   eventId,
@@ -75,7 +75,9 @@ export function ManualSaleDialog({
     })
       .then((data) => {
         setTypes(data.ticketTypes)
-        const first = data.ticketTypes[0]
+        const first = data.ticketTypes.find(
+          (t) => t.stockLimit == null || t.sold < t.stockLimit
+        )
         setTicketTypeId(first?.id ?? "")
       })
       .catch((err) => {
@@ -90,6 +92,7 @@ export function ManualSaleDialog({
       setBuyerName("")
       setBuyerEmail("")
       setError(null)
+      setTicketTypeId("")
     }
   }, [open])
 
@@ -126,73 +129,92 @@ export function ManualSaleDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
-        className="max-h-[min(92vh,880px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-zinc-200/50 bg-background p-0 sm:max-w-lg dark:border-zinc-800/50"
+        className="max-h-[min(92vh,680px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-[480px]"
       >
-        <div className="border-b border-zinc-200/50 px-5 py-5 dark:border-zinc-800/50">
-          <div className="flex gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FF9500]/15">
-              <ShoppingBag className="h-6 w-6 text-[#FF9500]" />
-            </span>
-            <DialogHeader className="flex-1 gap-1 text-left">
-              <DialogTitle className="text-[20px] font-bold tracking-tight text-black dark:text-white">
-                Venta manual
-              </DialogTitle>
-              <DialogDescription className="text-[15px] leading-snug text-[#8E8E93] dark:text-[#98989D]">
-                Simulación de cobro: se emite la entrada con hash QR único (sin Mercado
-                Pago).
-              </DialogDescription>
-            </DialogHeader>
-          </div>
+        <div className="border-b border-white/[0.06] px-5 py-5">
+          <DialogHeader className="gap-0 text-left sm:text-left">
+            <DialogTitle className="text-[20px] font-bold tracking-tight text-black dark:text-white">
+              Nueva venta
+            </DialogTitle>
+          </DialogHeader>
         </div>
 
         <form
           onSubmit={submit}
-          className="flex max-h-[calc(92vh-14rem)] flex-col overflow-y-auto"
+          className="flex max-h-[calc(92vh-10rem)] flex-col overflow-y-auto"
         >
-          <div className="space-y-5 px-5 py-5">
+          <div className="space-y-6 px-5 py-5">
             {error ? (
               <p
-                className="rounded-xl border border-red-200/50 bg-red-500/10 px-4 py-3 text-[15px] text-red-600 dark:border-red-900/50 dark:text-red-400"
+                className="rounded-xl border border-red-900/50 bg-red-500/10 px-4 py-3 text-[15px] text-red-400"
                 role="alert"
               >
                 {error}
               </p>
             ) : null}
+
             <div className="space-y-2">
-              <span className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                Tipo de entrada
+              <span className="text-[13px] font-normal text-white/45">
+                tipo de entrada
               </span>
               {loadingTypes ? (
-                <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">Cargando…</p>
+                <p className="pt-1 text-[15px] text-white/40">Cargando…</p>
               ) : types.length === 0 ? (
-                <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">
+                <p className="pt-1 text-[15px] text-white/40">
                   Creá al menos un tipo de entrada antes de vender.
                 </p>
               ) : (
-                <Select value={ticketTypeId} onValueChange={setTicketTypeId}>
-                  <SelectTrigger className={selectClass}>
-                    <SelectValue placeholder="Elegí tipo" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                    {types.map((t) => {
-                      const out = t.stockLimit != null && t.sold >= t.stockLimit
-                      return (
-                        <SelectItem key={t.id} value={t.id} disabled={out}>
-                          {t.name} — ${Number(t.price).toFixed(2)}
-                          {out ? " (agotado)" : ""}
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
+                <div
+                  className="mt-2 divide-y divide-white/[0.06] overflow-y-auto rounded-xl border border-white/[0.08]"
+                  style={{ maxHeight: types.length > 4 ? "232px" : undefined }}
+                >
+                  {types.map((t) => {
+                    const isSoldOut = t.stockLimit != null && t.sold >= t.stockLimit
+                    const isSelected = ticketTypeId === t.id
+                    const stockText =
+                      t.stockLimit == null
+                        ? "sin límite"
+                        : isSoldOut
+                          ? "agotado"
+                          : `${t.remaining ?? t.stockLimit - t.sold} disponibles`
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={isSoldOut}
+                        onClick={() => setTicketTypeId(t.id)}
+                        className={cn(
+                          "flex w-full items-start justify-between border-l-2 px-4 py-3.5 text-left transition-colors",
+                          isSelected
+                            ? "border-l-[#FF9500] bg-[#FF9500]/[0.06]"
+                            : "border-l-transparent hover:bg-white/[0.03]",
+                          isSoldOut && "opacity-40"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[16px] font-medium text-foreground">
+                            {t.name}
+                          </p>
+                          <p className="mt-0.5 text-[12px] text-white/40">
+                            {stockText}
+                          </p>
+                        </div>
+                        <span className="ml-4 shrink-0 text-[15px] text-white/60">
+                          {formatPrice(t.price)}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
               )}
             </div>
+
             <div className="space-y-2">
               <label
-                className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                className="text-[13px] font-normal text-white/45"
                 htmlFor="buyer-name"
               >
-                Nombre del comprador
+                nombre del comprador
               </label>
               <Input
                 id="buyer-name"
@@ -203,12 +225,13 @@ export function ManualSaleDialog({
                 autoComplete="name"
               />
             </div>
+
             <div className="space-y-2">
               <label
-                className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]"
+                className="text-[13px] font-normal text-white/45"
                 htmlFor="buyer-email"
               >
-                Correo
+                correo
               </label>
               <Input
                 id="buyer-email"
@@ -220,33 +243,27 @@ export function ManualSaleDialog({
                 autoComplete="email"
               />
             </div>
-            {soldOut ? (
-              <p className="text-[15px] text-amber-600 dark:text-amber-400">
-                Este tipo está agotado. Elegí otro.
-              </p>
-            ) : null}
           </div>
 
-          <div className="mt-auto border-t border-zinc-200/50 bg-[#F2F2F7]/80 p-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/70 max-sm:sticky max-sm:bottom-0">
-            <DialogFooter className="flex-col gap-2 sm:flex-col">
-              <Button
-                type="submit"
-                className="h-12 w-full rounded-xl bg-[#FF9500] text-[17px] font-semibold text-white transition-all duration-200 active:opacity-70"
-                disabled={
-                  selling || loadingTypes || types.length === 0 || !ticketTypeId || soldOut
-                }
-              >
-                {selling ? "Emitiendo…" : "Confirmar venta"}
-              </Button>
-              <Button
+          <div className="mt-auto border-t border-white/[0.06] bg-black/40 px-5 py-4">
+            <Button
+              type="submit"
+              className="h-12 w-full rounded-xl bg-[#FF9500] text-[16px] font-semibold text-white transition-all duration-200 active:opacity-70"
+              disabled={
+                selling || loadingTypes || types.length === 0 || !ticketTypeId || soldOut
+              }
+            >
+              {selling ? "Emitiendo…" : "Confirmar venta"}
+            </Button>
+            <div className="mt-3 flex justify-center">
+              <button
                 type="button"
-                variant="outline"
-                className="h-11 w-full rounded-xl border-zinc-200/50 text-[17px] font-semibold transition-all duration-200 active:opacity-50 dark:border-zinc-800/50"
                 onClick={() => onOpenChange(false)}
+                className="text-[15px] text-white/40 transition-colors hover:text-white/60"
               >
                 Cancelar
-              </Button>
-            </DialogFooter>
+              </button>
+            </div>
           </div>
         </form>
       </DialogContent>

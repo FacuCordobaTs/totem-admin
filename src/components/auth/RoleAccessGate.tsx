@@ -9,8 +9,8 @@ function redirectForRestrictedRole(
   if (role === "BARTENDER") {
     if (
       pathname === "/pos" ||
-      pathname === "/settings" ||
-      pathname.startsWith("/settings/")
+      pathname === "/configuracion" ||
+      pathname.startsWith("/configuracion/")
     ) {
       return null
     }
@@ -19,8 +19,8 @@ function redirectForRestrictedRole(
   if (role === "SECURITY") {
     if (
       pathname === "/scanner" ||
-      pathname === "/settings" ||
-      pathname.startsWith("/settings/")
+      pathname === "/configuracion" ||
+      pathname.startsWith("/configuracion/")
     ) {
       return null
     }

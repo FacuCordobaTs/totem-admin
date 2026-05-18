@@ -173,7 +173,7 @@ export function DashboardPage() {
                   asChild
                   className="h-10 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
                 >
-                  <Link to="/events" className="inline-flex items-center gap-1">
+                  <Link to="/eventos" className="inline-flex items-center gap-1">
                     Ver todos
                     <ChevronRight className="h-4 w-4" />
                   </Link>
@@ -213,7 +213,7 @@ export function DashboardPage() {
               </h2>
               <div className="divide-y divide-zinc-200/50 overflow-hidden rounded-2xl bg-background dark:divide-zinc-800/50">
                 <Link
-                  to="/inventory"
+                  to="/catalogo"
                   className="flex items-center justify-between px-5 py-4 transition-colors active:bg-zinc-50 dark:active:bg-zinc-800/40"
                 >
                   <span className="text-[17px] font-medium text-foreground">
