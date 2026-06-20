@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -213,15 +212,23 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
                     {(eventStatus === "active" || eventStatus == null) ? (
                     <TableCell className="py-3.5 text-center">
                       <div className="flex justify-center">
-                        <Switch
+                        <input
+                          type="checkbox"
                           checked={member.isAssigned}
                           disabled={busy}
-                          onCheckedChange={(v) => onSwitchChange(member, v)}
+                          onChange={(e) => onSwitchChange(member, e.target.checked)}
                           aria-label={
                             member.isAssigned
                               ? `Quitar a ${member.name} del evento`
                               : `Asignar a ${member.name} al evento`
                           }
+                          className="h-4 w-4 cursor-pointer appearance-none rounded border border-white/20 bg-white/[0.06] checked:border-[#FF9500] checked:bg-[#FF9500] disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                          style={{
+                            backgroundImage: member.isAssigned
+                              ? `url("data:image/svg+xml,%3Csvg viewBox='0 0 10 10' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 5l2.5 2.5L8 3' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`
+                              : "none",
+                            backgroundSize: "100%",
+                          }}
                         />
                       </div>
                     </TableCell>

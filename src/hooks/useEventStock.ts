@@ -115,6 +115,7 @@ export function useEventStock(
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return
       setStatus("open")
       if (pollRef.current) {
         clearInterval(pollRef.current)
@@ -123,6 +124,7 @@ export function useEventStock(
     }
 
     ws.onmessage = (ev) => {
+      if (wsRef.current !== ws) return
       try {
         const data = JSON.parse(String(ev.data)) as StockWsPayload
         if (data.type !== "stock-update") return
@@ -133,10 +135,12 @@ export function useEventStock(
     }
 
     ws.onerror = () => {
+      if (wsRef.current !== ws) return
       setStatus("closed")
     }
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) return
       setStatus("closed")
       wsRef.current = null
       void loadSnapshot().catch(() => {})
@@ -148,8 +152,15 @@ export function useEventStock(
     }
 
     return () => {
+      // Detach handlers before closing so this (now stale) socket's async
+      // onclose can't overwrite the status of a freshly-created socket
+      // (e.g. React StrictMode's mount → cleanup → mount in dev).
+      ws.onopen = null
+      ws.onmessage = null
+      ws.onerror = null
+      ws.onclose = null
+      if (wsRef.current === ws) wsRef.current = null
       ws.close()
-      wsRef.current = null
       if (pollRef.current) {
         clearInterval(pollRef.current)
         pollRef.current = null

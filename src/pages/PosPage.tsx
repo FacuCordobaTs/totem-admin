@@ -42,6 +42,9 @@ interface CatalogProduct {
   id: string
   name: string
   price: number
+  categoryId: string | null
+  categoryName: string | null
+  categorySortOrder: number | null
   recipes: RecipeLine[]
 }
 
@@ -66,6 +69,9 @@ type BarCatalogRowApi = {
   name: string
   price: string
   isActiveForBar: boolean
+  categoryId?: string | null
+  categoryName?: string | null
+  categorySortOrder?: number | null
   recipes: RecipeLine[]
 }
 
@@ -297,6 +303,9 @@ export function PosPage() {
             id: p.id,
             name: p.name,
             price: Number.parseFloat(p.price),
+            categoryId: p.categoryId ?? null,
+            categoryName: p.categoryName ?? null,
+            categorySortOrder: p.categorySortOrder ?? null,
             recipes: p.recipes ?? [],
           }))
         setCatalogProducts(rows)
@@ -396,6 +405,33 @@ export function PosPage() {
     if (!q) return catalogProducts
     return catalogProducts.filter((p) => p.name.toLowerCase().includes(q))
   }, [catalogProducts, productSearch])
+
+  const catalogGroups = useMemo(() => {
+    const byCat = new Map<
+      string,
+      { name: string | null; sortOrder: number; products: CatalogProduct[] }
+    >()
+    for (const p of filteredCatalog) {
+      const key = p.categoryId ?? "__uncat__"
+      const existing = byCat.get(key)
+      if (existing) {
+        existing.products.push(p)
+      } else {
+        byCat.set(key, {
+          name: p.categoryId ? p.categoryName ?? "Categoría" : null,
+          sortOrder: p.categoryId ? p.categorySortOrder ?? 0 : Number.MAX_SAFE_INTEGER,
+          products: [p],
+        })
+      }
+    }
+    return [...byCat.entries()]
+      .map(([id, g]) => ({ id, ...g }))
+      .sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder ||
+          (a.name ?? "").localeCompare(b.name ?? "")
+      )
+  }, [filteredCatalog])
 
   const cartTotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
@@ -723,87 +759,98 @@ export function PosPage() {
                   : "Nada coincide con la búsqueda."}
               </p>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
-                {filteredCatalog.map((product) => {
-                  const avail = productAvailabilityUnits(
-                    product.recipes,
-                    eventStock,
-                    barStock,
-                    activeBarId
-                  )
-                  const baseline = productBaselines[product.id]
-                  const vis = stockVisualForProduct(avail, baseline)
-                  const disabled =
-                    Number.isFinite(avail) && avail <= 0
-                  const badge =
-                    vis === "unlimited"
-                      ? null
-                      : `${Math.floor(avail)} disp.`
-                  return (
-                    <Card
-                      key={product.id}
-                      size="sm"
-                      role="button"
-                      tabIndex={disabled ? -1 : 0}
-                      aria-disabled={disabled}
-                      onClick={() => {
-                        if (!disabled) addToCart(product)
-                      }}
-                      onKeyDown={(e) => {
-                        if (disabled) return
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault()
-                          addToCart(product)
-                        }
-                      }}
-                      className={cn(
-                        "relative gap-3 rounded-2xl border py-4 shadow-none ring-0 transition-all duration-300 dark:bg-zinc-950/30",
-                        disabled
-                          ? "cursor-not-allowed border-zinc-100 opacity-45 grayscale dark:border-zinc-800"
-                          : "cursor-pointer border-zinc-100 bg-zinc-50/50 hover:bg-zinc-100/80 active:scale-[0.98] dark:border-zinc-800 dark:hover:bg-zinc-800/50",
-                        !disabled &&
-                          vis === "ok" &&
-                          "border-zinc-200 dark:border-zinc-700",
-                        !disabled &&
-                          vis === "low" &&
-                          "border-amber-200 dark:border-amber-900/50"
-                      )}
-                    >
-                      {badge ? (
-                        <span
-                          className={cn(
-                            "absolute right-3 top-3 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider tabular-nums",
-                            vis === "out" &&
-                              "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-                            vis === "low" &&
-                              "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
-                            vis === "ok" &&
-                              "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100"
-                          )}
-                        >
-                          {badge}
-                        </span>
-                      ) : null}
-                      <CardHeader className="px-4 py-0 pr-16">
-                        <CardTitle className="text-base font-bold leading-tight tracking-tight text-zinc-950 dark:text-white">
-                          {product.name}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="px-4 pb-0 pt-0">
-                        <p
-                          className={cn(
-                            "text-lg font-black tabular-nums tracking-tight",
-                            disabled
-                              ? "text-zinc-400"
-                              : "text-[#FF9500]"
-                          )}
-                        >
-                          ${product.price.toFixed(2)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
+              <div className="space-y-6">
+                {catalogGroups.map((group) => (
+                  <div key={group.id}>
+                    {group.name ? (
+                      <p className="mb-2.5 px-0.5 text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                        {group.name}
+                      </p>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+                      {group.products.map((product) => {
+                        const avail = productAvailabilityUnits(
+                          product.recipes,
+                          eventStock,
+                          barStock,
+                          activeBarId
+                        )
+                        const baseline = productBaselines[product.id]
+                        const vis = stockVisualForProduct(avail, baseline)
+                        const disabled =
+                          Number.isFinite(avail) && avail <= 0
+                        const badge =
+                          vis === "unlimited"
+                            ? null
+                            : `${Math.floor(avail)} disp.`
+                        return (
+                          <Card
+                            key={product.id}
+                            size="sm"
+                            role="button"
+                            tabIndex={disabled ? -1 : 0}
+                            aria-disabled={disabled}
+                            onClick={() => {
+                              if (!disabled) addToCart(product)
+                            }}
+                            onKeyDown={(e) => {
+                              if (disabled) return
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                addToCart(product)
+                              }
+                            }}
+                            className={cn(
+                              "relative gap-3 rounded-2xl border py-4 shadow-none ring-0 transition-all duration-300 dark:bg-zinc-950/30",
+                              disabled
+                                ? "cursor-not-allowed border-zinc-100 opacity-45 grayscale dark:border-zinc-800"
+                                : "cursor-pointer border-zinc-100 bg-zinc-50/50 hover:bg-zinc-100/80 active:scale-[0.98] dark:border-zinc-800 dark:hover:bg-zinc-800/50",
+                              !disabled &&
+                                vis === "ok" &&
+                                "border-zinc-200 dark:border-zinc-700",
+                              !disabled &&
+                                vis === "low" &&
+                                "border-amber-200 dark:border-amber-900/50"
+                            )}
+                          >
+                            {badge ? (
+                              <span
+                                className={cn(
+                                  "absolute right-3 top-3 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider tabular-nums",
+                                  vis === "out" &&
+                                    "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+                                  vis === "low" &&
+                                    "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
+                                  vis === "ok" &&
+                                    "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100"
+                                )}
+                              >
+                                {badge}
+                              </span>
+                            ) : null}
+                            <CardHeader className="px-4 py-0 pr-16">
+                              <CardTitle className="text-base font-bold leading-tight tracking-tight text-zinc-950 dark:text-white">
+                                {product.name}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-4 pb-0 pt-0">
+                              <p
+                                className={cn(
+                                  "text-lg font-black tabular-nums tracking-tight",
+                                  disabled
+                                    ? "text-zinc-400"
+                                    : "text-[#FF9500]"
+                                )}
+                              >
+                                ${product.price.toFixed(2)}
+                              </p>
+                            </CardContent>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

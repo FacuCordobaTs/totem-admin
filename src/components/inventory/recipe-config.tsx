@@ -51,6 +51,12 @@ export interface ApiProductRecipeLine {
   inventoryPackageSize: string
 }
 
+export interface ApiProductCategory {
+  id: string
+  name: string
+  sortOrder: number
+}
+
 export interface ApiProduct {
   id: string
   name: string
@@ -58,6 +64,7 @@ export interface ApiProduct {
   isActive: boolean | null
   saleType?: ProductSaleType
   imageUrl?: string | null
+  categoryId?: string | null
   recipes: ApiProductRecipeLine[]
 }
 

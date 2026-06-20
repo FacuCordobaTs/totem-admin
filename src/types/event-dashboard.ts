@@ -62,6 +62,8 @@ export type EventMenuProductRow = {
   isActiveForEvent: boolean
   priceOverride: string | null
   imageUrl?: string | null
+  /** Remaining stock for products without recipes. Null = unlimited. */
+  directStock: string | null
 }
 
 export type EventMenuProductsResponse = {

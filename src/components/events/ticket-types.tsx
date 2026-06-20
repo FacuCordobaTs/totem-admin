@@ -266,42 +266,31 @@ export function TicketTypes({
             No hay tipos de entrada. Añadí al menos uno para vender en boletería.
           </p>
         ) : (
-          <div className="divide-y divide-white/[0.06]">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
             {types.map((ticket) => {
-              const limit = ticket.stockLimit
-              const sold = ticket.sold
-              const stockText =
-                limit == null
-                  ? `${sold} vendidas`
-                  : `${sold} / ${limit}`
+              const stockText = ticket.stockLimit == null
+                ? `${ticket.sold} vendidas`
+                : `${ticket.sold} / ${ticket.stockLimit}`
               return (
-                <div
+                <button
                   key={ticket.id}
-                  className="flex items-center gap-4 py-3.5"
+                  type="button"
+                  onClick={() => canManageTypes ? openEdit(ticket) : undefined}
+                  className="flex flex-col gap-0.5 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-[16px] font-medium text-foreground">
-                        {ticket.name}
-                      </span>
-                      <span className="text-[14px] text-white/50">
-                        {formatTicketPrice(ticket.price)}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[12px] text-white/35">
-                      {stockText}
-                    </p>
+                  <div className="flex w-full items-center justify-between gap-1">
+                    <span className="truncate text-[13px] font-medium text-white/70">
+                      {ticket.name}
+                    </span>
+                    {canManageTypes && (
+                      <Pencil className="h-3 w-3 shrink-0 text-white/20" />
+                    )}
                   </div>
-                  {canManageTypes ? (
-                    <button
-                      type="button"
-                      onClick={() => openEdit(ticket)}
-                      className="shrink-0 rounded-lg p-1.5 text-white/25 transition-colors hover:text-white/60"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </div>
+                  <span className="text-[13px] font-semibold text-white">
+                    {formatTicketPrice(ticket.price)}
+                  </span>
+                  <span className="text-[11px] text-white/30">{stockText}</span>
+                </button>
               )
             })}
           </div>

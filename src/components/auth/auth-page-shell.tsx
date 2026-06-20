@@ -1,27 +1,15 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
-export function AuthBrandHeader() {
-  return (
-    <div className="mb-8 flex flex-col items-center gap-2">
-      <div
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF9500]/15 text-[17px] font-bold text-[#FF9500]"
-        aria-hidden
-      >
-        T
-      </div>
-      <p className="text-center text-sm text-[#8E8E93] dark:text-[#98989D]">
-        Totem — operación de eventos
-      </p>
-    </div>
-  )
-}
-
 export function AuthPageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#F2F2F7] px-4 py-12 dark:bg-black">
-      <AuthBrandHeader />
-      {children}
+    <div className="min-h-dvh flex items-center justify-center w-full bg-background px-6">
+      <div className="w-full max-w-sm">
+        <div className="flex justify-center mb-12">
+          <img src="/logo.png" alt="Crow" className="h-12 w-auto rounded-2xl" />
+        </div>
+        {children}
+      </div>
     </div>
   )
 }

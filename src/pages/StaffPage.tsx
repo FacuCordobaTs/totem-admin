@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 import { ChevronLeft, MoreHorizontal, UserPlus } from "lucide-react"
+import { toast } from "sonner"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -122,7 +123,7 @@ export function StaffPage() {
     setCreateError(null)
     setCreateLoading(true)
     try {
-      await apiFetch<{ staff: StaffProfile }>("/staff/team", {
+      const data = await apiFetch<{ staff: StaffProfile; imported?: boolean }>("/staff/team", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -135,6 +136,9 @@ export function StaffPage() {
       setCreateOpen(false)
       resetCreateForm()
       await loadTeam()
+      if (data.imported) {
+        toast.success(`${createName} ya existía en otra Productora y fue agregado/a a la tuya. Usará su contraseña actual.`)
+      }
     } catch (err) {
       setCreateError(err instanceof ApiError ? err.message : "No se pudo crear la cuenta")
     } finally {

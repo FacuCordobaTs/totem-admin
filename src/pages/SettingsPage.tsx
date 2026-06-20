@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef } from "react"
-import { Link, useSearchParams } from "react-router"
-import { ChevronLeft } from "lucide-react"
+import { Link, useNavigate, useSearchParams } from "react-router"
+import { ChevronLeft, LogOut } from "lucide-react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
 import { Header } from "@/components/dashboard/header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuthStore } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
+import { apiFetch } from "@/lib/api"
 import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
@@ -27,13 +29,25 @@ function Panel({ children }: { children: React.ReactNode }) {
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const mpToastHandled = useRef(false)
   const tenantId = useAuthStore((s) => s.staff?.tenantId)
   const tenantName = useAuthStore((s) => s.staff?.tenantName)
   const staff = useAuthStore((s) => s.staff)
   const token = useAuthStore((s) => s.token)
+  const logoutStore = useAuthStore((s) => s.logout)
   const role = useAuthStore((s) => s.staff?.role)
+
+  async function handleLogout() {
+    try {
+      await apiFetch("/staff/logout", { method: "POST", token })
+    } catch {
+      /* ignorar error de red */
+    }
+    logoutStore()
+    navigate("/login", { replace: true })
+  }
   const isAdmin = role === "ADMIN"
   const isBartender = role === "BARTENDER"
   const isSecurity = role === "SECURITY"
@@ -114,6 +128,19 @@ export function SettingsPage() {
             {staff ? staffRoleLabel(staff.role) : "—"}
           </p>
         </div>
+        {restrictedSettingsTabs ? (
+          <div className="pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full gap-2 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={() => void handleLogout()}
+            >
+              <LogOut className="h-4 w-4" />
+              Cerrar sesión
+            </Button>
+          </div>
+        ) : null}
       </div>
     </Panel>
   )

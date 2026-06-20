@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { ChevronRight, Plus, Wine } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventMenuProductRow, EventMenuProductsResponse } from "@/types/event-dashboard"
-import type { ApiProduct } from "@/components/inventory/recipe-config"
+import type { ApiProduct, ApiProductCategory } from "@/components/inventory/recipe-config"
 import type { ApiInventoryItem } from "@/components/inventory/raw-materials"
 import { hasBottlePackage, stockBaseToBottleDraft } from "@/lib/inventory-units"
 import { ProductEditorDialog } from "@/components/inventory/product-editor-dialog"
@@ -13,17 +13,9 @@ import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 const inputClass =
@@ -41,6 +33,7 @@ type EventInvRow = {
 
 type EventInventoryListResponse = { items: EventInvRow[] }
 type ProductsApi = { products: ApiProduct[] }
+type CategoriesApi = { categories: ApiProductCategory[] }
 type MaterialsApi = { items: ApiInventoryItem[] }
 
 function formatMoneyArs(value: string): string {
@@ -54,11 +47,11 @@ function formatMoneyArs(value: string): string {
   }).format(n)
 }
 
-function formatStockWithUnit(row: EventInvRow): string {
-  if (hasBottlePackage(row)) {
+function formatStockWithUnit(row: { baseUnit: string; packageSize: string; stockAllocated: string }): string {
+  if (hasBottlePackage(row as EventInvRow)) {
     const bottles = stockBaseToBottleDraft(row.stockAllocated, row.packageSize)
     const n = Number.parseFloat(bottles)
-    return `${Number.isNaN(n) ? "—" : Math.round(n).toLocaleString("es-AR")} botellas`
+    return `${Number.isNaN(n) ? "—" : Math.round(n).toLocaleString("es-AR")} bot.`
   }
   const n = Number.parseFloat(row.stockAllocated)
   const val = Number.isNaN(n) ? "—" : n.toLocaleString("es-AR")
@@ -68,7 +61,7 @@ function formatStockWithUnit(row: EventInvRow): string {
     case "GRAMS":
       return `${val} g`
     default:
-      return `${val} unidades`
+      return `${val} u.`
   }
 }
 
@@ -102,8 +95,17 @@ function calcProductAvailability(
   let min = Infinity
   for (const line of product.recipes) {
     const stock = eventStockMap.get(line.inventoryItemId) ?? 0
-    const qty = Number.parseFloat(line.quantityUsed)
+    let qty = Number.parseFloat(line.quantityUsed)
     if (!Number.isFinite(qty) || qty <= 0) continue
+    // BOTTLE products: quantityUsed is in bottles, but stock is in base units (ml/g).
+    // Multiply by packageSize to get the actual base-unit consumption per sale.
+    if (
+      product.saleType === "BOTTLE" &&
+      (line.inventoryBaseUnit === "ML" || line.inventoryBaseUnit === "GRAMS")
+    ) {
+      const pkg = Number.parseFloat(line.inventoryPackageSize ?? "0")
+      if (Number.isFinite(pkg) && pkg > 0) qty = qty * pkg
+    }
     min = Math.min(min, Math.floor(stock / qty))
   }
   return min === Infinity ? null : Math.max(0, min)
@@ -120,6 +122,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
   const [insumos, setInsumos] = useState<EventInvRow[]>([])
   const [catalogProducts, setCatalogProducts] = useState<ApiProduct[]>([])
   const [catalogMaterials, setCatalogMaterials] = useState<ApiInventoryItem[]>([])
+  const [catalogCategories, setCatalogCategories] = useState<ApiProductCategory[]>([])
   const [eventMenuRows, setEventMenuRows] = useState<EventMenuProductRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -128,33 +131,45 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
   const [editorProduct, setEditorProduct] = useState<ApiProduct | null>(null)
   const [editorPriceOverride, setEditorPriceOverride] = useState<string | null>(null)
 
-  // Product picker dialog
+  // Product picker dialog (add/remove from menu)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerSearch, setPickerSearch] = useState("")
   const [pickerTogglingId, setPickerTogglingId] = useState<string | null>(null)
 
-  // Bottle loading dialog
-  const [bottleOpen, setBottleOpen] = useState(false)
+  // Product stock dialog (product → ingredients → load stock)
+  const [prodDialogOpen, setProdDialogOpen] = useState(false)
+  const [prodDialogRow, setProdDialogRow] = useState<EventMenuProductRow | null>(null)
+  const [prodDialogStep, setProdDialogStep] = useState<"ingredients" | "load" | "direct-load">("ingredients")
+
+  // Bottle loading state (used inside product stock dialog for recipe-based products)
   const [bottleItemId, setBottleItemId] = useState<string>("")
   const [bottleCount, setBottleCount] = useState("1")
   const [bottleSaving, setBottleSaving] = useState(false)
   const [bottleCostType, setBottleCostType] = useState<"TOTAL" | "UNIT">("TOTAL")
   const [bottleCostAmount, setBottleCostAmount] = useState("")
 
+  // Direct stock loading state (for products without recipes)
+  const [directCount, setDirectCount] = useState("1")
+  const [directSaving, setDirectSaving] = useState(false)
+  const [directCostType, setDirectCostType] = useState<"TOTAL" | "UNIT">("TOTAL")
+  const [directCostAmount, setDirectCostAmount] = useState("")
+
   const loadAll = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
-      const [insRes, productsRes, materialsRes, menuRes] = await Promise.all([
+      const [insRes, productsRes, materialsRes, menuRes, categoriesRes] = await Promise.all([
         apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token }),
         apiFetch<ProductsApi>("/inventory/products", { method: "GET", token }),
         apiFetch<MaterialsApi>("/inventory/items", { method: "GET", token }),
         apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token }),
+        apiFetch<CategoriesApi>("/inventory/categories", { method: "GET", token }),
       ])
       setInsumos(insRes.items)
       setCatalogProducts(productsRes.products)
       setCatalogMaterials(materialsRes.items)
       setEventMenuRows(menuRes.products)
+      setCatalogCategories(categoriesRes.categories)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo cargar el inventario")
     } finally {
@@ -180,22 +195,16 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
     [eventMenuRows]
   )
 
-  const stockItems = useMemo(
-    () => insumos.filter((ins) => Number.parseFloat(ins.stockAllocated) > 0),
-    [insumos]
-  )
-
   const pickerFilteredProducts = useMemo(() => {
     const q = pickerSearch.trim().toLowerCase()
     if (!q) return catalogProducts
     return catalogProducts.filter((p) => p.name.toLowerCase().includes(q))
   }, [catalogProducts, pickerSearch])
 
-  function openEditor(menuRow: EventMenuProductRow) {
-    const full = catalogProducts.find((p) => p.id === menuRow.id) ?? null
-    setEditorProduct(full)
-    setEditorPriceOverride(menuRow.priceOverride ?? null)
-    setEditorOpen(true)
+  function openProdDialog(menuRow: EventMenuProductRow) {
+    setProdDialogRow(menuRow)
+    setProdDialogStep("ingredients")
+    setProdDialogOpen(true)
   }
 
   function openEditorCreate() {
@@ -205,20 +214,20 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
     setPickerOpen(false)
   }
 
-  function openBottleFor(row: EventInvRow) {
-    setBottleItemId(row.id)
-    setBottleCount("1")
-    setBottleCostType("TOTAL")
-    setBottleCostAmount("")
-    setBottleOpen(true)
+  function openEditorFromDialog(menuRow: EventMenuProductRow) {
+    const full = catalogProducts.find((p) => p.id === menuRow.id) ?? null
+    setEditorProduct(full)
+    setEditorPriceOverride(menuRow.priceOverride ?? null)
+    setProdDialogOpen(false)
+    setEditorOpen(true)
   }
 
-  function openBottlePicker() {
-    setBottleItemId(catalogMaterials[0]?.id ?? "")
+  function startStockLoad(itemId: string) {
+    setBottleItemId(itemId)
     setBottleCount("1")
     setBottleCostType("TOTAL")
     setBottleCostAmount("")
-    setBottleOpen(true)
+    setProdDialogStep("load")
   }
 
   async function submitBottleLoad(e: React.FormEvent) {
@@ -249,13 +258,57 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
         body: JSON.stringify(body),
       })
       toast.success("Carga sumada al stock del evento")
-      setBottleOpen(false)
       onLogisticsChange?.()
       await loadAll()
+      setProdDialogStep("ingredients")
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "No se pudo registrar la carga")
     } finally {
       setBottleSaving(false)
+    }
+  }
+
+  function openDirectLoad() {
+    setDirectCount("1")
+    setDirectCostType("TOTAL")
+    setDirectCostAmount("")
+    setProdDialogStep("direct-load")
+  }
+
+  async function submitDirectLoad(e: React.FormEvent) {
+    e.preventDefault()
+    if (!token || !prodDialogRow) return
+    const n = Number.parseInt(directCount, 10)
+    if (!Number.isFinite(n) || n <= 0) {
+      toast.error("Cantidad inválida")
+      return
+    }
+    setDirectSaving(true)
+    try {
+      const costRaw = directCostAmount.trim().replace(",", ".")
+      const costN = costRaw === "" ? NaN : Number.parseFloat(costRaw)
+      const withCost = costRaw !== "" && Number.isFinite(costN) && costN > 0
+      const body: Record<string, unknown> = {
+        productId: prodDialogRow.id,
+        quantity: n,
+      }
+      if (withCost) {
+        body.costType = directCostType
+        body.costAmount = costN
+      }
+      await apiFetch(`/events/${eventId}/products/load-direct-stock`, {
+        method: "POST",
+        token,
+        body: JSON.stringify(body),
+      })
+      toast.success("Stock cargado")
+      onLogisticsChange?.()
+      await loadAll()
+      setProdDialogStep("ingredients")
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo cargar el stock")
+    } finally {
+      setDirectSaving(false)
     }
   }
 
@@ -278,6 +331,11 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
 
   const bottleTarget = catalogMaterials.find((m) => m.id === bottleItemId) ?? null
 
+  // Full product data for dialog
+  const prodDialogFull = prodDialogRow
+    ? (catalogProducts.find((p) => p.id === prodDialogRow.id) ?? null)
+    : null
+
   if (loading) {
     return (
       <div className="space-y-10">
@@ -292,105 +350,65 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
   }
 
   return (
-    <div className="space-y-12">
-      {/* Menú del evento */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <h3 className="text-[18px] font-semibold text-white">Menú del evento</h3>
-          <button
-            type="button"
-            onClick={() => {
-              setPickerSearch("")
-              setPickerOpen(true)
-            }}
-            className="flex items-center gap-1.5 text-[13px] text-white/35 transition-colors hover:text-white/60"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Agregar producto
-          </button>
-        </div>
-
-        {activeMenuProducts.length === 0 ? (
-          <p className="py-4 text-[14px] text-white/30">
-            Todavía no hay productos en el menú.
-          </p>
-        ) : (
-          <div className="divide-y divide-white/[0.06]">
-            {activeMenuProducts.map((p) => {
-              const full = catalogProducts.find((cp) => cp.id === p.id) ?? null
-              const availability = full ? calcProductAvailability(full, eventStockMap) : null
-              const effectivePrice = p.priceOverride && p.priceOverride !== "" ? p.priceOverride : p.price
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => openEditor(p)}
-                  className="flex w-full items-center gap-3 py-4 text-left transition-colors hover:bg-white/[0.02]"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-semibold text-white">{p.name}</p>
-                    <p className="mt-0.5 text-[13px] text-white/40">
-                      {formatMoneyArs(effectivePrice)}
-                      {p.priceOverride && p.priceOverride !== "" ? (
-                        <span className="ml-2 text-white/25">precio especial</span>
-                      ) : null}
-                    </p>
-                  </div>
-                  {availability !== null ? (
-                    <span className="shrink-0 text-[13px] text-white/30">
-                      {availability} tragos
-                    </span>
-                  ) : null}
-                  <ChevronRight className="h-4 w-4 shrink-0 text-white/20" />
-                </button>
-              )
-            })}
-          </div>
-        )}
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="text-[18px] font-semibold text-white">Menú del evento</h3>
+        <Button
+          type="button"
+          onClick={() => {
+            setPickerSearch("")
+            setPickerOpen(true)
+          }}
+          className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Agregar producto
+        </Button>
       </div>
 
-      {/* Stock del evento */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <h3 className="text-[18px] font-semibold text-white">Stock del evento</h3>
-          <button
-            type="button"
-            onClick={openBottlePicker}
-            className="flex items-center gap-1.5 text-[13px] text-white/35 transition-colors hover:text-white/60"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Cargar stock
-          </button>
-        </div>
-
-        {stockItems.length === 0 ? (
-          <p className="py-4 text-[14px] text-white/30">No hay stock cargado para este evento.</p>
-        ) : (
-          <div className="divide-y divide-white/[0.06]">
-            {stockItems.map((row) => (
+      {activeMenuProducts.length === 0 ? (
+        <p className="py-4 text-[14px] text-white/30">
+          Todavía no hay productos en el menú.
+        </p>
+      ) : (
+        <div className="divide-y divide-white/[0.06]">
+          {activeMenuProducts.map((p) => {
+            const full = catalogProducts.find((cp) => cp.id === p.id) ?? null
+            const hasRecipes = (full?.recipes?.length ?? 0) > 0
+            const availability = full && hasRecipes ? calcProductAvailability(full, eventStockMap) : null
+            const effectivePrice = p.priceOverride && p.priceOverride !== "" ? p.priceOverride : p.price
+            const directStockN = p.directStock != null ? Number.parseFloat(p.directStock) : null
+            return (
               <button
-                key={row.id}
+                key={p.id}
                 type="button"
-                onClick={() => openBottleFor(row)}
+                onClick={() => openProdDialog(p)}
                 className="flex w-full items-center gap-3 py-4 text-left transition-colors hover:bg-white/[0.02]"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold text-white">{row.name}</p>
+                  <p className="truncate text-[15px] font-semibold text-white">{p.name}</p>
+                  <p className="mt-0.5 text-[13px] text-white/40">
+                    {formatMoneyArs(effectivePrice)}
+                    {p.priceOverride && p.priceOverride !== "" ? (
+                      <span className="ml-2 text-white/25">precio especial</span>
+                    ) : null}
+                  </p>
                 </div>
-                <span
-                  className={cn(
-                    "shrink-0 text-[13px]",
-                    isLowStock(row) ? "text-[#FF9500]" : "text-white/40"
-                  )}
-                >
-                  {formatStockWithUnit(row)}
-                </span>
+                {availability !== null ? (
+                  <span className="shrink-0 text-[13px] text-white/30">
+                    {availability} {full?.saleType === "BOTTLE" ? "botellas" : "tragos"}
+                  </span>
+                ) : !hasRecipes && directStockN !== null ? (
+                  <span className={cn("shrink-0 text-[13px]", directStockN < 5 ? "text-[#FF9500]" : "text-white/30")}>
+                    {Math.round(directStockN).toLocaleString("es-AR")} u.
+                  </span>
+                ) : null}
                 <ChevronRight className="h-4 w-4 shrink-0 text-white/20" />
               </button>
-            ))}
-          </div>
-        )}
-      </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* Product editor dialog */}
       <ProductEditorDialog
@@ -400,6 +418,8 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
         priceOverride={editorPriceOverride}
         eventId={eventId}
         materials={catalogMaterials}
+        categories={catalogCategories}
+        onCategoriesChanged={() => void loadAll()}
         token={token}
         onSaved={() => void loadAll()}
         onRemovedFromMenu={() => void loadAll()}
@@ -436,10 +456,7 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   )
                   const isToggling = pickerTogglingId === p.id
                   return (
-                    <div
-                      key={p.id}
-                      className="flex items-center gap-3 px-6 py-3.5"
-                    >
+                    <div key={p.id} className="flex items-center gap-3 px-6 py-3.5">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px] font-semibold text-white">{p.name}</p>
                         <p className="text-[12px] text-white/35">{formatMoneyArs(p.price)}</p>
@@ -475,88 +492,277 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Bottle loading dialog */}
-      <Dialog open={bottleOpen} onOpenChange={(o) => { if (!o) setBottleOpen(false) }}>
-        <DialogContent className="max-h-[min(90vh,760px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
-          <div className="border-b border-white/[0.06] p-6">
-            <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
-                <Wine className="h-6 w-6 text-white/30" />
-              </span>
-              <DialogHeader className="flex-1 text-left">
-                <DialogTitle className="text-[22px] font-bold tracking-tight text-white">
-                  Cargar stock
-                </DialogTitle>
-                <p className="mt-1 text-[13px] text-white/40">
-                  Sumá envases al depósito del evento.
+      {/* Product stock dialog: ingredients list + inline stock loading */}
+      <Dialog
+        open={prodDialogOpen}
+        onOpenChange={(o) => {
+          if (!o) setProdDialogOpen(false)
+        }}
+      >
+        <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
+          {prodDialogStep === "ingredients" ? (
+            <>
+              {/* Header */}
+              <div className="border-b border-white/[0.06] px-6 py-5">
+                <p className="text-[12px] font-medium uppercase tracking-wider text-white/25 mb-1">
+                  {prodDialogRow
+                    ? formatMoneyArs(
+                        prodDialogRow.priceOverride && prodDialogRow.priceOverride !== ""
+                          ? prodDialogRow.priceOverride
+                          : prodDialogRow.price
+                      )
+                    : ""}
                 </p>
-              </DialogHeader>
-            </div>
-          </div>
-          <form onSubmit={submitBottleLoad} className="flex flex-col overflow-y-auto">
-            <div className="space-y-6 p-8 pt-6">
-              {/* Insumo selector */}
-              <div className="space-y-3">
-                <label className="text-[13px] text-white/45">Insumo</label>
-                <Select
-                  value={bottleItemId}
-                  onValueChange={setBottleItemId}
-                >
-                  <SelectTrigger className={cn(inputClass, "h-12")}>
-                    <SelectValue placeholder="Seleccioná un insumo" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-white/[0.08]">
-                    {catalogMaterials.map((m) => (
-                      <SelectItem key={m.id} value={m.id} className="rounded-lg py-2">
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <DialogHeader>
+                  <DialogTitle className="text-[20px] font-bold tracking-tight text-white">
+                    {prodDialogRow?.name ?? ""}
+                  </DialogTitle>
+                </DialogHeader>
+                {prodDialogFull && (() => {
+                  const avail = calcProductAvailability(prodDialogFull, eventStockMap)
+                  if (avail === null) return null
+                  return (
+                    <p className="mt-1 text-[13px] text-white/40">
+                      {avail} {prodDialogFull?.saleType === "BOTTLE" ? "botellas" : "tragos"} disponibles
+                    </p>
+                  )
+                })()}
               </div>
 
-              <div className="space-y-3">
-                <label className="text-[13px] text-white/45">Cantidad de botellas</label>
+              {/* Ingredients */}
+              <div className="flex-1 overflow-y-auto">
+                {!prodDialogFull || prodDialogFull.recipes.length === 0 ? (
+                  <div className="flex flex-col items-center gap-4 px-6 py-10">
+                    {prodDialogRow?.directStock != null ? (
+                      <p className="text-center text-[28px] font-bold text-white">
+                        {Math.round(Number.parseFloat(prodDialogRow.directStock)).toLocaleString("es-AR")}
+                        <span className="ml-2 text-[16px] font-normal text-white/40">unidades</span>
+                      </p>
+                    ) : (
+                      <p className="text-center text-[14px] text-white/30">Sin stock cargado</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={openDirectLoad}
+                      className="mt-2 rounded-xl bg-[#FF9500]/10 px-5 py-2.5 text-[14px] font-semibold text-[#FF9500] transition-colors hover:bg-[#FF9500]/20"
+                    >
+                      Cargar stock
+                    </button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/[0.06]">
+                    {prodDialogFull.recipes.map((line) => {
+                      const invRow = insumos.find((ins) => ins.id === line.inventoryItemId)
+                      const stockVal = eventStockMap.get(line.inventoryItemId) ?? 0
+                      const stockDisplay = invRow
+                        ? formatStockWithUnit(invRow)
+                        : `${stockVal.toLocaleString("es-AR")}`
+                      const low = invRow ? isLowStock(invRow) : false
+                      return (
+                        <button
+                          key={line.id}
+                          type="button"
+                          onClick={() => startStockLoad(line.inventoryItemId)}
+                          className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-white/[0.03]"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[14px] font-semibold text-white">
+                              {line.inventoryItemName}
+                            </p>
+                            <p className="mt-0.5 text-[12px] text-white/35">
+                              {(() => {
+                                const qty = Number.parseFloat(line.quantityUsed).toLocaleString("es-AR")
+                                const isBottle = prodDialogFull?.saleType === "BOTTLE"
+                                const pkg = Number.parseFloat(line.inventoryPackageSize ?? "0")
+                                if (isBottle && (line.inventoryBaseUnit === "ML" || line.inventoryBaseUnit === "GRAMS") && Number.isFinite(pkg) && pkg > 0) {
+                                  return `${qty} botella(s) por venta`
+                                }
+                                const unitStr = line.inventoryBaseUnit === "ML" ? "ml" : line.inventoryBaseUnit === "GRAMS" ? "g" : "u."
+                                return `${qty} ${unitStr} ${isBottle ? "por venta" : "por trago"}`
+                              })()}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 text-[13px]",
+                              low ? "text-[#FF9500]" : "text-white/40"
+                            )}
+                          >
+                            {stockDisplay}
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-white/20" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-white/[0.06] bg-black/40 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => prodDialogRow && openEditorFromDialog(prodDialogRow)}
+                  className="text-[13px] text-white/35 transition-colors hover:text-white/60"
+                >
+                  Editar producto
+                </button>
+              </div>
+            </>
+          ) : prodDialogStep === "direct-load" ? (
+            /* Direct stock loading form (products without recipes) */
+            <form onSubmit={submitDirectLoad} className="flex flex-col overflow-y-auto">
+              <div className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-4">
+                <button
+                  type="button"
+                  onClick={() => setProdDialogStep("ingredients")}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <DialogHeader className="flex-1 text-left">
+                  <DialogTitle className="text-[18px] font-bold tracking-tight text-white">
+                    {prodDialogRow?.name ?? "Cargar stock"}
+                  </DialogTitle>
+                </DialogHeader>
+              </div>
+
+              <div className="flex flex-col items-center gap-4 px-8 py-10">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={directCount}
+                  onChange={(e) => setDirectCount(e.target.value)}
+                  className="h-20 w-full rounded-2xl border-white/[0.1] bg-white/[0.05] text-center text-[40px] font-bold tracking-tight text-white focus-visible:border-white/20 focus-visible:ring-0"
+                  autoFocus
+                  required
+                />
+                <p className="text-center text-[13px] text-white/40">
+                  {(() => {
+                    const n = Number.parseInt(directCount, 10)
+                    if (!Number.isFinite(n) || n <= 0) return "Ingresá cuántas unidades sumás."
+                    return `Sumás ${n.toLocaleString("es-AR")} unidades al stock del evento.`
+                  })()}
+                </p>
+              </div>
+
+              <div className="space-y-3 border-t border-white/[0.06] px-8 py-5">
+                <p className="text-[12px] font-medium uppercase tracking-wider text-white/25">Costo (opcional)</p>
+                <div className="flex gap-2">
+                  <div className="flex flex-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
+                    {(["TOTAL", "UNIT"] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setDirectCostType(type)}
+                        className={cn(
+                          "flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-all",
+                          directCostType === type
+                            ? "bg-white/[0.1] text-white"
+                            : "text-white/35 hover:text-white/55"
+                        )}
+                      >
+                        {type === "TOTAL" ? "Total" : "Por unidad"}
+                      </button>
+                    ))}
+                  </div>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="ARS"
+                    value={directCostAmount}
+                    onChange={(e) => setDirectCostAmount(e.target.value)}
+                    className={cn(inputClass, "h-10 w-28 font-mono text-[13px]")}
+                  />
+                </div>
+                {(() => {
+                  const n = Number.parseInt(directCount, 10)
+                  const raw = directCostAmount.trim().replace(",", ".")
+                  const c = raw === "" ? NaN : Number.parseFloat(raw)
+                  if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(c) || c <= 0) return null
+                  const total = directCostType === "UNIT" ? c * n : c
+                  return (
+                    <p className="text-[13px] text-white/50">
+                      Gasto total: {formatMoneyArs(total.toFixed(2))}
+                    </p>
+                  )
+                })()}
+              </div>
+
+              <div className="border-t border-white/[0.06] bg-black/40 px-5 py-4">
+                <Button
+                  type="submit"
+                  disabled={directSaving}
+                  className="h-12 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white"
+                >
+                  {directSaving ? "Sumando…" : "Sumar al stock"}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            /* Bottle loading form (recipe-based products) */
+            <form onSubmit={submitBottleLoad} className="flex flex-col overflow-y-auto">
+              <div className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-4">
+                <button
+                  type="button"
+                  onClick={() => setProdDialogStep("ingredients")}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <DialogHeader className="flex-1 text-left">
+                  <DialogTitle className="text-[18px] font-bold tracking-tight text-white">
+                    {bottleTarget?.name ?? "Cargar stock"}
+                  </DialogTitle>
+                </DialogHeader>
+              </div>
+
+              <div className="flex flex-col items-center gap-4 px-8 py-10">
                 <Input
                   type="text"
                   inputMode="numeric"
                   value={bottleCount}
                   onChange={(e) => setBottleCount(e.target.value)}
-                  className={cn(inputClass, "h-12 font-mono text-[17px]")}
+                  className="h-20 w-full rounded-2xl border-white/[0.1] bg-white/[0.05] text-center text-[40px] font-bold tracking-tight text-white focus-visible:border-white/20 focus-visible:ring-0"
+                  autoFocus
                   required
                 />
-              </div>
-
-              {bottleTarget ? (
-                <div className="rounded-xl bg-white/[0.04] px-4 py-3">
-                  <p className="text-[14px] text-white/70">
+                {bottleTarget ? (
+                  <p className="text-center text-[13px] text-white/40">
                     {bottleLoadPreview(bottleTarget, Number.parseInt(bottleCount, 10) || 0)}
                   </p>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
 
-              <div className="space-y-3">
-                <p className="text-[13px] text-white/45">Costo (opcional)</p>
-                <Select
-                  value={bottleCostType}
-                  onValueChange={(v) => setBottleCostType(v as "TOTAL" | "UNIT")}
-                >
-                  <SelectTrigger className={cn(inputClass, "h-12")} aria-label="Tipo de costo">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="TOTAL">Costo total de la compra</SelectItem>
-                    <SelectItem value="UNIT">Costo por botella</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="Monto en ARS"
-                  value={bottleCostAmount}
-                  onChange={(e) => setBottleCostAmount(e.target.value)}
-                  className={cn(inputClass, "h-12 font-mono")}
-                />
+              <div className="space-y-3 border-t border-white/[0.06] px-8 py-5">
+                <p className="text-[12px] font-medium uppercase tracking-wider text-white/25">Costo (opcional)</p>
+                <div className="flex gap-2">
+                  <div className="flex flex-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
+                    {(["TOTAL", "UNIT"] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setBottleCostType(type)}
+                        className={cn(
+                          "flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-all",
+                          bottleCostType === type
+                            ? "bg-white/[0.1] text-white"
+                            : "text-white/35 hover:text-white/55"
+                        )}
+                      >
+                        {type === "TOTAL" ? "Total" : "Por botella"}
+                      </button>
+                    ))}
+                  </div>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="ARS"
+                    value={bottleCostAmount}
+                    onChange={(e) => setBottleCostAmount(e.target.value)}
+                    className={cn(inputClass, "h-10 w-28 font-mono text-[13px]")}
+                  />
+                </div>
                 {(() => {
                   const n = Number.parseInt(bottleCount, 10)
                   const raw = bottleCostAmount.trim().replace(",", ".")
@@ -564,33 +770,24 @@ export function EventInventoryTab({ eventId, onLogisticsChange }: Props) {
                   if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(c) || c <= 0) return null
                   const total = bottleCostType === "UNIT" ? c * n : c
                   return (
-                    <p className="text-[14px] font-medium text-white/60">
-                      Se registrará un gasto total de {formatMoneyArs(total.toFixed(2))}.
+                    <p className="text-[13px] text-white/50">
+                      Gasto total: {formatMoneyArs(total.toFixed(2))}
                     </p>
                   )
                 })()}
               </div>
-            </div>
-            <div className="border-t border-white/[0.06] bg-black/40 p-5">
-              <DialogFooter className="flex-col gap-3 sm:flex-col">
+
+              <div className="border-t border-white/[0.06] bg-black/40 px-5 py-4">
                 <Button
                   type="submit"
                   disabled={bottleSaving || !bottleItemId}
-                  className="h-12 w-full rounded-xl bg-[#FF9500] text-[16px] font-semibold text-white"
+                  className="h-12 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white"
                 >
-                  {bottleSaving ? "Sumando…" : "Sumar al stock del evento"}
+                  {bottleSaving ? "Sumando…" : "Sumar al stock"}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setBottleOpen(false)}
-                  className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-white/70 hover:border-white/25"
-                >
-                  Cancelar
-                </Button>
-              </DialogFooter>
-            </div>
-          </form>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

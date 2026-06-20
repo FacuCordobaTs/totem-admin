@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useParams } from "react-router"
-import { EventLayout, NAV_SECTIONS } from "@/components/events/event-layout"
+import { EventLayout } from "@/components/events/event-layout"
 import { TicketTypes } from "@/components/events/ticket-types"
 import {
   AttendeeTable,
@@ -18,9 +18,32 @@ import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { Button } from "@/components/ui/button"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import { Check, Copy, ChevronLeft, Loader2, Plus, ArrowRight } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  Check,
+  Copy,
+  ChevronLeft,
+  Loader2,
+  Plus,
+  ArrowRight,
+  X,
+  CalendarDays,
+  LayoutDashboard,
+  Ticket,
+  Wine,
+  Users,
+  TrendingUp,
+} from "lucide-react"
 import type { ApiEvent } from "@/types/events"
 
+const EVENT_SECTIONS = [
+  { id: "evento", label: "Evento", Icon: CalendarDays },
+  { id: "resumen", label: "Resumen", Icon: LayoutDashboard },
+  { id: "entradas", label: "Entradas", Icon: Ticket },
+  { id: "bar", label: "Bar", Icon: Wine },
+  { id: "personal", label: "Personal", Icon: Users },
+  { id: "finanzas", label: "Finanzas", Icon: TrendingUp },
+] as const
 
 function formatEventDate(iso: string): string {
   const d = new Date(iso)
@@ -42,8 +65,6 @@ function deriveStatus(ev: {
   return d.getTime() < Date.now() ? "finished" : "active"
 }
 
-const SECTION_IDS = NAV_SECTIONS.map((s) => s.id)
-
 export function EventDashboardPage() {
   const { id } = useParams<{ id: string }>()
   const token = useAuthStore((s) => s.token)
@@ -52,7 +73,7 @@ export function EventDashboardPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [activeSection, setActiveSection] = useState<string>("resumen")
+  const [activeSection, setActiveSection] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const [saleOpen, setSaleOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
@@ -61,6 +82,8 @@ export function EventDashboardPage() {
   const attendeeTableRef = useRef<AttendeeTableHandle>(null)
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
 
+  const sectionVisible = (sectionId: string) =>
+    activeSection === null || activeSection === sectionId
 
   async function copyPublicShopLink(slug: string | null) {
     if (!slug) return
@@ -72,24 +95,6 @@ export function EventDashboardPage() {
       /* clipboard unavailable */
     }
   }
-
-  // Scroll-spy: active section = last section whose top is above the header
-  useEffect(() => {
-    const handleScroll = () => {
-      const HEADER_HEIGHT = 130
-      let current = SECTION_IDS[0]
-      for (const sectionId of SECTION_IDS) {
-        const el = document.getElementById(sectionId)
-        if (!el) continue
-        if (el.getBoundingClientRect().top <= HEADER_HEIGHT + 24) {
-          current = sectionId
-        }
-      }
-      setActiveSection(current)
-    }
-    window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => window.removeEventListener("scroll", handleScroll)
-  }, [])
 
   const loadEvent = useCallback(async () => {
     if (!token || !id) return
@@ -145,129 +150,211 @@ export function EventDashboardPage() {
     .join(" · ")
 
   return (
-    <EventLayout
-      eventName={event.name}
-      eventSubtitle={subtitle}
-      status={deriveStatus(event)}
-      activeSection={activeSection}
-      linkCopied={linkCopied}
-      onCopyLink={() => void copyPublicShopLink(event.slug)}
-    >
-      <div className="mx-auto max-w-6xl space-y-24 px-4 py-10 pb-32 sm:px-8">
+    <EventLayout>
+      {/* Floating Side Nav */}
+      <nav
+        className="fixed hidden 2xl:flex flex-col top-1/2 z-40"
+        style={{
+          left: "calc((100vw - 72rem) / 4)",
+          transform: "translateX(-50%) translateY(-50%)",
+        }}
+      >
+        <div className="bg-black/80 backdrop-blur-sm border border-white/[0.08] rounded-2xl shadow-xl shadow-black/40 p-2 flex flex-col gap-0.5">
+          {EVENT_SECTIONS.map(({ id: sectionId, label, Icon }) => {
+            const isActive = activeSection === sectionId
+            return (
+              <button
+                key={sectionId}
+                onClick={() =>
+                  setActiveSection((prev) => (prev === sectionId ? null : sectionId))
+                }
+                className={cn(
+                  "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 w-full text-left",
+                  isActive
+                    ? "bg-[#FF9500] text-white"
+                    : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span>{label}</span>
+                {isActive && <X className="h-3 w-3 ml-auto shrink-0 opacity-80" />}
+              </button>
+            )
+          })}
+        </div>
+      </nav>
 
-         <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
-            <EventImageUploader event={event} onUpdated={loadEvent} compact />
-            <div className="flex flex-col">
-              <h1 className="text-4xl font-extrabold">{event.name}</h1>
-              {subtitle && (
-                <p className="truncate text-md my-2 text-zinc-500">{subtitle}</p>
-              )}
-              <EventSalesConfig
-                event={event}
-                formId={`sales-config-${id}`}
-                onUpdated={loadEvent}
-                onStateChange={setSalesState}
-              />
-              <div className="mt-auto flex justify-end gap-3 pt-6">
-                <Button
-                  type="button"
-                  onClick={() => void copyPublicShopLink(event.slug)}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.15] bg-black hover:bg-black px-5 h-14 py-1.5 text-[13px] font-medium text-white/50 transition-all active:opacity-70"
-                >
-                  {linkCopied ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                  <span className="hidden sm:inline">
-                    {linkCopied ? "Copiado" : "Copiar link"}
-                  </span>
-                </Button>
-                <Button
-                  type="submit"
-                  form={`sales-config-${id}`}
-                  disabled={salesState.saving || salesState.hasSlugError}
-                  className="h-14 min-w-[140px] rounded-xl bg-[#FF9500] px-5 text-[14px] font-semibold text-white shadow-none hover:bg-[#FF9500]/90 disabled:opacity-50"
-                >
-                  {salesState.saving ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                      Guardando…
-                    </>
-                  ) : (
-                    "Guardar cambios"
-                  )}
-                </Button>
+      <div className="mx-auto max-w-6xl px-4 py-10 pb-32 sm:px-8">
+
+        {/* Evento */}
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300 ease-in-out",
+            sectionVisible("evento")
+              ? "opacity-100 max-h-[5000px] mb-16"
+              : "opacity-0 max-h-0 mb-0 pointer-events-none"
+          )}
+        >
+          <section id="evento">
+            <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
+              <EventImageUploader event={event} onUpdated={loadEvent} compact />
+              <div className="flex flex-col">
+                <h1 className="text-4xl font-extrabold">{event.name}</h1>
+                {subtitle && (
+                  <p className="truncate text-md my-2 text-zinc-500">{subtitle}</p>
+                )}
+                <EventSalesConfig
+                  event={event}
+                  formId={`sales-config-${id}`}
+                  onUpdated={loadEvent}
+                  onStateChange={setSalesState}
+                />
+                <div className="mt-auto flex justify-end gap-3 pt-6">
+                  <Button
+                    type="button"
+                    onClick={() => void copyPublicShopLink(event.slug)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.15] bg-black hover:bg-black px-4 py-2 text-[13px] font-medium text-white/50 transition-all active:opacity-70"
+                  >
+                    {linkCopied ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {linkCopied ? "Copiado" : "Copiar link"}
+                    </span>
+                  </Button>
+                  <Button
+                    type="submit"
+                    form={`sales-config-${id}`}
+                    disabled={salesState.saving || salesState.hasSlugError}
+                    className="rounded-xl bg-[#FF9500] px-5 py-2 text-[14px] font-semibold text-white shadow-none hover:bg-[#FF9500]/90 disabled:opacity-50"
+                  >
+                    {salesState.saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                        Guardando…
+                      </>
+                    ) : (
+                      "Guardar cambios"
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
+        </div>
 
         {/* Entradas */}
-        <section id="entradas" className="scroll-mt-36 space-y-8">
-          <SectionHeading>Entradas</SectionHeading>
-          <TicketTypes
-            eventId={id}
-            refreshTrigger={refreshTick}
-            onChanged={bump}
-          />
-          <AttendeeTable
-            ref={attendeeTableRef}
-            eventId={id}
-            refreshTrigger={refreshTick}
-            layout="canvas"
-            hideExportButton
-            onNewSale={() => setSaleOpen(true)}
-          />
-        </section>
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300 ease-in-out",
+            sectionVisible("entradas")
+              ? "opacity-100 max-h-[5000px] mb-16"
+              : "opacity-0 max-h-0 mb-0 pointer-events-none"
+          )}
+        >
+          <section id="entradas" className="space-y-8">
+            <SectionHeading>Entradas</SectionHeading>
+            <TicketTypes
+              eventId={id}
+              refreshTrigger={refreshTick}
+              onChanged={bump}
+            />
+            <AttendeeTable
+              ref={attendeeTableRef}
+              eventId={id}
+              refreshTrigger={refreshTick}
+              layout="canvas"
+              hideExportButton
+              onNewSale={() => setSaleOpen(true)}
+            />
+          </section>
+        </div>
 
         {/* Bar */}
-        <section id="bar" className="scroll-mt-36 space-y-10">
-          <SectionHeading>Bar</SectionHeading>
-          <EventInventoryTab eventId={id} onLogisticsChange={bump} />
-          <EventBarsTab eventId={id} embedded />
-          <div className="flex justify-end border-t border-white/[0.08] pt-4">
-            <Link
-              to={`/catalogo?from=${id}`}
-              className="flex items-center gap-1.5 text-sm text-white/40 transition-colors hover:text-white/70"
-            >
-              Gestionar catálogo global
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </section>
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300 ease-in-out",
+            sectionVisible("bar")
+              ? "opacity-100 max-h-[5000px] mb-16"
+              : "opacity-0 max-h-0 mb-0 pointer-events-none"
+          )}
+        >
+          <section id="bar" className="space-y-10">
+            <div className="flex items-end justify-between gap-4">
+              <SectionHeading>Bar</SectionHeading>
+              <Button asChild variant="ghost" size="sm" className="cursor-pointer gap-1.5 border border-white/[0.10] bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white/75">
+                <Link to={`/catalogo?from=${id}`}>
+                  Gestionar catálogo global
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+            <EventInventoryTab eventId={id} onLogisticsChange={bump} />
+            <EventBarsTab eventId={id} embedded />
+            <div className="border-t border-white/[0.08] pt-4" />
+          </section>
+        </div>
 
         {/* Personal */}
-        <section id="personal" className="scroll-mt-36 space-y-10">
-          <SectionHeading>Personal</SectionHeading>
-          <EventStaffTab eventId={id} eventStatus={deriveStatus(event)} />
-          <div className="flex justify-end border-t border-white/[0.08] pt-4">
-            <Link
-              to={`/staff?from=${id}`}
-              className="flex items-center gap-1.5 text-sm text-white/40 transition-colors hover:text-white/70"
-            >
-              Gestionar personal global
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </section>
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300 ease-in-out",
+            sectionVisible("personal")
+              ? "opacity-100 max-h-[5000px] mb-16"
+              : "opacity-0 max-h-0 mb-0 pointer-events-none"
+          )}
+        >
+          <section id="personal" className="space-y-10">
+            <SectionHeading>Personal</SectionHeading>
+            <EventStaffTab eventId={id} eventStatus={deriveStatus(event)} />
+            <div className="flex justify-end border-t border-white/[0.08] pt-4">
+              <Button asChild variant="ghost" size="sm" className="cursor-pointer gap-1.5 border border-white/[0.10] bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white/75">
+                <Link to={`/staff?from=${id}`}>
+                  Gestionar personal global
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </section>
+        </div>
 
         {/* Finanzas */}
-        <section id="finanzas" className="scroll-mt-36 space-y-10">
-          <SectionHeading>Finanzas</SectionHeading>
-          <EventOverviewTab eventId={id} refreshTrigger={refreshTick} />
-          <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
-        </section>
-      </div>
-
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300 ease-in-out",
+            sectionVisible("finanzas")
+              ? "opacity-100 max-h-[5000px] mb-16"
+              : "opacity-0 max-h-0 mb-0 pointer-events-none"
+          )}
+        >
+          <section id="finanzas" className="space-y-10">
+            <SectionHeading>Finanzas</SectionHeading>
+            <EventOverviewTab eventId={id} refreshTrigger={refreshTick} />
+            <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
+          </section>
+        </div>
 
         {/* Resumen */}
-        <section id="resumen" className="scroll-mt-36 space-y-10">
-          <SectionHeading>Resumen</SectionHeading>
-          <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
-        </section>
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300 ease-in-out",
+            sectionVisible("resumen")
+              ? "opacity-100 max-h-[5000px] mb-16"
+              : "opacity-0 max-h-0 mb-0 pointer-events-none"
+          )}
+        >
+          <section id="resumen" className="space-y-10">
+            <SectionHeading>Resumen</SectionHeading>
+            <EventSummaryDashboard eventId={id} refreshTrigger={refreshTick} />
+          </section>
+        </div>
+
+      </div>
 
       {/* Mobile FAB for manual sale */}
-      {activeSection === "entradas" && (
+      {sectionVisible("entradas") && (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end px-5 pb-5 lg:hidden">
           <Button
             type="button"
@@ -275,7 +362,7 @@ export function EventDashboardPage() {
             className="pointer-events-auto h-14 gap-2 rounded-full bg-[#FF9500] px-6 text-[15px] font-semibold text-white active:opacity-70"
           >
             <Plus className="h-5 w-5" />
-            Venta manual
+            Nueva venta
           </Button>
         </div>
       )}
@@ -292,6 +379,6 @@ export function EventDashboardPage() {
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-4xl font-extrabold tracking-tight ">{children}</h2>
+    <h2 className="text-4xl font-extrabold tracking-tight">{children}</h2>
   )
 }

@@ -352,7 +352,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               className="h-9 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-80"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Venta manual</span>
+              <span className="hidden sm:inline">Nueva venta</span>
             </Button>
           ) : null}
         </div>

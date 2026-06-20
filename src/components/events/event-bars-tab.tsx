@@ -138,14 +138,14 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
       {embedded ? (
         <div className="flex items-center justify-between gap-4">
           <h3 className="text-[18px] font-semibold text-white">Barras</h3>
-          <button
+          <Button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 text-[13px] text-white/35 transition-colors hover:text-white/60"
+            className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
           >
             <Plus className="h-3.5 w-3.5" />
             Nueva barra
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
