@@ -1,8 +1,6 @@
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { AuthFormError } from "@/components/auth/auth-page-shell"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { cn } from "@/lib/utils"
@@ -13,7 +11,6 @@ type SetupResponse = {
 }
 
 type ProductoraSetupCardProps = {
-  /** Narrow layout for settings sidebar vs full onboarding */
   className?: string
   onSuccess?: () => void
 }
@@ -52,67 +49,47 @@ export function ProductoraSetupCard({ className, onSuccess }: ProductoraSetupCar
   }
 
   return (
-    <Card
-      className={cn(
-        "mx-auto w-full max-w-lg rounded-2xl border border-zinc-200/50 bg-background shadow-sm dark:border-zinc-800/50",
-        className
-      )}
-    >
-      <CardHeader className="space-y-2 text-center">
-        <CardTitle className="text-2xl font-bold tracking-tight">
-          Bienvenido a Totem
-        </CardTitle>
-        <CardDescription className="text-base text-[#8E8E93] dark:text-[#98989D]">
-          Para comenzar a gestionar eventos, primero debes configurar tu productora.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} className="flex flex-col gap-5">
-          {error ? (
-            <AuthFormError message={error} className="text-center" />
-          ) : null}
-          <div className="space-y-2">
-            <label htmlFor="productora-name" className="text-sm font-medium text-foreground">
-              Nombre de tu productora
-            </label>
-            <Input
-              id="productora-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoComplete="organization"
-              placeholder="Ej. Grupo Eventos"
-              className="h-11 rounded-xl border-zinc-200/50 bg-zinc-50/60 text-base dark:border-zinc-800/50 dark:bg-zinc-900/35"
-            />
-          </div>
-          <Button
-            type="submit"
-            disabled={loading}
-            className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-60"
-          >
-            {loading ? "Guardando…" : "Configurar tu productora"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <div className={cn("mx-auto w-full max-w-sm", className)}>
+      <div className="mb-8 text-center">
+        <p className="text-[13px] font-semibold uppercase tracking-widest text-[#FF9500] mb-3">Crow</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-white">Tu productora</h1>
+        <p className="mt-2 text-[15px] text-white/40">
+          Poné un nombre para comenzar a gestionar eventos.
+        </p>
+      </div>
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        {error ? (
+          <p className="text-sm text-red-400 text-center" role="alert">{error}</p>
+        ) : null}
+        <Input
+          id="productora-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          autoComplete="organization"
+          placeholder="Nombre de tu productora"
+          className="h-12 rounded-xl border-white/[0.08] bg-white/[0.04] text-base text-white placeholder:text-white/25 focus-visible:ring-[#FF9500]/50"
+        />
+        <Button
+          type="submit"
+          disabled={loading}
+          className="h-12 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
+        >
+          {loading ? "Guardando…" : "Continuar"}
+        </Button>
+      </form>
+    </div>
   )
 }
 
 export function ProductoraWaitingCard({ className }: { className?: string }) {
   return (
-    <Card
-      className={cn(
-        "mx-auto w-full max-w-lg rounded-2xl border border-zinc-200/50 bg-background shadow-sm dark:border-zinc-800/50",
-        className
-      )}
-    >
-      <CardHeader className="space-y-2 text-center">
-        <CardTitle className="text-2xl font-bold tracking-tight">Productora</CardTitle>
-        <CardDescription className="text-base text-[#8E8E93] dark:text-[#98989D]">
-          Tu cuenta todavía no está vinculada a una productora. Pedile a un administrador que
-          complete la configuración en Totem para poder trabajar con eventos.
-        </CardDescription>
-      </CardHeader>
-    </Card>
+    <div className={cn("mx-auto w-full max-w-sm text-center", className)}>
+      <p className="text-[13px] font-semibold uppercase tracking-widest text-[#FF9500] mb-3">Crow</p>
+      <h1 className="text-3xl font-extrabold tracking-tight text-white">Sin productora</h1>
+      <p className="mt-3 text-[15px] text-white/40">
+        Tu cuenta todavía no está vinculada a una productora. Pedile a un administrador que complete la configuración.
+      </p>
+    </div>
   )
 }

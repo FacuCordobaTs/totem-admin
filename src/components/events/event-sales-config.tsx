@@ -47,6 +47,7 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
   const [slug, setSlug] = useState("")
+  const [designType, setDesignType] = useState<"GLASS" | "MINIMAL">("GLASS")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,12 +55,14 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
     setTicketsLocal(toDatetimeLocalValue(event.ticketsAvailableFrom))
     setConsumptionsLocal(toDatetimeLocalValue(event.consumptionsAvailableFrom))
     setSlug(event.slug ?? "")
+    setDesignType(event.designType ?? "GLASS")
     setError(null)
   }, [
     event.id,
     event.ticketsAvailableFrom,
     event.consumptionsAvailableFrom,
     event.slug,
+    event.designType,
   ])
 
   const slugTrimmed = slug.trim()
@@ -103,6 +106,7 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
           ticketsAvailableFrom: ticketsPayload,
           consumptionsAvailableFrom: consumptionsPayload,
           slug: slugTrimmed === "" ? null : slugTrimmed,
+          designType,
         }),
       })
       await onUpdated()
@@ -188,6 +192,52 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
             Sin slug — el link usa el ID del evento.
           </p>
         )}
+      </div>
+
+      <div className="mt-6 space-y-2">
+        <label className="block text-md font-medium text-[#98989D]">
+          Diseño de la página pública
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            {
+              value: "GLASS" as const,
+              title: "Glassmorphism",
+              desc: "Flyer a pantalla completa con capas translúcidas.",
+            },
+            {
+              value: "MINIMAL" as const,
+              title: "Minimalista",
+              desc: "Diseño plano, elegante y sobrio.",
+            },
+          ]).map((opt) => {
+            const active = designType === opt.value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setDesignType(opt.value)}
+                aria-pressed={active}
+                className={`rounded-xl border p-4 text-left transition-all ${
+                  active
+                    ? "border-[#FF9500] bg-[#FF9500]/10"
+                    : "border-white/[0.12] bg-zinc-950 hover:border-white/25"
+                }`}
+              >
+                <span
+                  className={`block text-[15px] font-semibold ${
+                    active ? "text-[#FF9500]" : "text-foreground"
+                  }`}
+                >
+                  {opt.title}
+                </span>
+                <span className="mt-1 block text-[13px] leading-snug text-[#98989D]">
+                  {opt.desc}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {error ? (

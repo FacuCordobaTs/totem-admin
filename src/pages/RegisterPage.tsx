@@ -73,7 +73,7 @@ export function RegisterPage() {
         <form onSubmit={onSubmit} className="space-y-3">
           <Input
             id="reg-name"
-            placeholder="Nombre"
+            placeholder="Tu nombre"
             autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}

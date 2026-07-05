@@ -124,7 +124,7 @@ export function EventsListPage() {
       <main className="flex-1">
         <div className="px-6 py-10 lg:px-10 lg:py-12">
           {needsProductora ? (
-            <div className="flex min-h-[calc(100vh-8rem)] flex-col items-center justify-center py-8">
+            <div className="fixed inset-0 flex flex-col items-center justify-center bg-black">
               {isAdmin ? (
                 <ProductoraSetupCard />
               ) : (
