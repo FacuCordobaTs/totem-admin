@@ -17,6 +17,7 @@ import { RegisterPage } from "@/pages/RegisterPage"
 import { PublicEventPage } from "@/pages/PublicEventPage"
 import { RequireAuth } from "@/components/auth/RequireAuth"
 import { GuestRoute } from "@/components/auth/GuestRoute"
+import { PrinterProvider } from "@/context/PrinterContext"
 import type { ReactElement } from "react"
 import { useParams, useSearchParams } from "react-router"
 
@@ -87,8 +88,8 @@ const router = createBrowserRouter([
 ])
 
 createRoot(document.getElementById("root")!).render(
-  <>
+  <PrinterProvider>
     <RouterProvider router={router} />
     <Toaster position="top-center" richColors={false} closeButton theme="system" />
-  </>
+  </PrinterProvider>
 )

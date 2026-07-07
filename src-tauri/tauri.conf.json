@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "crow",
+  "version": "0.1.0",
+  "identifier": "ar.crow.admin",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Crow Admin",
+        "width": 1280,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVEQzE3NEZGMzFBMTI5MTEKUldRUkthRXgvM1RCN1FDS2ZVNkcrMHNPaXppQXBiNjVtK2k5WmgwNTFWcVRCckFXRlhPWVBlb28K",
+      "endpoints": ["https://api.crow.ar/public/updates/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
