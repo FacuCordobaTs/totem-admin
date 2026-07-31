@@ -75,6 +75,8 @@ export type EventBarRow = {
   eventId: string
   tenantId: string
   name: string
+  /** Barra implícita del evento (la que vende todo si no hay puestos). */
+  isDefault: boolean
   isActive: boolean | null
   createdAt: Date | string | null
   updatedAt: Date | string | null
@@ -150,6 +152,8 @@ export type EventExpenseRow = {
   amount: string
   date: Date | string | null
   createdAt: Date | string | null
+  /** != null cuando el gasto vino de una compra de mercadería (Barra). No editable a mano. */
+  purchaseId: string | null
 }
 
 export type EventExpensesResponse = {

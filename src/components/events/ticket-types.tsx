@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import { Pencil, Plus } from "lucide-react"
+import { ChevronDown, Plus, Trash2 } from "lucide-react"
+import { cn } from "@/lib/utils"
+
+export type ApiTier = {
+  id: string
+  name: string
+  price: string
+  position: number
+  stockLimit: number | null
+  activeFrom: string | null
+  activeUntil: string | null
+}
 
 export type ApiTicketType = {
   id: string
@@ -21,6 +23,10 @@ export type ApiTicketType = {
   stockLimit: number | null
   sold: number
   remaining: number | null
+  courtesies?: number
+  effectivePrice?: string
+  tiers?: ApiTier[]
+  activeTier?: { id: string; name: string; price: string; remaining: number | null } | null
 }
 
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
@@ -29,13 +35,9 @@ type TicketTypesProps = {
   eventId: string
   refreshTrigger: number
   onChanged?: () => void
-  layout?: "default" | "compact"
 }
 
-const inputClass =
-  "h-11 rounded-xl border border-white/[0.1] bg-white/[0.05] px-4 text-[15px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
-
-function formatTicketPrice(price: string | number): string {
+function formatPrice(price: string | number): string {
   const n = typeof price === "string" ? Number.parseFloat(price) : price
   if (Number.isNaN(n)) return "—"
   return (
@@ -47,100 +49,517 @@ function formatTicketPrice(price: string | number): string {
   )
 }
 
-function TicketFormFields({
-  name,
-  price,
-  stockLimit,
-  onName,
-  onPrice,
-  onStockLimit,
-  error,
-}: {
+function parsePrice(v: string): number | null {
+  const n = Number(v.replace(",", "."))
+  return Number.isNaN(n) || n < 0 ? null : n
+}
+
+function parseStock(v: string): { value: number | null; ok: boolean } {
+  if (v.trim() === "") return { value: null, ok: true }
+  const n = parseInt(v, 10)
+  if (Number.isNaN(n) || n < 1) return { value: null, ok: false }
+  return { value: n, ok: true }
+}
+
+const fieldClass =
+  "h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:border-white/25"
+
+// ───────────────────────────────────────────────────────────────────────────
+// Editor de tandas: la escalera se escribe como frase que se completa. El sistema
+// la ejecuta solo (backend, evaluación perezosa). Se reemplaza entera vía PUT.
+// ───────────────────────────────────────────────────────────────────────────
+
+type TierDraft = {
   name: string
   price: string
   stockLimit: string
-  onName: (v: string) => void
-  onPrice: (v: string) => void
-  onStockLimit: (v: string) => void
-  error: string | null
+}
+
+function tierToDraft(t: ApiTier): TierDraft {
+  return {
+    name: t.name,
+    price: String(Number.parseFloat(t.price)),
+    stockLimit: t.stockLimit != null ? String(t.stockLimit) : "",
+  }
+}
+
+function TierLadder({
+  eventId,
+  type,
+  onChanged,
+}: {
+  eventId: string
+  type: ApiTicketType
+  onChanged: () => void
 }) {
+  const token = useAuthStore((s) => s.token)
+  const [drafts, setDrafts] = useState<TierDraft[]>(
+    () => (type.tiers ?? []).map(tierToDraft)
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const lastSaved = useRef<string>(JSON.stringify((type.tiers ?? []).map(tierToDraft)))
+
+  const persist = useCallback(
+    async (next: TierDraft[]) => {
+      if (!token) return
+      const clean = next
+        .map((d) => ({
+          name: d.name.trim(),
+          price: parsePrice(d.price),
+          stock: parseStock(d.stockLimit),
+        }))
+        .filter((d) => d.name !== "")
+      // No persistir si hay algún precio/cupo inválido en una fila con nombre.
+      if (clean.some((d) => d.price == null || !d.stock.ok)) {
+        setError("Revisá precio o cupo de la escalera")
+        return
+      }
+      setError(null)
+      const payload = {
+        tiers: clean.map((d) => ({
+          name: d.name,
+          price: d.price as number,
+          stockLimit: d.stock.value,
+        })),
+      }
+      const sig = JSON.stringify(next)
+      if (sig === lastSaved.current) return
+      setSaving(true)
+      try {
+        await apiFetch(`/events/${eventId}/ticket-types/${type.id}/tiers`, {
+          method: "PUT",
+          token,
+          body: JSON.stringify(payload),
+        })
+        lastSaved.current = sig
+        onChanged()
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "No se pudo guardar la escalera")
+      } finally {
+        setSaving(false)
+      }
+    },
+    [token, eventId, type.id, onChanged]
+  )
+
+  function update(i: number, patch: Partial<TierDraft>) {
+    setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...patch } : d)))
+  }
+  function addTier() {
+    setDrafts((prev) => [...prev, { name: "", price: "", stockLimit: "" }])
+  }
+  function removeTier(i: number) {
+    setDrafts((prev) => {
+      const next = prev.filter((_, idx) => idx !== i)
+      void persist(next)
+      return next
+    })
+  }
+
+  const activeId = type.activeTier?.id ?? null
+
   return (
-    <div className="space-y-5 px-5 py-5">
-      {error ? (
-        <p className="text-[15px] text-red-600 dark:text-red-400" role="alert">
-          {error}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-medium uppercase tracking-wide text-white/35">
+          Tandas
+        </span>
+        <span aria-live="polite" className="text-[11px] text-white/30">
+          {saving ? "Guardando…" : error ? "" : ""}
+        </span>
+      </div>
+
+      {drafts.length === 0 ? (
+        <p className="text-[13px] text-white/35">
+          Precio único: {formatPrice(type.price)}. Agregá una tanda para armar una escalera
+          (ej: Early → General).
         </p>
-      ) : null}
-      <div className="space-y-2">
-        <label className="text-[13px] font-normal text-white/45" htmlFor="tt-name">
-          nombre
-        </label>
-        <Input
-          id="tt-name"
-          value={name}
-          onChange={(e) => onName(e.target.value)}
-          required
-          className={inputClass}
-          placeholder="General, VIP…"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-[13px] font-normal text-white/45" htmlFor="tt-price">
-          precio
-        </label>
-        <Input
-          id="tt-price"
-          inputMode="decimal"
-          value={price}
-          onChange={(e) => onPrice(e.target.value)}
-          required
-          className={inputClass}
-          placeholder="0"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-[13px] font-normal text-white/45" htmlFor="tt-stock">
-          tope de stock (opcional)
-        </label>
-        <Input
-          id="tt-stock"
-          inputMode="numeric"
-          value={stockLimit}
-          onChange={(e) => onStockLimit(e.target.value)}
-          className={inputClass}
-          placeholder="vacío = ilimitado"
-        />
-      </div>
+      ) : (
+        <div className="space-y-1.5">
+          {drafts.map((d, i) => {
+            const originalId = type.tiers?.[i]?.id
+            const isActive = originalId != null && originalId === activeId
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-2 py-1.5",
+                  isActive
+                    ? "border-[#FF9500]/40 bg-[#FF9500]/[0.06]"
+                    : "border-white/[0.06] bg-white/[0.02]"
+                )}
+              >
+                <span className="w-5 shrink-0 text-center text-[12px] text-white/25">
+                  {i + 1}
+                </span>
+                <input
+                  value={d.name}
+                  onChange={(e) => update(i, { name: e.target.value })}
+                  onBlur={() => persist(drafts)}
+                  placeholder="Nombre"
+                  className={cn(fieldClass, "flex-1")}
+                />
+                <input
+                  value={d.price}
+                  onChange={(e) => update(i, { price: e.target.value })}
+                  onBlur={() => persist(drafts)}
+                  inputMode="decimal"
+                  placeholder="Precio"
+                  className={cn(fieldClass, "w-24")}
+                />
+                <input
+                  value={d.stockLimit}
+                  onChange={(e) => update(i, { stockLimit: e.target.value })}
+                  onBlur={() => persist(drafts)}
+                  inputMode="numeric"
+                  placeholder="Cupos"
+                  className={cn(fieldClass, "w-20")}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeTier(i)}
+                  className="shrink-0 rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
+                  aria-label="Quitar tanda"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+
+      <button
+        type="button"
+        onClick={addTier}
+        className="inline-flex items-center gap-1 text-[13px] text-white/45 transition-colors hover:text-white/70"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Agregar tanda
+      </button>
     </div>
   )
 }
 
-export function TicketTypes({
+// ───────────────────────────────────────────────────────────────────────────
+// Fila de un tipo de entrada: pieza horizontal que se abre para su profundidad.
+// Edición al blur (sin "Guardar"): PATCH del tipo. Adentro, el editor de tandas.
+// ───────────────────────────────────────────────────────────────────────────
+
+function TypeRow({
   eventId,
-  refreshTrigger,
+  type,
+  expanded,
+  onToggle,
   onChanged,
-}: TicketTypesProps) {
+  canManage,
+}: {
+  eventId: string
+  type: ApiTicketType
+  expanded: boolean
+  onToggle: () => void
+  onChanged: () => void
+  canManage: boolean
+}) {
+  const token = useAuthStore((s) => s.token)
+  const [name, setName] = useState(type.name)
+  const [price, setPrice] = useState(String(Number.parseFloat(type.price)))
+  const [stock, setStock] = useState(type.stockLimit != null ? String(type.stockLimit) : "")
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSaved = useRef<string>("")
+
+  useEffect(() => {
+    setName(type.name)
+    setPrice(String(Number.parseFloat(type.price)))
+    setStock(type.stockLimit != null ? String(type.stockLimit) : "")
+    lastSaved.current = JSON.stringify({
+      name: type.name,
+      price: String(Number.parseFloat(type.price)),
+      stock: type.stockLimit != null ? String(type.stockLimit) : "",
+    })
+  }, [type.id, type.name, type.price, type.stockLimit])
+
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current)
+  }, [])
+
+  const persist = useCallback(async () => {
+    if (!token) return
+    const parsedPrice = parsePrice(price)
+    const parsedStock = parseStock(stock)
+    if (name.trim() === "") {
+      setError("El nombre no puede quedar vacío")
+      return
+    }
+    if (parsedPrice == null) {
+      setError("Precio inválido")
+      return
+    }
+    if (!parsedStock.ok) {
+      setError("El cupo debe ser un entero positivo o vacío")
+      return
+    }
+    const sig = JSON.stringify({ name: name.trim(), price, stock })
+    if (sig === lastSaved.current) {
+      setError(null)
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await apiFetch(`/events/${eventId}/ticket-types/${type.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          name: name.trim(),
+          price: parsedPrice,
+          stockLimit: parsedStock.value,
+        }),
+      })
+      lastSaved.current = sig
+      setSaved(true)
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+      savedTimer.current = setTimeout(() => setSaved(false), 2000)
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo guardar")
+    } finally {
+      setSaving(false)
+    }
+  }, [token, eventId, type.id, name, price, stock, onChanged])
+
+  async function remove() {
+    if (!token) return
+    if (!confirm(`¿Eliminar el tipo "${type.name}"?`)) return
+    setError(null)
+    try {
+      await apiFetch(`/events/${eventId}/ticket-types/${type.id}`, {
+        method: "DELETE",
+        token,
+      })
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo eliminar")
+    }
+  }
+
+  const soldText =
+    type.stockLimit == null
+      ? `${type.sold} vendidas`
+      : `${type.sold} / ${type.stockLimit}`
+  const displayPrice = type.effectivePrice ?? type.price
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[16px] font-medium text-white">
+              {type.name}
+            </span>
+            {type.activeTier ? (
+              <span className="shrink-0 rounded-full bg-[#FF9500]/15 px-2 py-0.5 text-[11px] font-medium text-[#FF9500]">
+                {type.activeTier.name}
+              </span>
+            ) : null}
+          </div>
+          <span className="text-[13px] text-white/40">{soldText}</span>
+        </div>
+        <span className="shrink-0 text-[16px] font-semibold text-white">
+          {formatPrice(displayPrice)}
+        </span>
+        {canManage ? (
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-white/30 transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        ) : null}
+      </button>
+
+      {expanded && canManage ? (
+        <div className="space-y-4 border-t border-white/[0.06] px-4 py-4">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+            <div className="space-y-1">
+              <label className="text-[11px] text-white/35">nombre</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={persist}
+                className={fieldClass}
+              />
+            </div>
+            <div className="w-28 space-y-1">
+              <label className="text-[11px] text-white/35">precio base</label>
+              <input
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                onBlur={persist}
+                inputMode="decimal"
+                className={fieldClass}
+              />
+            </div>
+            <div className="w-24 space-y-1">
+              <label className="text-[11px] text-white/35">cupo</label>
+              <input
+                value={stock}
+                onChange={(e) => setStock(e.target.value)}
+                onBlur={persist}
+                inputMode="numeric"
+                placeholder="∞"
+                className={fieldClass}
+              />
+            </div>
+          </div>
+
+          <TierLadder eventId={eventId} type={type} onChanged={onChanged} />
+
+          <div className="flex items-center justify-between">
+            <span aria-live="polite" className="text-[12px]">
+              {saving ? (
+                <span className="text-white/40">Guardando…</span>
+              ) : saved ? (
+                <span className="text-emerald-400">Guardado</span>
+              ) : error ? (
+                <span className="text-red-400">{error}</span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              onClick={remove}
+              className="inline-flex items-center gap-1.5 text-[13px] text-white/40 transition-colors hover:text-red-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar tipo
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Crear inline (spec §4.2: crear un tipo es inline, no un modal).
+// ───────────────────────────────────────────────────────────────────────────
+
+function InlineCreate({
+  eventId,
+  onCreated,
+}: {
+  eventId: string
+  onCreated: () => void
+}) {
+  const token = useAuthStore((s) => s.token)
+  const [name, setName] = useState("")
+  const [price, setPrice] = useState("")
+  const [stock, setStock] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function create() {
+    if (!token || saving) return
+    if (name.trim() === "") return
+    const parsedPrice = parsePrice(price)
+    if (parsedPrice == null) {
+      setError("Precio inválido")
+      return
+    }
+    const parsedStock = parseStock(stock)
+    if (!parsedStock.ok) {
+      setError("Cupo inválido")
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await apiFetch(`/events/${eventId}/ticket-types`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          name: name.trim(),
+          price: parsedPrice,
+          stockLimit: parsedStock.value,
+        }),
+      })
+      setName("")
+      setPrice("")
+      setStock("")
+      onCreated()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo crear")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 rounded-xl border border-dashed border-white/[0.12] bg-transparent px-4 py-2.5">
+        <Plus className="h-4 w-4 shrink-0 text-white/30" />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void create()
+          }}
+          placeholder="Nuevo tipo (General, VIP…)"
+          className={cn(fieldClass, "flex-1 border-transparent bg-transparent px-0")}
+        />
+        <input
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void create()
+          }}
+          inputMode="decimal"
+          placeholder="Precio"
+          className={cn(fieldClass, "w-24")}
+        />
+        <input
+          value={stock}
+          onChange={(e) => setStock(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void create()
+          }}
+          inputMode="numeric"
+          placeholder="Cupo"
+          className={cn(fieldClass, "w-20")}
+        />
+        <button
+          type="button"
+          onClick={create}
+          disabled={saving || name.trim() === ""}
+          className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
+        >
+          {saving ? "…" : "Crear"}
+        </button>
+      </div>
+      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+    </div>
+  )
+}
+
+export function TicketTypes({ eventId, refreshTrigger, onChanged }: TicketTypesProps) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
-  const canManageTypes = role === "ADMIN" || role === "MANAGER"
+  const canManage = role === "ADMIN" || role === "MANAGER"
 
   const [types, setTypes] = useState<ApiTicketType[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const [createOpen, setCreateOpen] = useState(false)
-  const [name, setName] = useState("")
-  const [price, setPrice] = useState("")
-  const [stockLimit, setStockLimit] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-
-  const [editTarget, setEditTarget] = useState<ApiTicketType | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editPrice, setEditPrice] = useState("")
-  const [editStockLimit, setEditStockLimit] = useState("")
-  const [editSaving, setEditSaving] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!token || !eventId) return
@@ -164,234 +583,45 @@ export function TicketTypes({
     void load()
   }, [load, refreshTrigger])
 
-  function openCreate() {
-    setFormError(null)
-    setName("")
-    setPrice("")
-    setStockLimit("")
-    setCreateOpen(true)
-  }
-
-  function openEdit(ticket: ApiTicketType) {
-    setEditError(null)
-    setEditName(ticket.name)
-    setEditPrice(String(Number.parseFloat(ticket.price)))
-    setEditStockLimit(ticket.stockLimit != null ? String(ticket.stockLimit) : "")
-    setEditTarget(ticket)
-  }
-
-  function parseFormValues(p: string, sl: string): { price: number; limit: number | null; err: string | null } {
-    const parsedPrice = Number(p.replace(",", "."))
-    if (Number.isNaN(parsedPrice) || parsedPrice < 0) return { price: 0, limit: null, err: "Precio inválido" }
-    let limit: number | null = null
-    if (sl.trim() !== "") {
-      const n = parseInt(sl, 10)
-      if (Number.isNaN(n) || n < 1) return { price: 0, limit: null, err: "Stock debe ser un entero positivo o vacío (ilimitado)" }
-      limit = n
-    }
-    return { price: parsedPrice, limit, err: null }
-  }
-
-  async function submitCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!token) return
-    setFormError(null)
-    const { price: p, limit, err } = parseFormValues(price, stockLimit)
-    if (err) { setFormError(err); return }
-    setSaving(true)
-    try {
-      await apiFetch(`/events/${eventId}/ticket-types`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ name: name.trim(), price: p, stockLimit: limit }),
-      })
-      setCreateOpen(false)
-      await load()
-      onChanged?.()
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "No se pudo crear el tipo")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function submitEdit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!token || !editTarget) return
-    setEditError(null)
-    const { price: p, limit, err } = parseFormValues(editPrice, editStockLimit)
-    if (err) { setEditError(err); return }
-    setEditSaving(true)
-    try {
-      await apiFetch(`/events/${eventId}/ticket-types/${editTarget.id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ name: editName.trim(), price: p, stockLimit: limit }),
-      })
-      setEditTarget(null)
-      await load()
-      onChanged?.()
-    } catch (err) {
-      setEditError(err instanceof ApiError ? err.message : "No se pudieron guardar los cambios")
-    } finally {
-      setEditSaving(false)
-    }
-  }
+  const handleChanged = useCallback(() => {
+    void load()
+    onChanged?.()
+  }, [load, onChanged])
 
   return (
     <section className="w-full">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-2xl font-medium tracking-tight text-foreground">
-          Tipos de entrada
-        </h2>
-        {canManageTypes ? (
-          <Button
-            type="button"
-            onClick={openCreate}
-            className="h-9 shrink-0 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-all duration-200 active:opacity-70"
-          >
-            <Plus className="h-4 w-4" />
-            Añadir tipo
-          </Button>
-        ) : null}
-      </div>
+      <h2 className="mb-4 text-2xl font-medium tracking-tight text-foreground">
+        Tipos de entrada
+      </h2>
 
-      <div>
-        {error ? (
-          <p className="py-3 text-[15px] text-red-400">{error}</p>
-        ) : loading ? (
-          <p className="py-3 text-[15px] text-white/40">Cargando tipos…</p>
-        ) : types.length === 0 ? (
-          <p className="py-3 text-[15px] text-white/40">
-            No hay tipos de entrada. Añadí al menos uno para vender en boletería.
-          </p>
-        ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
-            {types.map((ticket) => {
-              const stockText = ticket.stockLimit == null
-                ? `${ticket.sold} vendidas`
-                : `${ticket.sold} / ${ticket.stockLimit}`
-              return (
-                <button
-                  key={ticket.id}
-                  type="button"
-                  onClick={() => canManageTypes ? openEdit(ticket) : undefined}
-                  className="flex flex-col gap-0.5 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
-                >
-                  <div className="flex w-full items-center justify-between gap-1">
-                    <span className="truncate text-[13px] font-medium text-white/70">
-                      {ticket.name}
-                    </span>
-                    {canManageTypes && (
-                      <Pencil className="h-3 w-3 shrink-0 text-white/20" />
-                    )}
-                  </div>
-                  <span className="text-[13px] font-semibold text-white">
-                    {formatTicketPrice(ticket.price)}
-                  </span>
-                  <span className="text-[11px] text-white/30">{stockText}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent
-          showCloseButton
-          className="max-h-[min(90vh,800px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-lg"
-        >
-          <div className="border-b border-white/[0.06] px-5 py-5">
-            <DialogHeader className="gap-1 text-left sm:text-left">
-              <DialogTitle className="text-[20px] font-bold tracking-tight text-black dark:text-white">
-                Nuevo tipo de entrada
-              </DialogTitle>
-            </DialogHeader>
-          </div>
-          <form
-            onSubmit={submitCreate}
-            className="flex max-h-[calc(90vh-10rem)] flex-col overflow-y-auto"
-          >
-            <TicketFormFields
-              name={name}
-              price={price}
-              stockLimit={stockLimit}
-              onName={setName}
-              onPrice={setPrice}
-              onStockLimit={setStockLimit}
-              error={formError}
+      {error ? (
+        <p className="py-3 text-[15px] text-red-400">{error}</p>
+      ) : loading ? (
+        <p className="py-3 text-[15px] text-white/40">Cargando tipos…</p>
+      ) : (
+        <div className="space-y-2">
+          {types.map((t) => (
+            <TypeRow
+              key={t.id}
+              eventId={eventId}
+              type={t}
+              expanded={expandedId === t.id}
+              onToggle={() =>
+                setExpandedId((cur) => (cur === t.id ? null : t.id))
+              }
+              onChanged={handleChanged}
+              canManage={canManage}
             />
-            <div className="mt-auto border-t border-white/[0.06] bg-black/40 p-4">
-              <DialogFooter className="flex-col gap-2 sm:flex-col">
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  className="h-11 w-full rounded-xl bg-[#FF9500] text-[17px] font-semibold text-white transition-all duration-200 active:opacity-70"
-                >
-                  {saving ? "Guardando…" : "Crear tipo"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setCreateOpen(false)}
-                  className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[17px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
-                >
-                  Cancelar
-                </Button>
-              </DialogFooter>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={editTarget !== null} onOpenChange={(o) => { if (!o) setEditTarget(null) }}>
-        <DialogContent
-          showCloseButton
-          className="max-h-[min(90vh,800px)] w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-lg"
-        >
-          <div className="border-b border-white/[0.06] px-5 py-5">
-            <DialogHeader className="gap-1 text-left sm:text-left">
-              <DialogTitle className="text-[20px] font-bold tracking-tight text-black dark:text-white">
-                Editar tipo
-              </DialogTitle>
-            </DialogHeader>
-          </div>
-          <form
-            onSubmit={submitEdit}
-            className="flex max-h-[calc(90vh-10rem)] flex-col overflow-y-auto"
-          >
-            <TicketFormFields
-              name={editName}
-              price={editPrice}
-              stockLimit={editStockLimit}
-              onName={setEditName}
-              onPrice={setEditPrice}
-              onStockLimit={setEditStockLimit}
-              error={editError}
-            />
-            <div className="mt-auto border-t border-white/[0.06] bg-black/40 p-4">
-              <DialogFooter className="flex-col gap-2 sm:flex-col">
-                <Button
-                  type="submit"
-                  disabled={editSaving}
-                  className="h-11 w-full rounded-xl bg-[#FF9500] text-[17px] font-semibold text-white transition-all duration-200 active:opacity-70"
-                >
-                  {editSaving ? "Guardando…" : "Guardar cambios"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setEditTarget(null)}
-                  className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[17px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
-                >
-                  Cancelar
-                </Button>
-              </DialogFooter>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+          ))}
+          {canManage ? (
+            <InlineCreate eventId={eventId} onCreated={handleChanged} />
+          ) : types.length === 0 ? (
+            <p className="py-3 text-[15px] text-white/40">
+              No hay tipos de entrada.
+            </p>
+          ) : null}
+        </div>
+      )}
     </section>
   )
 }

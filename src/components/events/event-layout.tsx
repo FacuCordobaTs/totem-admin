@@ -1,16 +1,6 @@
 import { Link } from "react-router"
 import { ChevronLeft } from "lucide-react"
 
-export const NAV_SECTIONS = [
-  { label: "Resumen", id: "resumen" },
-  { label: "Entradas", id: "entradas" },
-  { label: "Bar", id: "bar" },
-  { label: "Personal", id: "personal" },
-  { label: "Finanzas", id: "finanzas" },
-] as const
-
-export type EventSectionId = (typeof NAV_SECTIONS)[number]["id"]
-
 type EventLayoutProps = {
   children: React.ReactNode
 }

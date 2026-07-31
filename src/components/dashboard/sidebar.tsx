@@ -1,21 +1,10 @@
 import { Link, useLocation } from "react-router"
 import { cn } from "@/lib/utils"
-import {
-  LayoutDashboard,
-  Calendar,
-  Package,
-  Users,
-  ScanLine,
-  CreditCard,
-} from "lucide-react"
+import { ScanLine, CreditCard } from "lucide-react"
 import { useAuthStore } from "@/stores/auth-store"
+import { globalNav } from "@/components/dashboard/global-nav"
 
-const adminNavigation = [
-  { name: "Inicio", href: "/", icon: LayoutDashboard },
-  { name: "Eventos", href: "/events", icon: Calendar },
-  { name: "Inventario", href: "/inventory", icon: Package },
-  { name: "Personal", href: "/staff", icon: Users },
-]
+const adminNavigation = globalNav
 
 const bartenderNavigation = [{ name: "Punto de Venta", href: "/pos", icon: CreditCard }]
 
@@ -54,7 +43,7 @@ export function Sidebar({
         ? securityNavigation
         : adminNavigation
   const homeHref =
-    role === "BARTENDER" ? "/pos" : role === "SECURITY" ? "/scanner" : "/"
+    role === "BARTENDER" ? "/pos" : role === "SECURITY" ? "/scanner" : "/eventos"
 
   if (layout === "sheet") {
     return (

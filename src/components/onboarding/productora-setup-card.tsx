@@ -51,9 +51,8 @@ export function ProductoraSetupCard({ className, onSuccess }: ProductoraSetupCar
   return (
     <div className={cn("mx-auto w-full max-w-sm", className)}>
       <div className="mb-8 text-center">
-        <p className="text-[13px] font-semibold uppercase tracking-widest text-[#FF9500] mb-3">Crow</p>
-        <h1 className="text-3xl font-extrabold tracking-tight text-white">Tu productora</h1>
-        <p className="mt-2 text-[15px] text-white/40">
+        <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">Productora</h1>
+        <p className="mt-3 text-[15px] text-white/40">
           Poné un nombre para comenzar a gestionar eventos.
         </p>
       </div>

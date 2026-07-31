@@ -54,9 +54,15 @@ type Props = {
   eventId: string
   /** Oculta el encabezado de página cuando el tab está embebido en otra vista */
   embedded?: boolean
+  /**
+   * Modo "puestos" (spec §4.3.c): por defecto una sola barra implícita vende todo, así que
+   * mientras no haya puestos no se muestra grilla — solo la acción avanzada "Dividir en
+   * puestos" al pie. Cuando existen puestos, se muestra la grilla completa (default incluida).
+   */
+  puestosMode?: boolean
 }
 
-export function EventBarsTab({ eventId, embedded = false }: Props) {
+export function EventBarsTab({ eventId, embedded = false, puestosMode = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const [bars, setBars] = useState<EventBarRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -121,8 +127,175 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
     }
   }
 
+  const renderBarCard = (bar: EventBarRow) => (
+    <Card
+      key={bar.id}
+      className={
+        bar.isActive === false
+          ? "rounded-2xl  opacity-60"
+          : "rounded-2xl bg-background border-none"
+      }
+    >
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 p-5 pb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-[19px] font-bold tracking-tight text-black dark:text-white">
+              {bar.name}
+            </h3>
+            {bar.isDefault ? (
+              <span className="rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                General
+              </span>
+            ) : null}
+            {bar.isActive === false ? (
+              <span className="rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                Inactiva
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0 rounded-xl text-white/30 hover:bg-white/[0.07] hover:text-white/70"
+          aria-label={`Configurar ${bar.name}`}
+          onClick={() => {
+            setConfigBar(bar)
+            setConfigOpen(true)
+          }}
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3 px-5 pb-5 pt-0">
+        <div className="min-w-0">
+          <p className="text-[12px] font-medium text-zinc-400 dark:text-zinc-500">
+            ventas
+          </p>
+          <p className="mt-1 truncate text-2xl font-bold tabular-nums tracking-tight text-foreground">
+            {formatCurrencyArs(bar.totalSales ?? "0")}
+          </p>
+        </div>
+        <div className="space-y-3 border-t border-white/[0.06] pt-3">
+          <div className="flex gap-2.5">
+            <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
+            <div className="min-w-0 flex-1">
+              {(bar.staffList?.length ?? 0) > 0 ? (
+                <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                  {bar.staffList.map((name, i) => (
+                    <li key={`${name}-${i}`} className="truncate">
+                      {name}
+                      {i < bar.staffList.length - 1 ? "," : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                  Sin personal asignado
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <Package className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
+            <div className="min-w-0 flex-1">
+              {(bar.productList?.length ?? 0) > 0 ? (
+                <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                  {bar.productList.map((name, i) => (
+                    <li key={`${name}-${i}`} className="truncate">
+                      {name}
+                      {i < bar.productList.length - 1 ? "," : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                  Menú vacío
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <Wine className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
+            <div className="min-w-0 flex-1">
+              {(bar.inventoryList?.length ?? 0) > 0 ? (
+                <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                  {bar.inventoryList.map((inv, i) => (
+                    <li key={`${inv.name}-${i}`} className="truncate">
+                      {inv.bottles} botellas de {inv.name}
+                      {i < bar.inventoryList.length - 1 ? "," : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
+                  Sin stock en barra
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
+  const createDialog = (
+    <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
+        <div className="border-b border-white/[0.06] p-6">
+          <div className="flex gap-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
+              <Wine className="h-6 w-6 text-white/30" />
+            </span>
+            <DialogHeader className="flex-1 text-left">
+              <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
+                {puestosMode ? "Nuevo puesto" : "Nueva barra"}
+              </DialogTitle>
+            </DialogHeader>
+          </div>
+        </div>
+        <div className="space-y-3 p-6">
+          <label className="text-[13px] font-normal text-white/45" htmlFor="bar-name-create">
+            Nombre
+          </label>
+          <Input
+            id="bar-name-create"
+            placeholder="Ej. Barra VIP"
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            className={inputClass}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitCreate()
+            }}
+          />
+        </div>
+        <div className="border-t border-white/[0.06] bg-black/40 p-5">
+          <DialogFooter className="flex-col gap-3 sm:flex-col">
+            <Button
+              type="button"
+              disabled={!createName.trim() || createBusy}
+              onClick={() => void submitCreate()}
+              className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
+            >
+              {createBusy ? "Creando…" : "Crear"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateOpen(false)}
+              className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+
   if (loading) {
-    return <GridSkeleton />
+    return puestosMode ? null : <GridSkeleton />
   }
 
   if (error) {
@@ -130,6 +303,64 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
       <div className="rounded-2xl border border-red-200/60 bg-red-50 px-5 py-4 text-[15px] text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
         {error}
       </div>
+    )
+  }
+
+  // Modo puestos (spec §4.3.c): mientras no haya puestos, la barra implícita vende todo
+  // y no mostramos grilla. Solo la acción avanzada al pie.
+  if (puestosMode) {
+    const puestos = bars.filter((b) => !b.isDefault)
+    if (puestos.length === 0) {
+      return (
+        <section className="border-t border-white/[0.06] pt-6">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="text-[13px] font-medium text-white/35 transition-colors hover:text-white/60"
+          >
+            Dividir en puestos
+          </button>
+          <p className="mt-1 text-[12px] text-white/25">
+            Una sola barra vende todo. Dividí en puestos cuando tengas más de un punto de venta;
+            cada puesto hereda el menú, el stock y el equipo.
+          </p>
+          {createDialog}
+        </section>
+      )
+    }
+    return (
+      <section className="space-y-4 border-t border-white/[0.06] pt-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-[18px] font-semibold text-white">Puestos</h3>
+            <p className="mt-0.5 text-[13px] text-white/35">
+              Cada puesto vende, cobra y descuenta stock por separado.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Agregar puesto
+          </Button>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {bars.map(renderBarCard)}
+        </div>
+        {createDialog}
+        <BarConfigSheet
+          open={configOpen}
+          onOpenChange={(open) => {
+            setConfigOpen(open)
+            if (!open) setConfigBar(null)
+          }}
+          eventId={eventId}
+          bar={configBar}
+          onBarUpdated={() => void load({ silent: true })}
+        />
+      </section>
     )
   }
 
@@ -195,173 +426,11 @@ export function EventBarsTab({ eventId, embedded = false }: Props) {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {bars.map((bar) => (
-            <Card
-              key={bar.id}
-              className={
-                bar.isActive === false
-                  ? "rounded-2xl  opacity-60"
-                  : "rounded-2xl bg-background border-none"
-              }
-            >
-              <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 p-5 pb-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="truncate text-[19px] font-bold tracking-tight text-black dark:text-white">
-                      {bar.name}
-                    </h3>
-                    {bar.isActive === false ? (
-                      <span className="rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/40">
-                        Inactiva
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 shrink-0 rounded-xl text-white/30 hover:bg-white/[0.07] hover:text-white/70"
-                  aria-label={`Configurar ${bar.name}`}
-                  onClick={() => {
-                    setConfigBar(bar)
-                    setConfigOpen(true)
-                  }}
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-3 px-5 pb-5 pt-0">
-                <div className="min-w-0">
-                  <p className="text-[12px] font-medium text-zinc-400 dark:text-zinc-500">
-                    ventas
-                  </p>
-                  <p className="mt-1 truncate text-2xl font-bold tabular-nums tracking-tight text-foreground">
-                    {formatCurrencyArs(bar.totalSales ?? "0")}
-                  </p>
-                </div>
-                <div className="space-y-3 border-t border-white/[0.06] pt-3">
-                  <div className="flex gap-2.5">
-                    <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
-                    <div className="min-w-0 flex-1">
-                      {(bar.staffList?.length ?? 0) > 0 ? (
-                        <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                          {bar.staffList.map((name, i) => (
-                            <li key={`${name}-${i}`} className="truncate">
-                              {name}
-                              {i < bar.staffList.length - 1 ? "," : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                          Sin personal asignado
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2.5">
-                    <Package className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
-                    <div className="min-w-0 flex-1">
-                      {(bar.productList?.length ?? 0) > 0 ? (
-                        <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                          {bar.productList.map((name, i) => (
-                            <li key={`${name}-${i}`} className="truncate">
-                              {name}
-                              {i < bar.productList.length - 1 ? "," : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                          Menú vacío
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2.5">
-                    <Wine className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
-                    <div className="min-w-0 flex-1">
-                      {(bar.inventoryList?.length ?? 0) > 0 ? (
-                        <ul className="flex list-none flex-col gap-0.5 text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                          {bar.inventoryList.map((inv, i) => (
-                            <li
-                              key={`${inv.name}-${i}`}
-                              className="truncate"
-                            >
-                              {inv.bottles} botellas de {inv.name}
-                              {i < bar.inventoryList.length - 1 ? "," : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-[12px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-                          Sin stock en barra
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {bars.map(renderBarCard)}
         </div>
       )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
-          <div className="border-b border-white/[0.06] p-6">
-            <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
-                <Wine className="h-6 w-6 text-white/30" />
-              </span>
-              <DialogHeader className="flex-1 text-left">
-                <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
-                  Nueva barra
-                </DialogTitle>
-              </DialogHeader>
-            </div>
-          </div>
-          <div className="space-y-3 p-6">
-            <label
-              className="text-[13px] font-normal text-white/45"
-              htmlFor="bar-name-create"
-            >
-              Nombre
-            </label>
-            <Input
-              id="bar-name-create"
-              placeholder="Ej. Barra VIP"
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              className={inputClass}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void submitCreate()
-              }}
-            />
-          </div>
-          <div className="border-t border-white/[0.06] bg-black/40 p-5">
-            <DialogFooter className="flex-col gap-3 sm:flex-col">
-              <Button
-                type="button"
-                disabled={!createName.trim() || createBusy}
-                onClick={() => void submitCreate()}
-                className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
-              >
-                {createBusy ? "Creando…" : "Crear"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCreateOpen(false)}
-                className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
-              >
-                Cancelar
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {createDialog}
 
       <BarConfigSheet
         open={configOpen}

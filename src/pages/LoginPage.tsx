@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
+import { BrandLockup } from "@/components/auth/brand-lockup"
 import { cn } from "@/lib/utils"
 
 type LoginResponse = {
@@ -31,6 +32,9 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [tenantOptions, setTenantOptions] = useState<TenantSelectionResponse["options"] | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
+  const [magicLoading, setMagicLoading] = useState(false)
+  const [magicSent, setMagicSent] = useState(false)
+  const [magicDevUrl, setMagicDevUrl] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -67,12 +71,31 @@ export function LoginPage() {
     }
   }
 
+  async function onMagicLink() {
+    setError(null)
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError("Escribí tu correo y te mandamos el enlace")
+      return
+    }
+    setMagicLoading(true)
+    try {
+      const data = await apiFetch<{ ok: true; devUrl?: string }>("/staff/magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      })
+      setMagicSent(true)
+      setMagicDevUrl(data.devUrl ?? null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo enviar el enlace")
+    } finally {
+      setMagicLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-dvh flex items-center justify-center w-full bg-black px-6 selection:bg-[#FF9500]/10 selection:text-[#FF9500]">
       <div className="w-full max-w-sm animate-in fade-in duration-700">
-        <div className="flex justify-center mb-12">
-          <img src="/logo.png" alt="Crow" className="h-12 w-auto rounded-2xl" />
-        </div>
+        <BrandLockup className="mb-12" />
 
         {error ? (
           <p
@@ -94,6 +117,8 @@ export function LoginPage() {
               setEmail(e.target.value)
               setTenantOptions(null)
               setSelectedStaffId(null)
+              setMagicSent(false)
+              setMagicDevUrl(null)
             }}
             required
             className={inputClass}
@@ -161,10 +186,35 @@ export function LoginPage() {
           </Button>
         </form>
 
-        <div className="text-center text-sm text-muted-foreground mt-10">
+        {magicSent ? (
+          <div className="mt-6 rounded-2xl bg-zinc-100 px-4 py-3 text-center text-sm text-muted-foreground dark:bg-zinc-900">
+            <p>Si el correo existe, te enviamos un enlace de acceso. Revisá tu casilla.</p>
+            {magicDevUrl ? (
+              <a
+                href={magicDevUrl}
+                className="mt-2 inline-block break-all text-[#FF9500] hover:text-[#FF9500]/80"
+              >
+                {magicDevUrl}
+              </a>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={onMagicLink}
+              disabled={magicLoading}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-60"
+            >
+              {magicLoading ? "Enviando…" : "Recibir un enlace de acceso"}
+            </button>
+          </div>
+        )}
+
+        <div className="text-center text-sm mt-10">
           <Link
             to="/register"
-            className="text-[#FF9500] hover:text-[#FF9500]/80 transition-colors font-medium"
+            className="text-muted-foreground/70 hover:text-foreground transition-colors"
           >
             Crear cuenta de administrador
           </Link>

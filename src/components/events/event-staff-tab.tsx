@@ -1,50 +1,65 @@
 import { useCallback, useEffect, useState } from "react"
-import { Link } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  MonitorSmartphone,
+  Plus,
+  QrCode,
+  UserPlus,
+  X,
+} from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type {
   EventAssignmentStaffRow,
   EventBarsResponse,
+  EventBarRow,
   EventStaffListResponse,
 } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { cn } from "@/lib/utils"
 
-function TableSkeleton() {
+type StaffRole = EventAssignmentStaffRow["role"]
+
+type Invitation = {
+  id: string
+  role: StaffRole
+  token: string
+  url: string
+  status: string
+  expiresAt: string | null
+  createdAt: string | null
+}
+
+const INVITE_ROLES: StaffRole[] = ["BARTENDER", "SECURITY", "MANAGER"]
+
+function SectionSkeleton() {
   return (
     <div className="space-y-3">
-      <div className="h-10 w-full animate-pulse rounded-xl bg-zinc-200/50 dark:bg-zinc-700/50" />
-      <div className="h-52 w-full animate-pulse rounded-2xl bg-zinc-200/50 dark:bg-zinc-700/50" />
+      <div className="h-10 w-48 animate-pulse rounded-xl bg-white/[0.06]" />
+      <div className="h-40 w-full animate-pulse rounded-2xl bg-white/[0.06]" />
     </div>
   )
 }
 
 type Props = {
   eventId: string
+  /** Estado derivado del evento; el toggle "trabaja hoy" solo aplica cuando está por venir. */
   eventStatus?: "draft" | "active" | "finished"
 }
 
 export function EventStaffTab({ eventId, eventStatus }: Props) {
   const token = useAuthStore((s) => s.token)
+  const role = useAuthStore((s) => s.staff?.role)
+  const canManage = role === "ADMIN" || role === "MANAGER"
+  const canInvite = role === "ADMIN"
+
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
-  const [bars, setBars] = useState<{ id: string; name: string }[]>([])
+  const [bars, setBars] = useState<EventBarRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
@@ -69,7 +84,7 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
     } catch (e) {
       setRows([])
       setError(
-        e instanceof ApiError ? e.message : "No se pudo cargar el personal del evento"
+        e instanceof ApiError ? e.message : "No se pudo cargar el equipo del evento"
       )
     } finally {
       setLoading(false)
@@ -83,7 +98,6 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
   function addPending(id: string) {
     setPendingIds((prev) => new Set(prev).add(id))
   }
-
   function removePending(id: string) {
     setPendingIds((prev) => {
       const next = new Set(prev)
@@ -93,15 +107,10 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
   }
 
   async function postAssign(
-    body: {
-      staffId: string
-      isAssigned: boolean
-      barId?: string | null
-    },
+    body: { staffId: string; isAssigned: boolean; barId?: string | null },
     prevRows: EventAssignmentStaffRow[]
   ) {
     if (!token) return
-    const { staffId } = body
     try {
       await apiFetch(`/events/${eventId}/staff/assign`, {
         method: "POST",
@@ -114,39 +123,48 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
         e instanceof ApiError ? e.message : "No se pudo actualizar la asignación"
       )
     } finally {
-      removePending(staffId)
+      removePending(body.staffId)
     }
   }
 
-  function onSwitchChange(member: EventAssignmentStaffRow, checked: boolean) {
+  // Un solo gesto: prender/apagar "trabaja esta noche" cuando no hay puestos.
+  function toggleWorks(member: EventAssignmentStaffRow, checked: boolean) {
     if (pendingIds.has(member.id)) return
     const prevRows = rows
     addPending(member.id)
     setRows((r) =>
       r.map((s) =>
         s.id === member.id
-          ? {
-              ...s,
-              isAssigned: checked,
-              barId: checked ? s.barId : null,
-            }
+          ? { ...s, isAssigned: checked, barId: checked ? s.barId : null }
           : s
       )
     )
     void postAssign({ staffId: member.id, isAssigned: checked }, prevRows)
   }
 
-  function onBarChange(member: EventAssignmentStaffRow, barId: string | null) {
+  // Un solo gesto: elegir puesto (asigna + trabaja) o "No" (lo saca).
+  function assignToBar(member: EventAssignmentStaffRow, barId: string | null) {
     if (pendingIds.has(member.id)) return
     const prevRows = rows
     addPending(member.id)
-    setRows((r) => r.map((s) => (s.id === member.id ? { ...s, barId } : s)))
+    if (barId === null) {
+      setRows((r) =>
+        r.map((s) =>
+          s.id === member.id ? { ...s, isAssigned: false, barId: null } : s
+        )
+      )
+      void postAssign({ staffId: member.id, isAssigned: false }, prevRows)
+      return
+    }
+    setRows((r) =>
+      r.map((s) =>
+        s.id === member.id ? { ...s, isAssigned: true, barId } : s
+      )
+    )
     void postAssign({ staffId: member.id, isAssigned: true, barId }, prevRows)
   }
 
-  if (loading) {
-    return <TableSkeleton />
-  }
+  if (loading) return <SectionSkeleton />
 
   if (error) {
     return (
@@ -156,115 +174,575 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
     )
   }
 
+  const puestos = bars.filter((b) => !b.isDefault)
+  const hasPuestos = puestos.length > 0
+  const defaultBar = bars.find((b) => b.isDefault) ?? null
+  // Chips de puesto: la barra default se muestra como "General".
+  const barChips = bars.map((b) => ({
+    id: b.id,
+    label: b.isDefault ? "General" : b.name,
+  }))
+  // El toggle "trabaja hoy" solo tiene sentido antes/durante el evento.
+  const showWorkToggle = eventStatus !== "finished"
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h3 className="text-[17px] font-medium text-foreground">Esta noche</h3>
+          <p className="text-[13px] text-white/40">
+            {hasPuestos
+              ? "Quién trabaja y en qué puesto."
+              : "Quién trabaja esta noche."}
+          </p>
+        </div>
+        {canInvite ? (
+          <div className="flex items-center gap-2">
+            <PosSessionPanel eventId={eventId} bars={bars} />
+            <InvitePanel onInvited={load} />
+          </div>
+        ) : null}
+      </div>
+
       {rows.length === 0 ? (
-        <Card className="rounded-2xl ">
-          <CardContent className="py-12 text-center text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-            No hay personal activo en la Productora. Gestioná el equipo en{" "}
-            <Button
-              asChild
-              variant="link"
-              className="h-auto p-0 text-[15px] font-semibold text-[#FF9500]"
-            >
-              <Link to="/staff">Personal</Link>
-            </Button>
-            .
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center text-[15px] text-white/45">
+          Todavía no hay nadie en el equipo.
+          {canInvite ? " Invitá a alguien con el botón de arriba." : null}
+        </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl ">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/[0.06] hover:bg-transparent">
-                <TableHead className="pl-6 text-[11px] font-normal lowercase text-white/45">
-                  Nombre
-                </TableHead>
-                <TableHead className="w-[120px] text-[11px] font-normal lowercase text-white/45">
-                  Rol
-                </TableHead>
-                {eventStatus === "active" || eventStatus == null ? (
-                <TableHead className="w-[140px] text-center text-[11px] font-normal lowercase text-white/45">
-                  ¿trabaja hoy?
-                </TableHead>
-                ) : null}
-                <TableHead className="w-[180px] text-[11px] font-normal lowercase text-white/45">
-                  Barra asignada
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((member) => {
-                const busy = pendingIds.has(member.id)
-                return (
-                  <TableRow
-                    key={member.id}
-                    className="border-white/[0.06] transition-colors duration-200 hover:bg-white/[0.03]"
+        <div className="space-y-1.5">
+          {rows.map((member) => {
+            const busy = pendingIds.has(member.id)
+            const selectedBar = member.isAssigned
+              ? member.barId ?? defaultBar?.id ?? null
+              : null
+            return (
+              <div
+                key={member.id}
+                className={cn(
+                  "flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 transition-colors",
+                  member.isAssigned && "border-white/[0.12] bg-white/[0.04]"
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-medium text-foreground">
+                    {member.name}
+                  </p>
+                  <span className="text-[12px] text-white/40">
+                    {staffRoleLabel(member.role)}
+                  </span>
+                </div>
+
+                {!canManage ? (
+                  <span className="text-[13px] text-white/45">
+                    {member.isAssigned
+                      ? selectedBar && hasPuestos
+                        ? barChips.find((c) => c.id === selectedBar)?.label ??
+                          "Trabaja"
+                        : "Trabaja"
+                      : "—"}
+                  </span>
+                ) : hasPuestos ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    <ChipButton
+                      active={!member.isAssigned}
+                      disabled={busy}
+                      onClick={() => assignToBar(member, null)}
+                      muted
+                    >
+                      No trabaja
+                    </ChipButton>
+                    {barChips.map((chip) => (
+                      <ChipButton
+                        key={chip.id}
+                        active={selectedBar === chip.id}
+                        disabled={busy}
+                        onClick={() => assignToBar(member, chip.id)}
+                      >
+                        {chip.label}
+                      </ChipButton>
+                    ))}
+                  </div>
+                ) : showWorkToggle ? (
+                  <ChipButton
+                    active={member.isAssigned}
+                    disabled={busy}
+                    onClick={() => toggleWorks(member, !member.isAssigned)}
                   >
-                    <TableCell className="pl-6 py-3.5 font-semibold text-black dark:text-white">
-                      {member.name}
-                    </TableCell>
-                    <TableCell className="py-3.5">
-                      <span className="inline-flex rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold text-white/45">
-                        {staffRoleLabel(member.role)}
-                      </span>
-                    </TableCell>
-                    {(eventStatus === "active" || eventStatus == null) ? (
-                    <TableCell className="py-3.5 text-center">
-                      <div className="flex justify-center">
-                        <input
-                          type="checkbox"
-                          checked={member.isAssigned}
-                          disabled={busy}
-                          onChange={(e) => onSwitchChange(member, e.target.checked)}
-                          aria-label={
-                            member.isAssigned
-                              ? `Quitar a ${member.name} del evento`
-                              : `Asignar a ${member.name} al evento`
-                          }
-                          className="h-4 w-4 cursor-pointer appearance-none rounded border border-white/20 bg-white/[0.06] checked:border-[#FF9500] checked:bg-[#FF9500] disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
-                          style={{
-                            backgroundImage: member.isAssigned
-                              ? `url("data:image/svg+xml,%3Csvg viewBox='0 0 10 10' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 5l2.5 2.5L8 3' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`
-                              : "none",
-                            backgroundSize: "100%",
-                          }}
-                        />
-                      </div>
-                    </TableCell>
-                    ) : null}
-                    <TableCell className="py-3">
-                      {member.isAssigned && bars.length > 0 ? (
-                        <Select
-                          value={member.barId ?? "none"}
-                          onValueChange={(v) =>
-                            onBarChange(member, v === "none" ? null : v)
-                          }
-                          disabled={busy}
-                        >
-                          <SelectTrigger className="h-8 w-[160px] rounded-xl border-white/[0.12]  text-[13px]">
-                            <SelectValue placeholder="Sin barra" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Sin barra</SelectItem>
-                            {bars.map((bar) => (
-                              <SelectItem key={bar.id} value={bar.id}>
-                                {bar.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                    {member.isAssigned ? "Trabaja" : "Sumar"}
+                  </ChipButton>
+                ) : (
+                  <span className="text-[13px] text-white/45">
+                    {member.isAssigned ? "Trabajó" : "—"}
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
+
+      <div className="pt-1 text-[13px] text-white/40">
+        El equipo se hereda de la Productora.{" "}
+        <Link
+          to="/staff"
+          className="font-medium text-[#FF9500] transition-colors hover:text-[#FF9500]/80"
+        >
+          Gestionar equipo global
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function ChipButton({
+  active,
+  muted,
+  disabled,
+  onClick,
+  children,
+}: {
+  active: boolean
+  muted?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "h-8 rounded-lg border px-3 text-[13px] font-medium transition-colors disabled:opacity-40",
+        active
+          ? muted
+            ? "border-white/20 bg-white/[0.08] text-white/60"
+            : "border-[#FF9500] bg-[#FF9500] text-white"
+          : "border-white/[0.1] bg-transparent text-white/55 hover:border-white/25 hover:text-white"
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Invitar desde acá: genera un link nominado a un rol. Al aceptarlo, la persona
+// entra al equipo GLOBAL (spec §4.4). El link vive en /unirse/:token.
+// -----------------------------------------------------------------------------
+function InvitePanel({ onInvited }: { onInvited: () => void }) {
+  const token = useAuthStore((s) => s.token)
+  const [open, setOpen] = useState(false)
+  const [invites, setInvites] = useState<Invitation[]>([])
+  const [role, setRole] = useState<StaffRole>("BARTENDER")
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadInvites = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiFetch<{ invitations: Invitation[] }>(
+        "/staff/invitations",
+        { method: "GET", token }
+      )
+      setInvites(data.invitations)
+    } catch {
+      // silencioso: el panel no bloquea la sección
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (open) void loadInvites()
+  }, [open, loadInvites])
+
+  async function create() {
+    if (!token || creating) return
+    setError(null)
+    setCreating(true)
+    try {
+      await apiFetch<{ invitation: Invitation }>("/staff/invitations", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ role }),
+      })
+      await loadInvites()
+      onInvited()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "No se pudo crear el link")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function revoke(id: string) {
+    if (!token) return
+    const prev = invites
+    setInvites((list) => list.filter((i) => i.id !== id))
+    try {
+      await apiFetch(`/staff/invitations/${id}/revoke`, {
+        method: "POST",
+        token,
+      })
+    } catch {
+      setInvites(prev)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.12] px-3 text-[13px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white"
+      >
+        <UserPlus className="h-3.5 w-3.5" />
+        Invitar
+      </button>
+
+      {open ? (
+        <div className="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-white/[0.1] bg-zinc-950 p-4 shadow-xl">
+          <div className="flex items-center gap-2">
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as StaffRole)}
+              className="h-10 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none focus:border-white/25"
+            >
+              {INVITE_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {staffRoleLabel(r)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={create}
+              disabled={creating}
+              className="inline-flex h-10 items-center gap-1 rounded-lg bg-[#FF9500] px-3 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Link
+            </button>
+          </div>
+          {error ? <p className="mt-2 text-[12px] text-red-400">{error}</p> : null}
+
+          <div className="mt-3 space-y-1.5">
+            {invites.length === 0 ? (
+              <p className="py-1 text-[13px] text-white/35">
+                Creá un link y compartilo. Quien lo abra pone su nombre y un PIN, y
+                ya entra al equipo.
+              </p>
+            ) : (
+              invites.map((inv) => (
+                <InviteRow key={inv.id} invite={inv} onRevoke={revoke} />
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Sesión de puesto (spec §1): fijar un dispositivo (POS) a un puesto concreto. El
+// admin genera un link/QR a /pos/sesion/:token; abierto en la tablet, el personal
+// rota entrando y saliendo solo con su PIN, sin volver a loguearse.
+// -----------------------------------------------------------------------------
+type PosSession = {
+  id: string
+  token: string
+  barId: string | null
+  label: string
+  lastUsedAt: string | null
+}
+
+function sessionUrl(token: string): string {
+  return `${window.location.origin}/pos/sesion/${token}`
+}
+
+function PosSessionPanel({
+  eventId,
+  bars,
+}: {
+  eventId: string
+  bars: EventBarRow[]
+}) {
+  const token = useAuthStore((s) => s.token)
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [sessions, setSessions] = useState<PosSession[]>([])
+  const [barId, setBarId] = useState<string>("")
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const barOptions = bars.map((b) => ({
+    id: b.id,
+    label: b.isDefault ? "General" : b.name,
+  }))
+
+  useEffect(() => {
+    if (barId || barOptions.length === 0) return
+    const def = bars.find((b) => b.isDefault) ?? bars[0]
+    if (def) setBarId(def.id)
+  }, [bars, barId, barOptions.length])
+
+  const loadSessions = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiFetch<{ posSessions: PosSession[] }>(
+        `/staff/pos-sessions?eventId=${encodeURIComponent(eventId)}`,
+        { method: "GET", token }
+      )
+      setSessions(data.posSessions)
+    } catch {
+      // silencioso
+    }
+  }, [token, eventId])
+
+  useEffect(() => {
+    if (open) void loadSessions()
+  }, [open, loadSessions])
+
+  async function create() {
+    if (!token || creating || !barId) return
+    setError(null)
+    setCreating(true)
+    try {
+      await apiFetch<{ posSession: { token: string } }>("/staff/pos-sessions", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ eventId, barId }),
+      })
+      await loadSessions()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "No se pudo abrir la sesión")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function close(id: string) {
+    if (!token) return
+    const prev = sessions
+    setSessions((list) => list.filter((s) => s.id !== id))
+    try {
+      await apiFetch(`/staff/pos-sessions/${id}/close`, { method: "POST", token })
+    } catch {
+      setSessions(prev)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.12] px-3 text-[13px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white"
+      >
+        <MonitorSmartphone className="h-3.5 w-3.5" />
+        Puesto
+      </button>
+
+      {open ? (
+        <div className="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-white/[0.1] bg-zinc-950 p-4 shadow-xl">
+          <p className="mb-2 text-[13px] text-white/45">
+            Fijá una tablet a un puesto. El personal rota con su PIN.
+          </p>
+          <div className="flex items-center gap-2">
+            <select
+              value={barId}
+              onChange={(e) => setBarId(e.target.value)}
+              className="h-10 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none focus:border-white/25"
+            >
+              {barOptions.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={create}
+              disabled={creating || !barId}
+              className="inline-flex h-10 items-center gap-1 rounded-lg bg-[#FF9500] px-3 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Abrir
+            </button>
+          </div>
+          {error ? <p className="mt-2 text-[12px] text-red-400">{error}</p> : null}
+
+          <div className="mt-3 space-y-1.5">
+            {sessions.length === 0 ? (
+              <p className="py-1 text-[13px] text-white/35">
+                Abrí una sesión y en la tablet escaneá el QR o pegá el link. Queda
+                fijada al puesto hasta que la cierres.
+              </p>
+            ) : (
+              sessions.map((s) => (
+                <PosSessionRow
+                  key={s.id}
+                  session={s}
+                  onClose={close}
+                  onOpenHere={() => navigate(`/pos/sesion/${s.token}`)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PosSessionRow({
+  session,
+  onClose,
+  onOpenHere,
+}: {
+  session: PosSession
+  onClose: (id: string) => void
+  onOpenHere: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [showQr, setShowQr] = useState(false)
+  const url = sessionUrl(session.token)
+  function copy() {
+    void navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate text-[13px] text-white/70">
+          {session.label}
+        </span>
+        <button
+          type="button"
+          onClick={onOpenHere}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Abrir acá
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowQr((v) => !v)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
+            showQr
+              ? "border-white/25 text-white"
+              : "border-white/[0.1] text-white/60 hover:border-white/25 hover:text-white"
+          )}
+          aria-pressed={showQr}
+        >
+          <QrCode className="h-3.5 w-3.5" />
+          QR
+        </button>
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5 text-emerald-400" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          {copied ? "Copiado" : "Link"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onClose(session.id)}
+          className="rounded-md p-1 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
+          aria-label="Cerrar sesión de puesto"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {showQr ? (
+        <div className="mt-2.5 flex flex-col items-center gap-2 border-t border-white/[0.06] pt-3">
+          <div className="rounded-lg bg-white p-3">
+            <QRCodeSVG value={url} size={160} level="M" />
+          </div>
+          <p className="text-center text-[12px] text-white/35">
+            Escaneá desde la tablet del puesto.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function InviteRow({
+  invite,
+  onRevoke,
+}: {
+  invite: Invitation
+  onRevoke: (id: string) => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [showQr, setShowQr] = useState(false)
+  function copy() {
+    void navigator.clipboard.writeText(invite.url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-[13px] text-white/70">
+          {staffRoleLabel(invite.role)}
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowQr((v) => !v)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
+            showQr
+              ? "border-white/25 text-white"
+              : "border-white/[0.1] text-white/60 hover:border-white/25 hover:text-white"
+          )}
+          aria-pressed={showQr}
+        >
+          <QrCode className="h-3.5 w-3.5" />
+          QR
+        </button>
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5 text-emerald-400" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          {copied ? "Copiado" : "Copiar link"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onRevoke(invite.id)}
+          className="rounded-md p-1 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
+          aria-label="Anular invitación"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {showQr ? (
+        <div className="mt-2.5 flex flex-col items-center gap-2 border-t border-white/[0.06] pt-3">
+          <div className="rounded-lg bg-white p-3">
+            <QRCodeSVG value={invite.url} size={160} level="M" />
+          </div>
+          <p className="text-center text-[12px] text-white/35">
+            Escaneá para unirte al equipo.
+          </p>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Check, Copy, Loader2 } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiEvent } from "@/types/events"
@@ -35,28 +36,48 @@ function isValidSlug(s: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s)
 }
 
-type Props = {
-  event: ApiEvent
-  formId: string
-  onUpdated: () => void | Promise<void>
-  onStateChange: (state: { saving: boolean; hasSlugError: boolean }) => void
+type Fields = {
+  ticketsLocal: string
+  consumptionsLocal: string
+  slug: string
+  designType: "GLASS" | "MINIMAL"
 }
 
-export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Props) {
+type Props = {
+  event: ApiEvent
+  onUpdated: () => void | Promise<void>
+}
+
+/**
+ * Config de la página pública. Sin botón de guardar (spec §0/§3.1): cada campo persiste
+ * al perder el foco, con una confirmación visual mínima ("Guardado" efímero).
+ */
+export function EventSalesConfig({ event, onUpdated }: Props) {
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
   const [slug, setSlug] = useState("")
   const [designType, setDesignType] = useState<"GLASS" | "MINIMAL">("GLASS")
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  /** Firma de lo último persistido, para saltear PATCH sin cambios reales. */
+  const lastSavedRef = useRef<string>("")
+  const savedTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
-    setTicketsLocal(toDatetimeLocalValue(event.ticketsAvailableFrom))
-    setConsumptionsLocal(toDatetimeLocalValue(event.consumptionsAvailableFrom))
-    setSlug(event.slug ?? "")
-    setDesignType(event.designType ?? "GLASS")
+    const tickets = toDatetimeLocalValue(event.ticketsAvailableFrom)
+    const consumptions = toDatetimeLocalValue(event.consumptionsAvailableFrom)
+    const s = event.slug ?? ""
+    const design = event.designType ?? "GLASS"
+    setTicketsLocal(tickets)
+    setConsumptionsLocal(consumptions)
+    setSlug(s)
+    setDesignType(design)
     setError(null)
+    lastSavedRef.current = JSON.stringify([tickets, consumptions, s, design])
   }, [
     event.id,
     event.ticketsAvailableFrom,
@@ -65,66 +86,77 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
     event.designType,
   ])
 
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) window.clearTimeout(savedTimerRef.current)
+    }
+  }, [])
+
   const slugTrimmed = slug.trim()
   const slugError =
     slugTrimmed !== "" && !isValidSlug(slugTrimmed)
       ? "Solo minúsculas, números y guiones (ej: fiesta-verano)"
       : null
 
-  useEffect(() => {
-    onStateChange({ saving, hasSlugError: !!slugError })
-  }, [saving, slugError, onStateChange])
+  /** Persiste al blur. Lee los campos actuales; `override` permite empujar un cambio recién hecho. */
+  const persist = useCallback(
+    async (override?: Partial<Fields>) => {
+      if (!token) return
+      const tickets = override?.ticketsLocal ?? ticketsLocal
+      const consumptions = override?.consumptionsLocal ?? consumptionsLocal
+      const rawSlug = override?.slug ?? slug
+      const design = override?.designType ?? designType
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!token || slugError) return
-    setSaving(true)
-    setError(null)
-    try {
-      const ticketsPayload =
-        ticketsLocal.trim() === "" ? null : fromDatetimeLocalToIso(ticketsLocal)
+      const trimmed = rawSlug.trim()
+      if (trimmed !== "" && !isValidSlug(trimmed)) return // el error ya se muestra
+
+      const signature = JSON.stringify([tickets, consumptions, trimmed, design])
+      if (signature === lastSavedRef.current) return // sin cambios reales
+
+      const ticketsPayload = tickets.trim() === "" ? null : fromDatetimeLocalToIso(tickets)
       const consumptionsPayload =
-        consumptionsLocal.trim() === ""
-          ? null
-          : fromDatetimeLocalToIso(consumptionsLocal)
+        consumptions.trim() === "" ? null : fromDatetimeLocalToIso(consumptions)
 
-      if (ticketsLocal.trim() !== "" && ticketsPayload === null) {
+      if (tickets.trim() !== "" && ticketsPayload === null) {
         setError("La fecha de entradas no es válida.")
-        setSaving(false)
         return
       }
-      if (consumptionsLocal.trim() !== "" && consumptionsPayload === null) {
+      if (consumptions.trim() !== "" && consumptionsPayload === null) {
         setError("La fecha de consumos no es válida.")
-        setSaving(false)
         return
       }
 
-      await apiFetch<{ event: ApiEvent }>(`/events/${event.id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          ticketsAvailableFrom: ticketsPayload,
-          consumptionsAvailableFrom: consumptionsPayload,
-          slug: slugTrimmed === "" ? null : slugTrimmed,
-          designType,
-        }),
-      })
-      await onUpdated()
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "No se pudo guardar la configuración."
-      )
-    } finally {
-      setSaving(false)
-    }
-  }
+      setSaving(true)
+      setError(null)
+      try {
+        await apiFetch<{ event: ApiEvent }>(`/events/${event.id}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            ticketsAvailableFrom: ticketsPayload,
+            consumptionsAvailableFrom: consumptionsPayload,
+            slug: trimmed === "" ? null : trimmed,
+            designType: design,
+          }),
+        })
+        lastSavedRef.current = signature
+        setSavedAt(Date.now())
+        if (savedTimerRef.current) window.clearTimeout(savedTimerRef.current)
+        savedTimerRef.current = window.setTimeout(() => setSavedAt(0), 2000)
+        await onUpdated()
+      } catch (err) {
+        setError(
+          err instanceof ApiError ? err.message : "No se pudo guardar la configuración."
+        )
+      } finally {
+        setSaving(false)
+      }
+    },
+    [token, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated]
+  )
 
   return (
-    <form
-      id={formId}
-      onSubmit={(e) => void handleSubmit(e)}
-      className="rounded-xl bg-transparent py-5"
-    >
+    <div className="rounded-xl bg-transparent py-5">
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="space-y-2">
           <label
@@ -138,6 +170,7 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
             type="datetime-local"
             value={ticketsLocal}
             onChange={(e) => setTicketsLocal(e.target.value)}
+            onBlur={() => void persist()}
             className="w-full rounded-lg p-3 text-[15px] text-foreground outline-none bg-zinc-950"
           />
         </div>
@@ -153,6 +186,7 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
             type="datetime-local"
             value={consumptionsLocal}
             onChange={(e) => setConsumptionsLocal(e.target.value)}
+            onBlur={() => void persist()}
             className="w-full rounded-lg p-3 text-[15px] text-foreground outline-none bg-zinc-950"
           />
         </div>
@@ -176,16 +210,42 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
             placeholder="mi-evento"
             maxLength={100}
             onChange={(e) => setSlug(e.target.value.toLowerCase())}
-            onBlur={() => setSlug((s) => slugify(s))}
+            onBlur={() => {
+              const cleaned = slugify(slug)
+              setSlug(cleaned)
+              void persist({ slug: cleaned })
+            }}
             className="min-w-0 flex-1 bg-transparent text-lg text-foreground outline-none"
           />
         </div>
         {slugError ? (
           <p className="text-md text-red-500 dark:text-red-400">{slugError}</p>
         ) : slugTrimmed ? (
-          <p className="text-md text-[#8E8E93] dark:text-[#98989D]">
-            Link público:{" "}
-            <span className="font-mono">crow.ar/{slugTrimmed}</span>
+          <p className="flex items-center gap-2 text-md text-[#8E8E93] dark:text-[#98989D]">
+            <span>
+              Link público:{" "}
+              <span className="font-mono">crow.ar/{slugTrimmed}</span>
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`https://crow.ar/${slugTrimmed}`)
+                  setCopied(true)
+                  window.setTimeout(() => setCopied(false), 2000)
+                } catch {
+                  /* clipboard unavailable */
+                }
+              }}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-white/40 transition-colors hover:text-white/70"
+            >
+              {copied ? (
+                <Check className="h-3 w-3 text-emerald-400" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+              {copied ? "Copiado" : "Copiar"}
+            </button>
           </p>
         ) : (
           <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
@@ -216,18 +276,20 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setDesignType(opt.value)}
+                onClick={() => {
+                  if (designType === opt.value) return
+                  setDesignType(opt.value)
+                  void persist({ designType: opt.value })
+                }}
                 aria-pressed={active}
                 className={`rounded-xl border p-4 text-left transition-all ${
                   active
-                    ? "border-[#FF9500] bg-[#FF9500]/10"
+                    ? "border-white/60 bg-white/[0.06]"
                     : "border-white/[0.12] bg-zinc-950 hover:border-white/25"
                 }`}
               >
                 <span
-                  className={`block text-[15px] font-semibold ${
-                    active ? "text-[#FF9500]" : "text-foreground"
-                  }`}
+                  className="block text-[15px] font-semibold text-foreground"
                 >
                   {opt.title}
                 </span>
@@ -240,11 +302,24 @@ export function EventSalesConfig({ event, formId, onUpdated, onStateChange }: Pr
         </div>
       </div>
 
-      {error ? (
-        <p className="mt-4 text-[13px] text-red-600 dark:text-red-400" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </form>
+      {/* Confirmación visual mínima (spec §0): sin toasts, un check efímero al persistir. */}
+      <div className="mt-4 h-5 text-[13px]" aria-live="polite">
+        {error ? (
+          <p className="text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+        ) : saving ? (
+          <span className="inline-flex items-center gap-1.5 text-[#98989D]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            Guardando…
+          </span>
+        ) : savedAt ? (
+          <span className="inline-flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400">
+            <Check className="h-3.5 w-3.5" aria-hidden />
+            Guardado
+          </span>
+        ) : null}
+      </div>
+    </div>
   )
 }

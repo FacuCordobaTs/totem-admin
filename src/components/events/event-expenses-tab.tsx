@@ -137,7 +137,25 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
     void load()
   }, [load])
 
+  // Spec §4.6: la mercadería NO se carga a mano acá — entra sola por las compras de la Barra
+  // (gastos con `purchaseId`). Los separamos: el operativo es editable, la mercadería es lectura.
+  const operativos = useMemo(
+    () => expenses.filter((e) => e.purchaseId == null),
+    [expenses]
+  )
+  const mercaderia = useMemo(
+    () => expenses.filter((e) => e.purchaseId != null),
+    [expenses]
+  )
   const totalLabel = useMemo(() => formatMoneyArs(sumAmounts(expenses)), [expenses])
+  const operativosLabel = useMemo(
+    () => formatMoneyArs(sumAmounts(operativos)),
+    [operativos]
+  )
+  const mercaderiaLabel = useMemo(
+    () => formatMoneyArs(sumAmounts(mercaderia)),
+    [mercaderia]
+  )
 
   async function submitExpense() {
     const desc = formDescription.trim()
@@ -258,14 +276,26 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
           <p className="text-[34px] font-bold tabular-nums tracking-tight text-black dark:text-white">
             {totalLabel}
           </p>
+          {mercaderia.length > 0 ? (
+            <div className="mt-3 space-y-1 text-[13px]">
+              <div className="flex items-center justify-between">
+                <span className="text-white/45">Operativos</span>
+                <span className="tabular-nums text-white/70">{operativosLabel}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-white/45">Mercadería (compras de Barra)</span>
+                <span className="tabular-nums text-white/70">{mercaderiaLabel}</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
- 
 
-      {expenses.length === 0 ? (
+
+      {operativos.length === 0 ? (
         <p className="rounded-2xl  px-5 py-12 text-center text-[15px] text-white/40">
-          No hay gastos registrados. Cargá costos operativos para ver el resultado neto del
-          evento.
+          No hay gastos operativos. Cargá costos como sonido, DJ o alquiler acá; la mercadería
+          entra sola por las compras de la Barra.
         </p>
       ) : (
         <div className="overflow-hidden rounded-2xl ">
@@ -288,7 +318,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
               </TableRow>
             </TableHeader>
             <TableBody>
-              {expenses.map((row) => {
+              {operativos.map((row) => {
                 const catLabel =
                   CATEGORY_OPTIONS.find((c) => c.value === row.category)?.label ??
                   row.category

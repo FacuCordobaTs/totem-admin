@@ -214,14 +214,13 @@ export function ManualSaleDialog({
                 className="text-[13px] font-normal text-white/45"
                 htmlFor="buyer-name"
               >
-                nombre del comprador
+                nombre del comprador (opcional)
               </label>
               <Input
                 id="buyer-name"
                 className={inputClass}
                 value={buyerName}
                 onChange={(e) => setBuyerName(e.target.value)}
-                required
                 autoComplete="name"
               />
             </div>
@@ -231,7 +230,7 @@ export function ManualSaleDialog({
                 className="text-[13px] font-normal text-white/45"
                 htmlFor="buyer-email"
               >
-                correo
+                correo (opcional)
               </label>
               <Input
                 id="buyer-email"
@@ -239,7 +238,6 @@ export function ManualSaleDialog({
                 className={inputClass}
                 value={buyerEmail}
                 onChange={(e) => setBuyerEmail(e.target.value)}
-                required
                 autoComplete="email"
               />
             </div>

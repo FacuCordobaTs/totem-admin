@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { Lock, Loader2 } from "lucide-react"
+import type { EventSummaryResponse, EventMenuProductsResponse } from "@/types/event-dashboard"
+import type { ApiTicketType } from "@/components/events/ticket-types"
+import { Lock, Loader2, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+/** Secciones del dashboard a las que el mapa de preparación puede saltar para corregir algo. */
+export type PreparationTarget = "entradas" | "barra" | "pagina"
 
 function formatMoney(value: string | number | null | undefined): string {
   if (value == null) return "—"
@@ -22,34 +26,72 @@ function formatInt(n: number): string {
   return n.toLocaleString("es-AR")
 }
 
+type EventStatus = "draft" | "active" | "finished"
+
 type Props = {
   eventId: string
+  status: EventStatus
   refreshTrigger?: number
+  /** Si el evento ya tiene una URL (slug) pública configurada. */
+  hasUrl?: boolean
+  /** Salta a la sección del dashboard indicada (cambia el componente que se está mirando). */
+  onNavigate?: (target: PreparationTarget) => void
 }
 
-export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
+type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
+type EventInvRow = { stockAllocated: string }
+type EventInventoryListResponse = { items: EventInvRow[] }
+
+/**
+ * Spec §4.1 / §5 — El Resumen es la única sección que cambia de naturaleza según el estado:
+ *   - Borrador  → mapa de preparación (frases declarativas de qué falta, sin checklists ni %).
+ *   - En venta  → pulso comercial (vendidas / recaudado, escalera de tandas, proyección vs equilibrio).
+ *   - Cerrado   → reporte (grilla de métricas; la liquidación completa es 4.4/4.5).
+ * (El estado "En vivo" lo cubre el panel de la noche, tarea 4.3 — no acá.)
+ */
+export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, hasUrl, onNavigate }: Props) {
   const token = useAuthStore((s) => s.token)
-  const [data, setData] = useState<EventSummaryResponse | null>(null)
+  const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
+  const [types, setTypes] = useState<ApiTicketType[] | null>(null)
+  const [hasStock, setHasStock] = useState<boolean | null>(null)
+  const [hasMenu, setHasMenu] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const isDraft = status === "draft"
 
   const load = useCallback(async () => {
     if (!token) return
     setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch<EventSummaryResponse>(`/events/${eventId}/summary`, {
-        method: "GET",
-        token,
-      })
-      setData(res)
+      const [sum, tt] = await Promise.all([
+        apiFetch<EventSummaryResponse>(`/events/${eventId}/summary`, { method: "GET", token }),
+        apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, { method: "GET", token }),
+      ])
+      setSummary(sum)
+      setTypes(tt.ticketTypes)
+
+      // El mapa de preparación (borrador) necesita saber si la barra ya tiene stock y menú.
+      if (isDraft) {
+        const [inv, menu] = await Promise.all([
+          apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token }),
+          apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token }),
+        ])
+        setHasStock(inv.items.some((i) => Number.parseFloat(i.stockAllocated) > 0))
+        setHasMenu(menu.products.some((p) => p.isActiveForEvent))
+      } else {
+        setHasStock(null)
+        setHasMenu(null)
+      }
     } catch (e) {
-      setData(null)
+      setSummary(null)
+      setTypes(null)
       setError(e instanceof ApiError ? e.message : "No se pudo cargar el resumen")
     } finally {
       setLoading(false)
     }
-  }, [token, eventId, refreshTrigger])
+  }, [token, eventId, refreshTrigger, isDraft])
 
   useEffect(() => {
     void load()
@@ -57,13 +99,13 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
 
   if (loading) {
     return (
-      <div className="flex min-h-[160px] items-center justify-center rounded-2xl ">
+      <div className="flex min-h-[160px] items-center justify-center rounded-2xl">
         <Loader2 className="h-6 w-6 animate-spin text-white/30" aria-hidden />
       </div>
     )
   }
 
-  if (error || !data) {
+  if (error || !summary || !types) {
     return (
       <p className="rounded-2xl border border-red-200/60 bg-red-50/80 px-5 py-4 text-[15px] text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
         {error ?? "Sin datos"}
@@ -71,6 +113,223 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
     )
   }
 
+  if (status === "draft") {
+    return (
+      <PreparationMap
+        types={types}
+        hasStock={hasStock}
+        hasMenu={hasMenu}
+        hasUrl={hasUrl}
+        onNavigate={onNavigate}
+      />
+    )
+  }
+
+  if (status === "active") {
+    return <CommercialPulse summary={summary} types={types} />
+  }
+
+  return <ReportGrid data={summary} />
+}
+
+/* ── Borrador: mapa de preparación (frases declarativas, sin checklists ni %) ────────── */
+
+type PendingItem = {
+  line: string
+  cta: string
+  target: PreparationTarget
+}
+
+function PreparationMap({
+  types,
+  hasStock,
+  hasMenu,
+  hasUrl,
+  onNavigate,
+}: {
+  types: ApiTicketType[]
+  hasStock: boolean | null
+  hasMenu: boolean | null
+  hasUrl?: boolean
+  onNavigate?: (target: PreparationTarget) => void
+}) {
+  const pending: PendingItem[] = []
+  if (types.length === 0)
+    pending.push({ line: "Todavía no hay tipos de entrada.", cta: "Configurar entradas", target: "entradas" })
+  if (hasMenu === false)
+    pending.push({ line: "El menú de la barra está vacío.", cta: "Configurar barra", target: "barra" })
+  if (hasStock === false)
+    pending.push({ line: "La barra no tiene stock inicial.", cta: "Cargar stock", target: "barra" })
+  if (hasUrl === false)
+    pending.push({ line: "Falta configurar la URL del evento.", cta: "Configurar URL", target: "pagina" })
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      {pending.length === 0 ? (
+        <p className="text-[17px] leading-relaxed text-white/70">
+          Está todo listo. Cuando quieras, abrí la venta.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {pending.map((item) => (
+            <li
+              key={item.line}
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[16px] leading-relaxed text-white/70"
+            >
+              <span className="flex items-start gap-3">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-white/30" aria-hidden />
+                <span>{item.line}</span>
+              </span>
+              {onNavigate && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate(item.target)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#FF9500]/30 bg-[#FF9500]/[0.08] px-3 py-1.5 text-[13px] font-semibold text-[#FF9500] transition-colors hover:bg-[#FF9500]/[0.16]"
+                >
+                  {item.cta}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/* ── En venta: pulso comercial ───────────────────────────────────────────────────────── */
+
+type TierLine = { key: string; label: string }
+
+/** Deriva la escalera de tandas de un tipo a partir de `sold` y los cupos por tramo. */
+function tierLines(type: ApiTicketType): TierLine[] {
+  const tiers = (type.tiers ?? []).slice().sort((a, b) => a.position - b.position)
+  if (tiers.length === 0) {
+    const label =
+      type.stockLimit != null
+        ? `${type.name} · ${formatInt(type.sold)}/${formatInt(type.stockLimit)}`
+        : `${type.name} · ${formatInt(type.sold)}`
+    return [{ key: type.id, label }]
+  }
+  let soldLeft = type.sold
+  return tiers.map((tier) => {
+    if (tier.stockLimit == null) {
+      const label = `${tier.name} · ${formatInt(soldLeft)}`
+      soldLeft = 0
+      return { key: tier.id, label }
+    }
+    const consumed = Math.min(soldLeft, tier.stockLimit)
+    soldLeft -= consumed
+    const label =
+      consumed >= tier.stockLimit
+        ? `${tier.name} agotada`
+        : `${tier.name} · ${formatInt(consumed)}/${formatInt(tier.stockLimit)}`
+    return { key: tier.id, label }
+  })
+}
+
+function CommercialPulse({
+  summary,
+  types,
+}: {
+  summary: EventSummaryResponse
+  types: ApiTicketType[]
+}) {
+  const sold = summary.ticketsSold
+  const cap = summary.ticketCapacity
+
+  const projection = useMemo(() => {
+    let potentialIncome = 0
+    let totalCapacity = 0
+    let priceSum = 0
+    for (const t of types) {
+      const price = Number.parseFloat(t.price)
+      if (!Number.isNaN(price)) priceSum += price
+      if (t.stockLimit != null && !Number.isNaN(price)) {
+        potentialIncome += price * t.stockLimit
+        totalCapacity += t.stockLimit
+      }
+    }
+    const avgPrice =
+      totalCapacity > 0
+        ? potentialIncome / totalCapacity
+        : types.length > 0
+          ? priceSum / types.length
+          : 0
+    return { avgPrice }
+  }, [types])
+
+  const canViewCosts = summary.canViewFinancials
+  const costs =
+    canViewCosts && summary.totalExpenses != null
+      ? Number.parseFloat(summary.totalExpenses)
+      : null
+  const breakEven =
+    costs != null && costs > 0 && projection.avgPrice > 0
+      ? Math.ceil(costs / projection.avgPrice)
+      : null
+
+  return (
+    <div className="space-y-8">
+      {/* Vendidas + recaudado, grandes */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <article className="rounded-2xl border border-white/[0.06] px-6 py-6">
+          <p className="text-[13px] lowercase text-white/45">vendidas</p>
+          <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-white sm:text-5xl">
+            {formatInt(sold)}
+            {cap != null && (
+              <span className="text-2xl font-medium text-white/35"> / {formatInt(cap)}</span>
+            )}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-white/[0.06] px-6 py-6">
+          <p className="text-[13px] lowercase text-white/45">recaudado</p>
+          <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-white sm:text-5xl">
+            {formatMoney(summary.grossRevenue)}
+          </p>
+        </article>
+      </div>
+
+      {/* Escalera de tandas por tipo */}
+      {types.length > 0 && (
+        <div className="space-y-3">
+          {types.map((t) => (
+            <div key={t.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[15px]">
+              {tierLines(t).map((tl, i) => (
+                <span key={tl.key} className="flex items-center gap-2.5">
+                  {i > 0 && <span className="text-white/20" aria-hidden>·</span>}
+                  <span className="text-white/70">{tl.label}</span>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Proyección contra punto de equilibrio */}
+      {canViewCosts && (
+        <p className="border-t border-white/[0.06] pt-5 text-[15px] text-white/70">
+          {costs == null || costs === 0 ? (
+            "Todavía no cargaste costos."
+          ) : breakEven != null ? (
+            <>
+              Vas{" "}
+              <span className="font-semibold text-white">{formatInt(sold)}</span> de{" "}
+              <span className="font-semibold text-white">~{breakEven}</span> entradas para cubrir costos.
+            </>
+          ) : (
+            "Definí precios de entrada para calcular el punto de equilibrio."
+          )}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* ── Cerrado: reporte (grilla de métricas) ───────────────────────────────────────────── */
+
+function ReportGrid({ data }: { data: EventSummaryResponse }) {
   const sold = data.ticketsSold
   const checked = data.ticketsCheckedIn
   const cap = data.ticketCapacity
@@ -91,14 +350,12 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      {/* Ingresos totales */}
       <MetricCard label="ingresos totales">
         <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
           {formatMoney(data.grossRevenue)}
         </p>
       </MetricCard>
 
-      {/* Gastos operativos */}
       <MetricCard label="gastos operativos">
         {data.canViewFinancials && data.totalExpenses != null ? (
           <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
@@ -109,7 +366,6 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
         )}
       </MetricCard>
 
-      {/* Resultado neto */}
       <MetricCard label="resultado neto">
         {data.canViewFinancials && data.netProfit != null ? (
           <p
@@ -125,7 +381,6 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
         )}
       </MetricCard>
 
-      {/* Entradas */}
       <MetricCard label="entradas">
         <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
           {cap != null ? (
@@ -160,7 +415,6 @@ export function EventSummaryDashboard({ eventId, refreshTrigger = 0 }: Props) {
         </div>
       </MetricCard>
 
-      {/* Bar & consumos */}
       <MetricCard label="bar & consumos">
         <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
           {formatInt(data.digitalConsumptionsGenerated)}
@@ -197,7 +451,7 @@ function MetricCard({
   children: React.ReactNode
 }) {
   return (
-    <article className="flex flex-col gap-3 rounded-2xl  p-5">
+    <article className="flex flex-col gap-3 rounded-2xl p-5">
       <p className="text-[12px] font-normal lowercase text-white/45">{label}</p>
       {children}
     </article>

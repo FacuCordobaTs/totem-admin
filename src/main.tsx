@@ -15,6 +15,10 @@ import { ScannerPage } from "@/pages/ScannerPage"
 import { LoginPage } from "@/pages/LoginPage"
 import { RegisterPage } from "@/pages/RegisterPage"
 import { PublicEventPage } from "@/pages/PublicEventPage"
+import { ReportPage } from "@/pages/ReportPage"
+import { JoinPage } from "@/pages/JoinPage"
+import { AccessPage } from "@/pages/AccessPage"
+import { PosSessionPage } from "@/pages/PosSessionPage"
 import { RequireAuth } from "@/components/auth/RequireAuth"
 import { GuestRoute } from "@/components/auth/GuestRoute"
 import { PrinterProvider } from "@/context/PrinterContext"
@@ -46,7 +50,11 @@ function MpOAuthRedirect() {
 
 const router = createBrowserRouter([
   { path: "/p/:id", element: <PublicEventPage /> },
+  { path: "/r/:id", element: <ReportPage /> },
   { path: "/e/:id", element: <LegacyPublicEventRedirect /> },
+  { path: "/unirse/:token", element: <JoinPage /> },
+  { path: "/acceso/:token", element: <AccessPage /> },
+  { path: "/pos/sesion/:token", element: <PosSessionPage /> },
   {
     path: "/login",
     element: (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -26,6 +26,7 @@ import {
 import { cn } from "@/lib/utils"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
+import { usePosSessionStore } from "@/stores/pos-session-store"
 import type { ApiEvent } from "@/types/events"
 import type { EventBarsResponse, EventSalesPageResponse } from "@/types/event-dashboard"
 import { toast } from "sonner"
@@ -136,10 +137,25 @@ const searchInputClass =
   "h-12 rounded-xl border-zinc-200/50 bg-[#F2F2F7] py-0 pr-4 pl-10 text-[15px] placeholder:text-[#8E8E93] focus-visible:ring-1 focus-visible:ring-[#FF9500]/40 dark:border-zinc-800/50 dark:bg-black dark:placeholder:text-[#98989D]"
 
 export function PosPage() {
+  const navigate = useNavigate()
   const token = useAuthStore((s) => s.token)
   const staffName = useAuthStore((s) => s.staff?.name)
   const role = useAuthStore((s) => s.staff?.role)
+  const logout = useAuthStore((s) => s.logout)
   const isBartender = role === "BARTENDER"
+
+  // Sesión de puesto: si este dispositivo está fijado a un puesto, el turno viene
+  // del puesto (no de /me/shift) y vale para cualquier rol que entre por PIN.
+  const posSession = usePosSessionStore((s) => s.session)
+  const deviceShift: PosShift | null =
+    posSession && posSession.barId
+      ? {
+          eventId: posSession.eventId,
+          barId: posSession.barId,
+          eventName: posSession.eventName,
+          barName: posSession.barName ?? "",
+        }
+      : null
 
   const [shiftPhase, setShiftPhase] = useState<"idle" | "loading" | "ready">("idle")
   const [lockedShift, setLockedShift] = useState<PosShift | null>(null)
@@ -149,10 +165,17 @@ export function PosPage() {
   const [posBars, setPosBars] = useState<{ id: string; name: string }[]>([])
   const [posBarId, setPosBarId] = useState<string>("")
 
-  const activeEventId =
-    isBartender && lockedShift ? lockedShift.eventId : eventId
-  const activeBarId =
-    isBartender && lockedShift ? lockedShift.barId : posBarId
+  // El turno "atado" al dispositivo: el puesto (si está fijado) manda; si no, el
+  // turno del bartender. Un dispositivo de puesto no muestra selectores de evento/barra.
+  const hasDeviceShift = !!deviceShift
+  const boundShift = deviceShift ?? (isBartender ? lockedShift : null)
+  const hasBoundShift = !!boundShift
+  const shiftBound = hasDeviceShift || isBartender
+  // El puesto ya trae su turno resuelto; solo el bartender sin puesto espera a /me/shift.
+  const shiftResolving = isBartender && !deviceShift && shiftPhase !== "ready"
+
+  const activeEventId = boundShift ? boundShift.eventId : eventId
+  const activeBarId = boundShift ? boundShift.barId : posBarId
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
@@ -176,7 +199,7 @@ export function PosPage() {
       setLockedShift(null)
       return
     }
-    if (!isBartender) {
+    if (!isBartender || hasDeviceShift) {
       setShiftPhase("ready")
       setLockedShift(null)
       return
@@ -193,10 +216,10 @@ export function PosPage() {
       .finally(() => {
         setShiftPhase("ready")
       })
-  }, [token, isBartender])
+  }, [token, isBartender, hasDeviceShift])
 
   useEffect(() => {
-    if (!token || isBartender) {
+    if (!token || isBartender || hasDeviceShift) {
       if (!token) setEvents([])
       return
     }
@@ -221,14 +244,14 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, isBartender])
+  }, [token, isBartender, hasDeviceShift])
 
   useEffect(() => {
-    if (!isBartender || !lockedShift) return
-    setEventId(lockedShift.eventId)
-    setPosBars([{ id: lockedShift.barId, name: lockedShift.barName }])
-    setPosBarId(lockedShift.barId)
-  }, [isBartender, lockedShift])
+    if (!boundShift) return
+    setEventId(boundShift.eventId)
+    setPosBars([{ id: boundShift.barId, name: boundShift.barName }])
+    setPosBarId(boundShift.barId)
+  }, [boundShift?.eventId, boundShift?.barId, boundShift?.barName])
 
   useEffect(() => {
     if (!token) {
@@ -236,7 +259,7 @@ export function PosPage() {
       setPosBarId("")
       return
     }
-    if (isBartender && lockedShift) {
+    if (boundShift) {
       return
     }
     if (!eventId) {
@@ -271,7 +294,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, eventId, isBartender, lockedShift])
+  }, [token, eventId, hasDeviceShift, isBartender, lockedShift])
 
   useEffect(() => {
     if (!token || !activeEventId || !activeBarId) {
@@ -279,10 +302,10 @@ export function PosPage() {
       setCatalogLoading(false)
       return
     }
-    if (isBartender && shiftPhase !== "ready") {
+    if (shiftResolving) {
       return
     }
-    if (isBartender && !lockedShift) {
+    if (shiftBound && !hasBoundShift) {
       setCatalogProducts([])
       setCatalogLoading(false)
       return
@@ -321,7 +344,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, activeEventId, activeBarId, isBartender, shiftPhase, lockedShift])
+  }, [token, activeEventId, activeBarId, shiftResolving, shiftBound, hasBoundShift])
 
   const bumpHistory = useCallback(() => {
     setHistoryNonce((n) => n + 1)
@@ -333,8 +356,8 @@ export function PosPage() {
       setHistoryLoading(false)
       return
     }
-    if (isBartender && shiftPhase !== "ready") return
-    if (isBartender && !lockedShift) {
+    if (shiftResolving) return
+    if (shiftBound && !hasBoundShift) {
       setHistorySales([])
       return
     }
@@ -360,13 +383,13 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, activeEventId, activeBarId, historyNonce, isBartender, shiftPhase, lockedShift])
+  }, [token, activeEventId, activeBarId, historyNonce, shiftResolving, shiftBound, hasBoundShift])
 
   const posReady =
     !!token &&
     !!activeEventId &&
     !!activeBarId &&
-    (!isBartender || (!!lockedShift && shiftPhase === "ready"))
+    (!shiftBound || hasBoundShift)
 
   const { eventStock, barStock, connectionStatus, refreshSnapshot } =
     useEventStock(activeEventId || null, activeBarId || null, token, posReady)
@@ -546,8 +569,13 @@ export function PosPage() {
   ])
 
   const backHref = isBartender ? "/settings" : "/"
+  // En un dispositivo de puesto, "volver" = cerrar el turno (rota al próximo PIN).
+  function endShift() {
+    logout()
+    if (posSession) navigate(`/pos/sesion/${posSession.token}`, { replace: true })
+  }
 
-  if (isBartender && shiftPhase === "loading") {
+  if (shiftResolving) {
     return (
       <div
         className={cn(
@@ -563,16 +591,26 @@ export function PosPage() {
     )
   }
 
-  if (isBartender && shiftPhase === "ready" && !lockedShift) {
+  if (shiftBound && !hasBoundShift) {
     return (
       <div className={cn("flex min-h-screen flex-col", shell)}>
         <header className="flex items-center justify-between border-b border-zinc-200/50 px-4 py-3 backdrop-blur-xl bg-white/70 dark:border-zinc-800/50 dark:bg-black/70 sm:px-6">
-          <Link
-            to={backHref}
-            className="flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
+          {posSession ? (
+            <button
+              type="button"
+              onClick={endShift}
+              className="flex h-11 min-h-[44px] items-center justify-center rounded-xl px-3 text-[13px] font-medium text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
+            >
+              Cerrar turno
+            </button>
+          ) : (
+            <Link
+              to={backHref}
+              className="flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Link>
+          )}
           <div className="text-center">
             <h1 className="text-[17px] font-bold tracking-tight text-foreground">
               Punto de venta
@@ -595,11 +633,10 @@ export function PosPage() {
     )
   }
 
-  const showSelectors = !isBartender
-  const shiftLabel =
-    isBartender && lockedShift
-      ? `${lockedShift.eventName} — ${lockedShift.barName}`
-      : null
+  const showSelectors = !shiftBound
+  const shiftLabel = boundShift
+    ? `${boundShift.eventName} — ${boundShift.barName}`
+    : null
 
   const canCharge = posReady && cart.length > 0 && !checkoutSubmitting
 
@@ -611,26 +648,32 @@ export function PosPage() {
       )}
     >
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-200/50 px-3 py-3 backdrop-blur-xl bg-white/70 dark:border-zinc-800/50 dark:bg-black/70 sm:px-5">
-        <Link
-          to={backHref}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </Link>
+        {posSession ? (
+          <button
+            type="button"
+            onClick={endShift}
+            className="flex h-11 shrink-0 items-center justify-center rounded-xl px-3 text-[13px] font-medium text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
+          >
+            Cerrar turno
+          </button>
+        ) : (
+          <Link
+            to={backHref}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Link>
+        )}
 
         <div className="min-w-0 flex-1 px-2 text-center">
           <h1 className="truncate text-[17px] font-bold tracking-tight text-foreground sm:text-lg">
             Punto de venta
           </h1>
-          {shiftLabel ? (
-            <p className="truncate text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-              {shiftLabel}
-            </p>
-          ) : (
-            <p className="truncate text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-              {staffName ?? "Staff"}
-            </p>
-          )}
+          <p className="truncate text-[12px] text-[#8E8E93] dark:text-[#98989D]">
+            {posSession
+              ? `${staffName ?? "Staff"}${shiftLabel ? ` · ${shiftLabel}` : ""}`
+              : shiftLabel ?? staffName ?? "Staff"}
+          </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -746,7 +789,7 @@ export function PosPage() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 md:p-5">
             {!posReady ? (
               <p className="py-10 text-center text-base text-zinc-500 dark:text-zinc-400">
-                {isBartender ? "Cargando…" : "Elegí evento y barra para vender"}
+                {shiftBound ? "Cargando…" : "Elegí evento y barra para vender"}
               </p>
             ) : catalogLoading ? (
               <p className="py-10 text-center text-base text-zinc-500 dark:text-zinc-400">

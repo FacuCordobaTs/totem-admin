@@ -19,3 +19,12 @@ export function getClientAppBaseUrl(): string {
 export function getEventShopUrl(eventId: string): string {
   return `${getClientAppBaseUrl()}/e/${eventId}`
 }
+
+/**
+ * Full URL of a nominated courtesy/invitation (`/i/:token`) for sharing with a guest.
+ * The client resolves it against `GET /public/courtesies/:token` so the guest can redeem
+ * their free ticket. (Spec §4.2 — cortesías: links nominados, contados aparte.)
+ */
+export function getCourtesyUrl(token: string): string {
+  return `${getClientAppBaseUrl()}/i/${token}`
+}
