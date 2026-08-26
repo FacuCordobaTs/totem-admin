@@ -201,7 +201,7 @@ export function ScannerPage() {
   const inFlightRef = useRef(false)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // --- Tarea 3.1 — ciclo de vida del escáner de DNI (html5-qrcode, Code 128/39) -----------
+  // --- Tarea 3.1 — ciclo de vida del escáner de DNI (QR, PDF417 y barras legacy) ----------
   const dniScannerRef = useRef<Html5Qrcode | null>(null)
   const dniRunRef = useRef(0)
   const dniShouldScanRef = useRef(false)
@@ -454,7 +454,9 @@ export function ScannerPage() {
       const s = new Html5Qrcode(DNI_SCANNER_ELEMENT_ID, {
         verbose: false,
         formatsToSupport: [
-          Html5QrcodeSupportedFormats.CODE_128, // DNI nuevo (tarjeta plástica)
+          Html5QrcodeSupportedFormats.QR_CODE, // DNI electrónico nuevo
+          Html5QrcodeSupportedFormats.PDF_417, // DNI tarjeta anterior
+          Html5QrcodeSupportedFormats.CODE_128, // emisiones legacy
           Html5QrcodeSupportedFormats.CODE_39, // libreta verde
         ],
       })
@@ -465,7 +467,12 @@ export function ScannerPage() {
           { facingMode },
           {
             fps: 10,
-            qrbox: { width: 300, height: 120 }, // la barra del DNI es horizontal
+            // Un cuadro cuadrado sirve para el QR nuevo y sigue dejando entrar completo el
+            // PDF417/código de barras horizontal de los documentos anteriores.
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.8)
+              return { width: size, height: size }
+            },
           },
           (decodedText) => handleDniScanRef.current(decodedText),
           () => {
@@ -761,7 +768,7 @@ export function ScannerPage() {
         <p className="mx-auto mt-8 max-w-lg text-center text-[13px] leading-relaxed text-[#636366]">
           {mode === "qr"
             ? "Apuntá al código de la entrada."
-            : "Apuntá al código de barras de la parte de atrás del DNI."}
+            : "Apuntá al QR o código de barras de la parte de atrás del DNI."}
         </p>
       </div>
 

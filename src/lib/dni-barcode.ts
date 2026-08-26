@@ -2,11 +2,11 @@
  * Tarea 3.1 — Parser del código de barras del DNI argentino (visión §2.4: "Da el DNI y el
  * guardia escanea el código de barras del documento"). Soporta los dos formatos históricos:
  *
- * 1) **DNI nuevo** (tarjeta plástica, Code 128): campos separados por `@` en el orden
- *    `apellido@nombres@sexo@fecha_nacimiento@trámite@dni@cuil`, donde `fecha_nacimiento` es
- *    DDMMYYYY y `sexo` es M/F. Algunas emisiones agregan un campo extra al inicio, así que la
- *    posición de los campos se resuelve DESDE EL FINAL (cuil, dni, trámite, fecha, sexo) y lo
- *    que sobra a la izquierda es el nombre.
+ * 1) **DNI tarjeta/electrónico** (PDF417 o QR): campos separados por `@`. RENAPER cambió el
+ *    orden entre emisiones: el formato habitual es
+ *    `trámite@apellido@nombres@sexo@dni@ejemplar@nacimiento@emisión@...`; algunas variantes
+ *    nuevas omiten sexo y terminan en un JWT. También se conserva soporte para el orden legacy
+ *    `apellido@nombres@sexo@nacimiento@trámite@dni@cuil`.
  *
  * 2) **Libreta verde** (documento viejo, Code 39): solo dígitos = número de DNI + dígito
  *    verificador (a veces el número solo). El verificador es el mod-11 del CUIL: se valida
@@ -48,12 +48,17 @@ function cuilMatches(dni: string, check: string): boolean {
   return false
 }
 
-/** Convierte DDMMYYYY → ISO "YYYY-MM-DD"; null si no es una fecha válida. */
-function ddmmYYYYToIso(value: string): string | null {
-  if (!/^\d{8}$/.test(value)) return null
-  const day = Number(value.slice(0, 2))
-  const month = Number(value.slice(2, 4))
-  const year = Number(value.slice(4, 8))
+/** Convierte DDMMYYYY, DD/MM/YYYY o DD/MM/YY → ISO; null si no es una fecha válida. */
+function dniDateToIso(value: string): string | null {
+  const compact = value.replace(/[./-]/g, "")
+  if (!/^\d{6}$|^\d{8}$/.test(compact)) return null
+  const day = Number(compact.slice(0, 2))
+  const month = Number(compact.slice(2, 4))
+  const rawYear = Number(compact.slice(4))
+  const currentTwoDigitYear = new Date().getFullYear() % 100
+  const year = compact.length === 6
+    ? rawYear <= currentTwoDigitYear ? 2000 + rawYear : 1900 + rawYear
+    : rawYear
   if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900) return null
   const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
   // Valida días reales del mes (31 de febrero no existe).
@@ -79,7 +84,7 @@ export function parseDniBarcode(raw: string): ParsedDniBarcode | null {
   const text = raw.trim()
   if (!text) return null
 
-  // --- DNI nuevo (Code 128): campos separados por "@" -------------------------------
+  // --- DNI tarjeta/electrónico (PDF417 o QR): campos separados por "@" --------------
   if (text.includes("@")) {
     const fields = text
       .split("@")
@@ -87,29 +92,53 @@ export function parseDniBarcode(raw: string): ParsedDniBarcode | null {
       .filter((f) => f.length > 0)
     if (fields.length < 6) return null
 
-    // Posición desde el final: [.., sexo, nacimiento, trámite, dni, cuil]
-    const cuil = fields[fields.length - 1]
-    const dniField = fields[fields.length - 2]
-    const tramite = fields[fields.length - 3]
-    const nacimiento = fields[fields.length - 4]
-    const sexo = fields[fields.length - 5]
-    const names = fields.slice(0, fields.length - 5)
+    const isDni = (value: string) => /^\d{6,9}$/.test(value)
+    const sexIndex = fields.findIndex((field) => /^[MFX]$/i.test(field))
 
-    if (!/^\d{6,8}$/.test(dniField)) return null
-    // El CUIL puede venir con guiones ("20-12345678-5") o pelado.
-    if (!/^[\d-]{10,13}$/.test(cuil)) return null
-    if (!/^\d{8,12}$/.test(tramite)) return null
-    if (!/^[MF]$/.test(sexo)) return null
-
-    const birthDate = ddmmYYYYToIso(nacimiento)
-    if (!birthDate) return null
-
-    return {
-      dni: normalizeDni(dniField),
-      birthDate,
-      lastName: names[0] || undefined,
-      firstName: names.slice(1).join(" ") || undefined,
+    // Formato actual habitual (PDF417 y QR): trámite, apellido, nombres, sexo?, DNI,
+    // ejemplar, nacimiento, emisión, dato de control/JWT.
+    if (sexIndex >= 0 && isDni(fields[sexIndex + 1] ?? "")) {
+      const birthDate = dniDateToIso(fields[sexIndex + 3] ?? "")
+      if (birthDate) {
+        return {
+          dni: normalizeDni(fields[sexIndex + 1]),
+          birthDate,
+          lastName: fields[sexIndex - 2] || undefined,
+          firstName: fields[sexIndex - 1] || undefined,
+        }
+      }
     }
+
+    // Variante nueva sin sexo: trámite, apellido, nombres, DNI, ejemplar, nacimiento,
+    // emisión, JWT. Ubicar la primera fecha evita depender de la longitud del JWT.
+    const firstDateIndex = fields.findIndex((field) => dniDateToIso(field) !== null)
+    if (sexIndex < 0 && firstDateIndex >= 2) {
+      const dniIndex = firstDateIndex - 2
+      if (isDni(fields[dniIndex] ?? "")) {
+        return {
+          dni: normalizeDni(fields[dniIndex]),
+          birthDate: dniDateToIso(fields[firstDateIndex]) ?? undefined,
+          lastName: fields[dniIndex - 2] || undefined,
+          firstName: fields[dniIndex - 1] || undefined,
+        }
+      }
+    }
+
+    // Orden legacy: apellido, nombres, sexo, nacimiento, trámite, DNI, CUIL.
+    if (sexIndex >= 0) {
+      const birthDate = dniDateToIso(fields[sexIndex + 1] ?? "")
+      const dniField = fields[sexIndex + 3] ?? ""
+      if (birthDate && isDni(dniField)) {
+        return {
+          dni: normalizeDni(dniField),
+          birthDate,
+          lastName: fields[sexIndex - 2] || fields[0] || undefined,
+          firstName: fields[sexIndex - 1] || undefined,
+        }
+      }
+    }
+
+    return null
   }
 
   // --- Libreta verde (Code 39): dígitos = DNI [+ dígito verificador] ----------------
