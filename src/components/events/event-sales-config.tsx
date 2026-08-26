@@ -337,12 +337,12 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
               {([
                 {
                   value: "GLASS" as const,
-                  title: "Glassmorphism",
+                  title: "Glass",
                   desc: "Flyer a pantalla completa con capas translúcidas.",
                 },
                 {
                   value: "MINIMAL" as const,
-                  title: "Minimalista",
+                  title: "Clásico",
                   desc: "Diseño plano, elegante y sobrio.",
                 },
               ]).map((opt) => {
