@@ -22,12 +22,16 @@ import {
   Camera,
   CameraOff,
   ChevronLeft,
+  Flashlight,
   IdCard,
+  ImagePlus,
+  Keyboard,
   QrCode,
   RefreshCw,
   ScanLine,
   SwitchCamera,
   UserX,
+  ZoomIn,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -87,6 +91,25 @@ type ScanMode = "qr" | "dni"
 /** Tarea 3.1 — id del contenedor del lector de DNI: html5-qrcode v2 resuelve el elemento por
  * `document.getElementById(id)` en el constructor (no acepta el elemento directo). */
 const DNI_SCANNER_ELEMENT_ID = "dni-barcode-scanner"
+const DNI_FILE_SCANNER_ELEMENT_ID = "dni-file-scanner"
+
+const DNI_SUPPORTED_FORMATS = [
+  Html5QrcodeSupportedFormats.QR_CODE,
+  Html5QrcodeSupportedFormats.PDF_417,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+]
+
+type ExtendedMediaTrackCapabilities = MediaTrackCapabilities & {
+  torch?: boolean
+  zoom?: { min: number; max: number; step: number }
+}
+
+type ExtendedMediaTrackConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: string
+  torch?: boolean
+  zoom?: number
+}
 
 /** Tarea 3.2 — El evento elegido en puerta persiste entre sesiones (localStorage): el guardia
  * no tiene que volver a elegirlo cada vez que abre la pantalla. */
@@ -186,6 +209,10 @@ export function ScannerPage() {
 
   const [cameraOn, setCameraOn] = useState(true)
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
+  const [torchAvailable, setTorchAvailable] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number } | null>(null)
+  const [zoomValue, setZoomValue] = useState(1)
 
   /** Tarea 3.1 — Modo de lectura: QR de entrada (default) o código de barras del DNI físico. */
   const [mode, setMode] = useState<ScanMode>("qr")
@@ -197,9 +224,14 @@ export function ScannerPage() {
    * (libreta verde) y el evento exige +18: hay que cargarla para validar la edad. */
   const [dniDatePrompt, setDniDatePrompt] = useState<{ dni: string } | null>(null)
   const [promptBirthDate, setPromptBirthDate] = useState("")
+  const [dniPhotoScanning, setDniPhotoScanning] = useState(false)
+  const [manualDniOpen, setManualDniOpen] = useState(false)
+  const [manualDni, setManualDni] = useState("")
+  const [manualDniError, setManualDniError] = useState<string | null>(null)
 
   const inFlightRef = useRef(false)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dniPhotoInputRef = useRef<HTMLInputElement | null>(null)
 
   // --- Tarea 3.1 — ciclo de vida del escáner de DNI (QR, PDF417 y barras legacy) ----------
   const dniScannerRef = useRef<Html5Qrcode | null>(null)
@@ -387,7 +419,7 @@ export function ScannerPage() {
         setOverlay({
           kind: "error",
           headline: "Código no reconocido",
-          detail: "Escaneá el código de barras de la parte de atrás del DNI.",
+          detail: "Escaneá el QR o código de barras de la parte de atrás del DNI.",
         })
         return
       }
@@ -425,6 +457,9 @@ export function ScannerPage() {
     dniRunRef.current++
     const s = dniScannerRef.current
     dniScannerRef.current = null
+    setTorchAvailable(false)
+    setTorchOn(false)
+    setZoomRange(null)
     if (s?.isScanning) {
       try {
         await s.stop()
@@ -453,18 +488,23 @@ export function ScannerPage() {
       if (run !== dniRunRef.current || !dniShouldScanRef.current) return
       const s = new Html5Qrcode(DNI_SCANNER_ELEMENT_ID, {
         verbose: false,
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.QR_CODE, // DNI electrónico nuevo
-          Html5QrcodeSupportedFormats.PDF_417, // DNI tarjeta anterior
-          Html5QrcodeSupportedFormats.CODE_128, // emisiones legacy
-          Html5QrcodeSupportedFormats.CODE_39, // libreta verde
-        ],
+        formatsToSupport: DNI_SUPPORTED_FORMATS,
+        // Chrome/Android puede delegar al detector nativo; ZXing sigue siendo el fallback
+        // automático en navegadores sin BarcodeDetector.
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       })
       if (run !== dniRunRef.current) return
       dniScannerRef.current = s
       try {
         await s.start(
-          { facingMode },
+          {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            advanced: [
+              { focusMode: "continuous" } as ExtendedMediaTrackConstraintSet,
+            ],
+          },
           {
             fps: 10,
             // Un cuadro cuadrado sirve para el QR nuevo y sigue dejando entrar completo el
@@ -479,6 +519,35 @@ export function ScannerPage() {
             /* errores por frame: silenciosos */
           }
         )
+        if (run === dniRunRef.current && dniShouldScanRef.current) {
+          try {
+            const capabilities = s.getRunningTrackCapabilities() as ExtendedMediaTrackCapabilities
+            const settings = s.getRunningTrackSettings() as MediaTrackSettings & { zoom?: number }
+            setTorchAvailable(capabilities.torch === true)
+            if (
+              capabilities.zoom &&
+              Number.isFinite(capabilities.zoom.min) &&
+              Number.isFinite(capabilities.zoom.max) &&
+              capabilities.zoom.max > capabilities.zoom.min
+            ) {
+              const range = {
+                min: capabilities.zoom.min,
+                max: capabilities.zoom.max,
+                step: capabilities.zoom.step || 0.1,
+              }
+              setZoomRange(range)
+              setZoomValue(
+                Math.min(range.max, Math.max(range.min, settings.zoom ?? range.min))
+              )
+            } else {
+              setZoomRange(null)
+            }
+          } catch {
+            // Algunos navegadores exponen cámara pero no sus capacidades avanzadas.
+            setTorchAvailable(false)
+            setZoomRange(null)
+          }
+        }
         // Invalidado mientras arrancaba (overlay, cambio de evento/modo, cámara off):
         // el escáner no debe quedar encendido aunque la cámara ya se haya adquirido.
         if (run !== dniRunRef.current || !dniShouldScanRef.current) {
@@ -513,6 +582,8 @@ export function ScannerPage() {
     cameraOn &&
     overlay === null &&
     dniDatePrompt === null &&
+    !dniPhotoScanning &&
+    !manualDniOpen &&
     !!token
   dniShouldScanRef.current = dniScanningActive
 
@@ -533,7 +604,92 @@ export function ScannerPage() {
       // El prompt de fecha solo vive en modo DNI.
       setDniDatePrompt(null)
       setPromptBirthDate("")
+      setManualDniOpen(false)
+      setManualDni("")
+      setManualDniError(null)
     }
+  }
+
+  const toggleTorch = async () => {
+    const scanner = dniScannerRef.current
+    if (!scanner?.isScanning || !torchAvailable) return
+    const next = !torchOn
+    try {
+      await scanner.applyVideoConstraints({
+        advanced: [{ torch: next } as ExtendedMediaTrackConstraintSet],
+      })
+      setTorchOn(next)
+    } catch {
+      setTorchAvailable(false)
+      setTorchOn(false)
+    }
+  }
+
+  const applyZoom = async (value: number) => {
+    const scanner = dniScannerRef.current
+    setZoomValue(value)
+    if (!scanner?.isScanning || !zoomRange) return
+    try {
+      await scanner.applyVideoConstraints({
+        advanced: [{ zoom: value } as ExtendedMediaTrackConstraintSet],
+      })
+    } catch {
+      setZoomRange(null)
+    }
+  }
+
+  const handleDniPhoto = async (file: File | null) => {
+    if (!file || !token || !selectedEventId || overlay || inFlightRef.current) return
+    setDniPhotoScanning(true)
+    await stopDniScanner()
+    let fileScanner: Html5Qrcode | null = null
+    try {
+      fileScanner = new Html5Qrcode(DNI_FILE_SCANNER_ELEMENT_ID, {
+        verbose: false,
+        formatsToSupport: DNI_SUPPORTED_FORMATS,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      })
+      const result = await fileScanner.scanFileV2(file, false)
+      await handleDniScanRef.current(result.decodedText)
+    } catch {
+      playScannerSound("error")
+      setOverlay({
+        kind: "error",
+        headline: "No se pudo leer el DNI",
+        detail: "Acercá el QR, evitá reflejos y sacá la foto nuevamente.",
+      })
+    } finally {
+      try {
+        fileScanner?.clear()
+      } catch {
+        // El lector de archivo ya había limpiado su canvas.
+      }
+      if (dniPhotoInputRef.current) dniPhotoInputRef.current.value = ""
+      setDniPhotoScanning(false)
+    }
+  }
+
+  const openManualDni = () => {
+    setManualDni("")
+    setManualDniError(null)
+    setManualDniOpen(true)
+  }
+
+  const confirmManualDni = () => {
+    const dni = manualDni.replace(/\D/g, "").replace(/^0+/, "")
+    if (dni.length < 6 || dni.length > 9) {
+      setManualDniError("Ingresá un DNI válido, sin puntos.")
+      return
+    }
+    setManualDniOpen(false)
+    setManualDni("")
+    setManualDniError(null)
+    const restriction = selectedEvent?.ageRestriction ?? null
+    if (restriction != null && restriction > 0) {
+      setDniDatePrompt({ dni })
+      return
+    }
+    void validateDni(dni)
   }
 
   const confirmPromptBirthDate = () => {
@@ -562,6 +718,8 @@ export function ScannerPage() {
     !selectedEventId ||
     overlay !== null ||
     dniDatePrompt !== null ||
+    dniPhotoScanning ||
+    manualDniOpen ||
     !token
 
   /** Tarea 3.2 — Color del chip del tipo de entrada del overlay activo (si es un éxito). */
@@ -722,7 +880,99 @@ export function ScannerPage() {
               </p>
             </div>
           )}
+
+          {dniPhotoScanning && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/85 p-6 text-center">
+              <RefreshCw className="h-10 w-10 animate-spin text-[#FF9500]" />
+              <p className="text-sm font-semibold text-white">Leyendo foto en alta resolución…</p>
+            </div>
+          )}
         </div>
+
+        {/* html5-qrcode necesita un contenedor real para procesar archivos aunque no muestre
+            la imagen capturada. Vive fuera del visor para no interferir con la cámara. */}
+        <div id={DNI_FILE_SCANNER_ELEMENT_ID} className="hidden" aria-hidden="true" />
+
+        {mode === "dni" && (
+          <div className="mx-auto mt-4 w-full max-w-lg space-y-3">
+            {(torchAvailable || zoomRange) && (
+              <div className="rounded-xl border border-zinc-800 bg-[#1C1C1E] p-3">
+                <div className="flex items-center gap-3">
+                  {torchAvailable && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        "h-11 shrink-0 gap-2 rounded-xl border-zinc-700",
+                        torchOn
+                          ? "border-[#FF9500] bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+                          : "bg-transparent text-white hover:bg-white/5"
+                      )}
+                      onClick={() => void toggleTorch()}
+                    >
+                      <Flashlight className="h-4 w-4" />
+                      {torchOn ? "Apagar luz" : "Encender luz"}
+                    </Button>
+                  )}
+                  {zoomRange && (
+                    <label className="min-w-0 flex-1">
+                      <span className="mb-1.5 flex items-center justify-between text-xs text-[#98989D]">
+                        <span className="flex items-center gap-1.5">
+                          <ZoomIn className="h-3.5 w-3.5" />
+                          Zoom
+                        </span>
+                        <span>{zoomValue.toFixed(1)}×</span>
+                      </span>
+                      <input
+                        type="range"
+                        min={zoomRange.min}
+                        max={zoomRange.max}
+                        step={zoomRange.step}
+                        value={zoomValue}
+                        onChange={(e) => void applyZoom(Number(e.target.value))}
+                        className="h-2 w-full cursor-pointer accent-[#FF9500]"
+                        aria-label="Zoom de cámara"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <input
+              ref={dniPhotoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => void handleDniPhoto(e.target.files?.[0] ?? null)}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                className="h-12 gap-2 rounded-xl border-zinc-700 bg-transparent text-[14px] font-semibold text-white hover:bg-white/5"
+                onClick={() => dniPhotoInputRef.current?.click()}
+                disabled={!selectedEventId || !token || dniPhotoScanning}
+              >
+                <ImagePlus className="h-5 w-5" />
+                Sacar foto
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                className="h-12 gap-2 rounded-xl border-zinc-700 bg-transparent text-[14px] font-semibold text-white hover:bg-white/5"
+                onClick={openManualDni}
+                disabled={!selectedEventId || !token || dniPhotoScanning}
+              >
+                <Keyboard className="h-5 w-5" />
+                Ingresar DNI
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="mx-auto mt-6 flex w-full max-w-lg flex-col gap-3 sm:flex-row">
           <Button
@@ -891,6 +1141,66 @@ export function ScannerPage() {
                 className="h-12 flex-1 rounded-xl bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
                 disabled={!promptBirthDate}
                 onClick={confirmPromptBirthDate}
+              >
+                Validar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {manualDniOpen && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="manual-dni-title"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-[#1C1C1E] p-6 text-white">
+            <h2 id="manual-dni-title" className="text-lg font-bold">Ingresar DNI</h2>
+            <p className="mt-2 text-[14px] leading-relaxed text-[#98989D]">
+              Usalo cuando el documento esté dañado o la cámara no consiga enfocarlo.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoFocus
+              value={manualDni}
+              onChange={(e) => {
+                setManualDni(e.target.value.replace(/\D/g, "").slice(0, 9))
+                setManualDniError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmManualDni()
+              }}
+              placeholder="Ej. 40123456"
+              className="mt-4 h-12 w-full rounded-xl border border-zinc-700 bg-[#0C0C0E] px-3 text-[17px] tracking-wide text-white outline-none focus:border-[#FF9500]"
+              aria-invalid={manualDniError != null}
+            />
+            {manualDniError && (
+              <p className="mt-2 text-sm font-medium text-red-400">{manualDniError}</p>
+            )}
+            <div className="mt-5 flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="lg"
+                className="h-12 flex-1 rounded-xl border border-zinc-700 text-white hover:bg-white/5"
+                onClick={() => {
+                  setManualDniOpen(false)
+                  setManualDni("")
+                  setManualDniError(null)
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                className="h-12 flex-1 rounded-xl bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+                disabled={manualDni.length < 6}
+                onClick={confirmManualDni}
               >
                 Validar
               </Button>
