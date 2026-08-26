@@ -217,7 +217,7 @@ export function PublicEventPage() {
       <header className="border-b border-white/10">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-5">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400/95">
-            Totem
+            Crow
           </span>
           <span className="text-xs text-neutral-500">Venta de entradas</span>
         </div>
@@ -295,7 +295,7 @@ export function PublicEventPage() {
             </div>
 
             <p className="mt-14 text-center text-xs text-neutral-600">
-              Totem · experiencia pensada para productoras y eventos de alto volumen
+              Crow · experiencia pensada para productoras y eventos de alto volumen
             </p>
           </>
         )}

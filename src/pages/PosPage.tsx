@@ -22,13 +22,25 @@ import {
   ScanLine,
   Loader2,
   Store,
+  RefreshCw,
+  Wallet,
+  X,
 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { usePosSessionStore } from "@/stores/pos-session-store"
 import type { ApiEvent } from "@/types/events"
 import type { EventBarsResponse, EventSalesPageResponse } from "@/types/event-dashboard"
+import type { ApiPromoter } from "@/components/events/promoters-panel"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { PosScannerModal } from "@/components/pos/PosScannerModal"
@@ -38,6 +50,12 @@ import {
   productAvailabilityUnits,
   type RecipeLine,
 } from "@/lib/product-availability"
+import { usePrinter } from "@/context/PrinterContext"
+import {
+  commandsToBytes,
+  formatReciboVentaBarra,
+  formatTicketCanjeable,
+} from "@/lib/printerUtils"
 
 interface CatalogProduct {
   id: string
@@ -65,6 +83,25 @@ type StaffShiftApi = {
   shift: PosShift | null
 }
 
+// Tarea 5.2 — Respuesta de POST /inventory/sales: el backend devuelve el token del recibo
+// y los QRs canjeables (uno por consumición) para imprimir el ticket en caja.
+type SaleChargeResponse = {
+  message: string
+  saleId: string
+  receiptToken?: string
+  totalAmount: string
+  customerId?: string | null
+  consumptions?: { productName: string; qrHash: string }[]
+  /** Tarea 6.3 — Saldo resultante tras cobrar contra saldo (solo `paymentMethod === "SALDO"`). */
+  balance?: string
+}
+
+// Tarea 6.3 — Consulta de saldo por DNI en la caja (GET /events/:id/balance).
+type BalanceLookupResponse = {
+  amount: string
+  customer: { id: string; name: string } | null
+}
+
 type BarCatalogRowApi = {
   id: string
   name: string
@@ -76,11 +113,12 @@ type BarCatalogRowApi = {
   recipes: RecipeLine[]
 }
 
-type UiPayment = "cash" | "card" | "mercadopago"
+type UiPayment = "cash" | "card" | "mercadopago" | "saldo"
 
-function mapPayment(m: UiPayment): "CASH" | "CARD" | "MERCADOPAGO" {
+function mapPayment(m: UiPayment): "CASH" | "CARD" | "MERCADOPAGO" | "SALDO" {
   if (m === "cash") return "CASH"
   if (m === "card") return "CARD"
+  if (m === "saldo") return "SALDO"
   return "MERCADOPAGO"
 }
 
@@ -96,6 +134,8 @@ function formatPaymentLabel(
       return "Mercado Pago"
     case "TRANSFER":
       return "Transferencia"
+    case "SALDO":
+      return "Saldo"
     default:
       return String(p)
   }
@@ -177,6 +217,12 @@ export function PosPage() {
   const activeEventId = boundShift ? boundShift.eventId : eventId
   const activeBarId = boundShift ? boundShift.barId : posBarId
 
+  // Para el ticket impreso del pedido entregado (4.3) y futuros tickets de caja.
+  const posEventName =
+    boundShift?.eventName ?? events.find((e) => e.id === activeEventId)?.name ?? null
+  const posBarName =
+    boundShift?.barName ?? posBars.find((b) => b.id === activeBarId)?.name ?? null
+
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [productSearch, setProductSearch] = useState("")
@@ -185,6 +231,29 @@ export function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<UiPayment>("cash")
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false)
 
+  // Tarea 5.1 — Venta en caja: DNI y nombre del cliente (opcionales). Con DNI la venta queda
+  // registrada a nombre de la persona (identidad del evento, visión §2.0) y habilita la F6 (saldo).
+  const [customerDni, setCustomerDni] = useState("")
+  const [customerName, setCustomerName] = useState("")
+
+  // Tarea 9.1 — Promotor de la venta (opcional): se atribuye la venta a un promotor
+  // (visión §2.8). Vacío = venta sin promotor.
+  const [promoters, setPromoters] = useState<ApiPromoter[]>([])
+  const [promoterId, setPromoterId] = useState("")
+
+  // Tarea 6.3 — Saldo del cliente en caja (visión §2.7: "da el DNI y le dan el ticket").
+  // Se consulta con debounce mientras se tipea el DNI; `null` = sin dato (o DNI inválido).
+  const [customerBalance, setCustomerBalance] = useState<string | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [knownCustomerName, setKnownCustomerName] = useState<string | null>(null)
+
+  // Tarea 6.3 — Carga de saldo en la caja física (efectivo/tarjeta): acredita `customer_balances`
+  // del DNI con el movimiento CAJA (la venta POS queda en el historial y entra al cierre F10).
+  const [chargeOpen, setChargeOpen] = useState(false)
+  const [chargeAmount, setChargeAmount] = useState("")
+  const [chargeMethod, setChargeMethod] = useState<"CASH" | "CARD">("CASH")
+  const [chargeSubmitting, setChargeSubmitting] = useState(false)
+
   const [historySales, setHistorySales] = useState<EventSalesPageResponse["sales"]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyNonce, setHistoryNonce] = useState(0)
@@ -192,6 +261,76 @@ export function PosPage() {
   const [isOnline, setIsOnline] = useState(true)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null)
+
+  // Tarea 5.2 — Impresión conectada: tras cobrar se imprime el recibo (y, en modo caja
+  // con DNI, el ticket canjeable con los QRs de las consumiciones).
+  const { printers, selectedPrinter, setSelectedPrinter, refreshPrinters, printRaw } =
+    usePrinter()
+
+  const printSaleDocuments = useCallback(
+    async (res: SaleChargeResponse) => {
+      const printDoc = async (label: string, build: () => number[]) => {
+        try {
+          await printRaw(commandsToBytes(build()))
+        } catch (err) {
+          // La venta ya está registrada; la impresión fallida no la revierte.
+          toast.error(
+            `${label}: ${err instanceof Error ? err.message : "no se pudo imprimir"}`
+          )
+        }
+      }
+
+      await printDoc("Recibo", () =>
+        formatReciboVentaBarra(
+          {
+            id: res.saleId,
+            receiptToken: res.receiptToken ?? null,
+            totalAmount: res.totalAmount,
+            paymentMethod: mapPayment(paymentMethod),
+            staffName,
+            customerName:
+              customerDni.trim() !== "" ? customerName.trim() || "Cliente" : null,
+            createdAt: new Date(),
+          },
+          cart.map((c) => ({
+            name: c.product.name,
+            quantity: c.quantity,
+            priceAtTime: c.product.price,
+          })),
+          posBarName ?? "—",
+          posEventName ?? "Evento"
+        )
+      )
+
+      // Modo caja con DNI: además imprime el ticket canjeable con un QR por consumición.
+      // Sin DNI es una venta de barra directa: la bebida se entrega en el momento.
+      const consumptions = res.consumptions
+      if (
+        customerDni.trim() !== "" &&
+        consumptions &&
+        consumptions.length > 0
+      ) {
+        await printDoc("Ticket", () =>
+          formatTicketCanjeable(
+            consumptions,
+            posEventName ?? "Evento",
+            posBarName ?? "—",
+            customerName.trim() || null
+          )
+        )
+      }
+    },
+    [
+      printRaw,
+      paymentMethod,
+      staffName,
+      customerDni,
+      customerName,
+      cart,
+      posBarName,
+      posEventName,
+    ]
+  )
 
   useEffect(() => {
     if (!token) {
@@ -231,7 +370,8 @@ export function PosPage() {
           token,
         })
         if (cancelled) return
-        const evs = evRes.events.filter((e) => e.isActive !== false)
+        // Tarea 11.3 — `isActive` retirado del modelo: el POS ofrece eventos no cerrados.
+        const evs = evRes.events.filter((e) => e.status !== "closed")
         setEvents(evs)
         setEventId((prev) => {
           if (prev && evs.some((e) => e.id === prev)) return prev
@@ -245,6 +385,27 @@ export function PosPage() {
       cancelled = true
     }
   }, [token, isBartender, hasDeviceShift])
+
+  // Tarea 9.1 — Promotores activos para atribuir la venta (no bloquea: sin red, la venta
+  // se cobra igual sin promotor).
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch<{ promoters: ApiPromoter[] }>("/promoters", {
+          method: "GET",
+          token,
+        })
+        if (!cancelled) setPromoters(res.promoters.filter((p) => p.isActive))
+      } catch {
+        if (!cancelled) setPromoters([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   useEffect(() => {
     if (!boundShift) return
@@ -384,6 +545,43 @@ export function PosPage() {
       cancelled = true
     }
   }, [token, activeEventId, activeBarId, historyNonce, shiftResolving, shiftBound, hasBoundShift])
+
+  // Tarea 6.3 — Al tipear un DNI válido (≥6 dígitos), consulta el saldo del cliente en el
+  // evento (y su nombre registrado, si la persona ya compró/cargó alguna vez).
+  useEffect(() => {
+    const dni = customerDni.trim()
+    if (!token || !activeEventId || dni.length < 6) {
+      setCustomerBalance(null)
+      setKnownCustomerName(null)
+      setBalanceLoading(false)
+      return
+    }
+    let cancelled = false
+    setBalanceLoading(true)
+    const t = setTimeout(() => {
+      apiFetch<BalanceLookupResponse>(
+        `/events/${activeEventId}/balance?dni=${encodeURIComponent(dni)}`,
+        { method: "GET", token }
+      )
+        .then((res) => {
+          if (cancelled) return
+          setCustomerBalance(res.amount)
+          setKnownCustomerName(res.customer?.name ?? null)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setCustomerBalance(null)
+          setKnownCustomerName(null)
+        })
+        .finally(() => {
+          if (!cancelled) setBalanceLoading(false)
+        })
+    }, 450)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [customerDni, activeEventId, token])
 
   const posReady =
     !!token &&
@@ -533,7 +731,7 @@ export function PosPage() {
     if (!token || !activeEventId || !activeBarId || cart.length === 0) return
     setCheckoutSubmitting(true)
     try {
-      await apiFetch<{ totalAmount: string }>("/inventory/sales", {
+      const res = await apiFetch<SaleChargeResponse>("/inventory/sales", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -544,10 +742,21 @@ export function PosPage() {
             productId: c.product.id,
             quantity: c.quantity,
           })),
+          ...(customerDni.trim() !== "" ? { customerDni: customerDni.trim() } : {}),
+          ...(customerName.trim() !== "" ? { customerName: customerName.trim() } : {}),
+          ...(promoterId !== "" ? { promoterId } : {}),
         }),
       })
       toast.success("Venta registrada")
+      // Tarea 5.2 — Recibo + ticket canjeable (caja con DNI) apenas se cobra.
+      void printSaleDocuments(res)
       clearCart()
+      // Tarea 6.3 — El saldo se actualiza solo: al limpiar el DNI, el effect de consulta
+      // lo resetea; el cobro contra saldo dejó el movimiento CONSUMO en el backend.
+      setCustomerDni("")
+      setCustomerName("")
+      setPromoterId("")
+      if (paymentMethod === "saldo") setPaymentMethod("cash")
       bumpHistory()
       void refreshSnapshot()
     } catch (err) {
@@ -563,9 +772,60 @@ export function PosPage() {
     activeBarId,
     cart,
     paymentMethod,
+    customerDni,
+    customerName,
+    promoterId,
     clearCart,
     bumpHistory,
     refreshSnapshot,
+    printSaleDocuments,
+  ])
+
+  // Tarea 6.3 — Carga de saldo en caja (efectivo/tarjeta): entra plata de verdad, se crea una
+  // venta POS sin items y se acredita el saldo del DNI (POST /events/:id/balance/charge-cash).
+  const handleChargeBalance = useCallback(async () => {
+    if (!token || !activeEventId || customerDni.trim().length < 6) return
+    const amt = Number.parseFloat(chargeAmount)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast.error("Ingresá un monto válido")
+      return
+    }
+    setChargeSubmitting(true)
+    try {
+      const res = await apiFetch<{ ok: boolean; balance: string }>(
+        `/events/${activeEventId}/balance/charge-cash`,
+        {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            dni: customerDni.trim(),
+            amount: chargeAmount,
+            paymentMethod: chargeMethod,
+            ...(customerName.trim() !== "" ? { name: customerName.trim() } : {}),
+          }),
+        }
+      )
+      setCustomerBalance(res.balance)
+      setChargeOpen(false)
+      setChargeAmount("")
+      toast.success("Saldo cargado")
+      // La carga queda como venta POS en el historial (y se separa en el cierre F10).
+      bumpHistory()
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo cargar el saldo"
+      )
+    } finally {
+      setChargeSubmitting(false)
+    }
+  }, [
+    token,
+    activeEventId,
+    customerDni,
+    customerName,
+    chargeAmount,
+    chargeMethod,
+    bumpHistory,
   ])
 
   const backHref = isBartender ? "/settings" : "/"
@@ -638,7 +898,22 @@ export function PosPage() {
     ? `${boundShift.eventName} — ${boundShift.barName}`
     : null
 
-  const canCharge = posReady && cart.length > 0 && !checkoutSubmitting
+  // Tarea 6.3 — Saldo en caja: con "Saldo" seleccionado, el cobro exige DNI y fondos
+  // suficientes (el backend lo valida de nuevo; esto desactiva el botón antes de tiempo).
+  const balanceAmount = useMemo(() => {
+    if (customerBalance == null) return null
+    const n = Number.parseFloat(customerBalance)
+    return Number.isFinite(n) ? n : null
+  }, [customerBalance])
+
+  const canCharge =
+    posReady &&
+    cart.length > 0 &&
+    !checkoutSubmitting &&
+    (paymentMethod !== "saldo" ||
+      (customerDni.trim() !== "" &&
+        balanceAmount != null &&
+        balanceAmount >= cartTotal))
 
   return (
     <div
@@ -711,12 +986,94 @@ export function PosPage() {
         onOpenChange={setScannerOpen}
         barId={posReady ? activeBarId : null}
         token={token}
+        eventName={posEventName}
+        barName={posBarName}
       />
       <SaleDetailsDialog
         saleId={selectedSaleId}
         token={token}
         onClose={() => setSelectedSaleId(null)}
       />
+      {/* Tarea 6.3 — Carga de saldo en caja: efectivo o tarjeta acreditan el DNI. */}
+      <Dialog open={chargeOpen} onOpenChange={setChargeOpen}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Cargar saldo</DialogTitle>
+            <DialogDescription>
+              El saldo queda asociado al DNI{" "}
+              <span className="font-semibold text-foreground">
+                {customerDni.trim()}
+              </span>{" "}
+              dentro del evento.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Monto
+              </label>
+              <Input
+                inputMode="decimal"
+                placeholder="0.00"
+                value={chargeAmount}
+                onChange={(e) =>
+                  setChargeAmount(e.target.value.replace(/[^\d.]/g, ""))
+                }
+                className={cn(searchInputClass, "py-0")}
+                aria-label="Monto a cargar"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Medio de pago
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setChargeMethod("CASH")}
+                  className={cn(
+                    "flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold transition-all duration-300 active:scale-[0.98]",
+                    chargeMethod === "CASH"
+                      ? "border-[#FF9500] bg-[#FF9500] text-white"
+                      : "border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/80"
+                  )}
+                >
+                  <Banknote className="h-4 w-4" />
+                  Efectivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChargeMethod("CARD")}
+                  className={cn(
+                    "flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold transition-all duration-300 active:scale-[0.98]",
+                    chargeMethod === "CARD"
+                      ? "border-[#FF9500] bg-[#FF9500] text-white"
+                      : "border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/80"
+                  )}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Tarjeta
+                </button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              disabled={chargeSubmitting}
+              onClick={() => void handleChargeBalance()}
+              className="h-11 w-full gap-2 rounded-2xl bg-[#FF9500] text-[15px] font-bold tracking-tight text-white transition-all duration-200 hover:bg-[#FF9500]/90 active:opacity-90 disabled:opacity-50"
+            >
+              {chargeSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              {chargeSubmitting ? "Cargando…" : "Cargar saldo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {showSelectors ? (
         <div className="shrink-0 space-y-3 border-b border-zinc-200/50 bg-white/70 px-4 py-4 backdrop-blur-xl dark:border-zinc-800/50 dark:bg-black/50 sm:flex sm:flex-wrap sm:gap-6 sm:px-6">
@@ -1002,6 +1359,135 @@ export function PosPage() {
               </span>
             </div>
 
+            {/* Tarea 5.1 — Venta en caja: DNI (y nombre) opcionales. Con DNI la venta queda
+                a nombre del cliente (identidad del evento) — requisito de la visión §2.6. */}
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Cliente (opcional)
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[7.5rem_1fr]">
+                <Input
+                  inputMode="numeric"
+                  placeholder="DNI"
+                  value={customerDni}
+                  onChange={(e) =>
+                    setCustomerDni(e.target.value.replace(/\D/g, "").slice(0, 11))
+                  }
+                  className={cn(searchInputClass, "py-0")}
+                  aria-label="DNI del cliente"
+                />
+                <Input
+                  placeholder="Nombre (si no está registrado)"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className={cn(searchInputClass, "py-0")}
+                  aria-label="Nombre del cliente"
+                />
+              </div>
+              {/* Tarea 6.3 — Con un DNI válido: saldo disponible del cliente + carga de saldo
+                  en caja (efectivo/tarjeta). El nombre registrado confirma la identidad. */}
+              {customerDni.trim().length >= 6 ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                      Saldo disponible
+                    </p>
+                    <p className="text-[15px] font-black tabular-nums text-zinc-950 dark:text-white">
+                      {balanceLoading && balanceAmount == null
+                        ? "…"
+                        : `$${(balanceAmount ?? 0).toFixed(2)}`}
+                    </p>
+                    {knownCustomerName ? (
+                      <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                        {knownCustomerName}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setChargeOpen(true)}
+                    className="h-9 shrink-0 gap-1 rounded-xl text-xs font-semibold"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Cargar saldo
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Tarea 9.1 — Promotor de la venta (opcional): se atribuye al promotor para el
+                reporte por promotor (9.2). "Sin promotor" = valor especial "none" (Radix no
+                admite SelectItem con value ""). */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  Promotor
+                </p>
+                {promoterId !== "" ? (
+                  <button
+                    type="button"
+                    onClick={() => setPromoterId("")}
+                    className="flex h-6 items-center gap-1 text-xs text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Quitar
+                  </button>
+                ) : null}
+              </div>
+              <Select
+                value={promoterId === "" ? "none" : promoterId}
+                onValueChange={(v) => setPromoterId(v === "none" ? "" : v)}
+              >
+                <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
+                  <SelectValue placeholder="Sin promotor" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                  <SelectItem value="none" className="rounded-lg py-2.5">
+                    Sin promotor
+                  </SelectItem>
+                  {promoters.map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Tarea 5.2 — Selector de impresora térmica (recibo y ticket canjeable). */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  Impresora
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void refreshPrinters()}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+                  aria-label="Actualizar impresoras"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <Select
+                value={selectedPrinter ?? ""}
+                onValueChange={setSelectedPrinter}
+              >
+                <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
+                  <SelectValue placeholder="Elegí impresora" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                  {printers.map((p) => (
+                    <SelectItem key={p} value={p} className="rounded-lg py-2.5">
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div>
               <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
                 Pago
@@ -1094,7 +1580,51 @@ export function PosPage() {
                   </span>
                   Mercado Pago
                 </button>
+                {/* Tarea 6.3 — Cobro contra el saldo del DNI (visión §2.7: "da el DNI y le dan
+                    el ticket"). Requiere DNI; el saldo se muestra arriba al tipearlo. */}
+                <button
+                  type="button"
+                  disabled={customerDni.trim() === ""}
+                  onClick={() => setPaymentMethod("saldo")}
+                  className={cn(
+                    "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
+                    paymentMethod === "saldo"
+                      ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80",
+                    customerDni.trim() === "" &&
+                      "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                      paymentMethod === "saldo"
+                        ? "bg-white/20"
+                        : "bg-zinc-100 dark:bg-zinc-800"
+                    )}
+                  >
+                    <Wallet
+                      className={cn(
+                        "h-5 w-5",
+                        paymentMethod === "saldo"
+                          ? "text-white"
+                          : "text-zinc-600 dark:text-zinc-300"
+                      )}
+                    />
+                  </span>
+                  Saldo
+                </button>
               </div>
+              {/* Tarea 6.3 — Aviso cuando el saldo elegido no alcanza para el pedido. */}
+              {paymentMethod === "saldo" &&
+              customerDni.trim() !== "" &&
+              balanceAmount != null &&
+              cartTotal > 0 &&
+              balanceAmount < cartTotal ? (
+                <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-400">
+                  Saldo insuficiente — disponible ${balanceAmount.toFixed(2)}
+                </p>
+              ) : null}
             </div>
 
             <Button

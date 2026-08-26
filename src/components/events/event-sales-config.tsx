@@ -22,6 +22,20 @@ function fromDatetimeLocalToIso(local: string): string | null {
   return d.toISOString()
 }
 
+/** Fecha local de hoy en formato `YYYY-MM-DD` (para el input date). */
+function todayLocalDate(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Parte un valor `datetime-local` en [fecha, hora]. */
+function splitDateTimeLocal(v: string): [string, string] {
+  if (!v) return ["", ""]
+  const [d, t = ""] = v.split("T")
+  return [d ?? "", t.slice(0, 5)]
+}
+
 function slugify(raw: string): string {
   return raw
     .toLowerCase()
@@ -46,13 +60,76 @@ type Fields = {
 type Props = {
   event: ApiEvent
   onUpdated: () => void | Promise<void>
+  /** Muestra solo la configuración de URL/slug (paso previo antes de fechas y diseño). */
+  onlySlug?: boolean
+}
+
+/**
+ * Campo de fecha + hora usable: dos inputs nativos separados (calendario y reloj) en vez del
+ * `datetime-local` combinado, con `color-scheme: dark` para que se vean bien sobre fondo oscuro.
+ */
+function DateTimeField({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+  onCommit,
+}: {
+  id: string
+  label: string
+  hint?: string
+  value: string
+  onChange: (next: string) => void
+  onCommit: () => void
+}) {
+  const [datePart, timePart] = splitDateTimeLocal(value)
+
+  function emit(nextDate: string, nextTime: string) {
+    if (nextDate === "") {
+      onChange("")
+      return
+    }
+    onChange(`${nextDate}T${nextTime || "00:00"}`)
+  }
+
+  const fieldClass =
+    "rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] transition-shadow focus:ring-white/25 [color-scheme:dark]"
+
+  return (
+    <div className="space-y-2">
+      <label htmlFor={`${id}-date`} className="block text-md font-medium text-[#98989D]">
+        {label}
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <input
+          id={`${id}-date`}
+          type="date"
+          value={datePart}
+          onChange={(e) => emit(e.target.value, timePart)}
+          onBlur={onCommit}
+          className={`${fieldClass} min-w-0 flex-1`}
+        />
+        <input
+          id={`${id}-time`}
+          type="time"
+          value={timePart}
+          onChange={(e) => emit(datePart || todayLocalDate(), e.target.value)}
+          onBlur={onCommit}
+          aria-label={`${label} — hora`}
+          className={`${fieldClass} w-32`}
+        />
+      </div>
+      {hint ? <p className="text-[12px] text-[#98989D]">{hint}</p> : null}
+    </div>
+  )
 }
 
 /**
  * Config de la página pública. Sin botón de guardar (spec §0/§3.1): cada campo persiste
  * al perder el foco, con una confirmación visual mínima ("Guardado" efímero).
  */
-export function EventSalesConfig({ event, onUpdated }: Props) {
+export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
@@ -157,49 +234,25 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
 
   return (
     <div className="rounded-xl bg-transparent py-5">
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className="space-y-2">
-          <label
-            htmlFor={`sales-tickets-${event.id}`}
-            className="block text-md font-medium text-[#98989D]"
-          >
-            Inicio de Venta de Entradas
-          </label>
-          <input
-            id={`sales-tickets-${event.id}`}
-            type="datetime-local"
-            value={ticketsLocal}
-            onChange={(e) => setTicketsLocal(e.target.value)}
-            onBlur={() => void persist()}
-            className="w-full rounded-lg p-3 text-[15px] text-foreground outline-none bg-zinc-950"
-          />
-        </div>
-        <div className="space-y-2">
-          <label
-            htmlFor={`sales-consumptions-${event.id}`}
-            className="block text-md font-medium text-[#98989D]"
-          >
-            Inicio de Venta de Barras Consumiciones
-          </label>
-          <input
-            id={`sales-consumptions-${event.id}`}
-            type="datetime-local"
-            value={consumptionsLocal}
-            onChange={(e) => setConsumptionsLocal(e.target.value)}
-            onBlur={() => void persist()}
-            className="w-full rounded-lg p-3 text-[15px] text-foreground outline-none bg-zinc-950"
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-2">
+      {/* URL / slug — siempre lo primero. */}
+      <div className="space-y-2">
+        {onlySlug ? (
+          <div className="mb-3">
+            <h3 className="text-[17px] font-semibold text-foreground">
+              Elegí la URL de tu página
+            </h3>
+            <p className="text-[13px] text-[#98989D]">
+              Es el primer paso. Definí el link público y después configurás fechas y diseño.
+            </p>
+          </div>
+        ) : null}
         <label
           htmlFor={`event-slug-${event.id}`}
-          className="block text-md font-medium font-medium text-[#98989D]"
+          className="block text-md font-medium text-[#98989D]"
         >
           URL del evento
         </label>
-        <div className="flex items-center gap-0 rounded-lg bg-zinc-950 py-3">
+        <div className="flex items-center gap-0 rounded-lg bg-zinc-950 py-3 ring-1 ring-white/[0.06] focus-within:ring-white/25">
           <span className="select-none whitespace-nowrap pl-3 text-lg text-[#98989D]">
             crow.ar/
           </span>
@@ -209,13 +262,14 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
             value={slug}
             placeholder="mi-evento"
             maxLength={100}
+            autoFocus={onlySlug}
             onChange={(e) => setSlug(e.target.value.toLowerCase())}
             onBlur={() => {
               const cleaned = slugify(slug)
               setSlug(cleaned)
               void persist({ slug: cleaned })
             }}
-            className="min-w-0 flex-1 bg-transparent text-lg text-foreground outline-none"
+            className="min-w-0 flex-1 bg-transparent pr-3 text-lg text-foreground outline-none"
           />
         </div>
         {slugError ? (
@@ -254,53 +308,74 @@ export function EventSalesConfig({ event, onUpdated }: Props) {
         )}
       </div>
 
-      <div className="mt-6 space-y-2">
-        <label className="block text-md font-medium text-[#98989D]">
-          Diseño de la página pública
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          {([
-            {
-              value: "GLASS" as const,
-              title: "Glassmorphism",
-              desc: "Flyer a pantalla completa con capas translúcidas.",
-            },
-            {
-              value: "MINIMAL" as const,
-              title: "Minimalista",
-              desc: "Diseño plano, elegante y sobrio.",
-            },
-          ]).map((opt) => {
-            const active = designType === opt.value
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  if (designType === opt.value) return
-                  setDesignType(opt.value)
-                  void persist({ designType: opt.value })
-                }}
-                aria-pressed={active}
-                className={`rounded-xl border p-4 text-left transition-all ${
-                  active
-                    ? "border-white/60 bg-white/[0.06]"
-                    : "border-white/[0.12] bg-zinc-950 hover:border-white/25"
-                }`}
-              >
-                <span
-                  className="block text-[15px] font-semibold text-foreground"
-                >
-                  {opt.title}
-                </span>
-                <span className="mt-1 block text-[13px] leading-snug text-[#98989D]">
-                  {opt.desc}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      {!onlySlug ? (
+        <>
+          <div className="mt-6 grid gap-6 sm:grid-cols-2">
+            <DateTimeField
+              id={`sales-tickets-${event.id}`}
+              label="Inicio de venta de entradas"
+              hint="Cuándo se abre la compra de entradas al público."
+              value={ticketsLocal}
+              onChange={setTicketsLocal}
+              onCommit={() => void persist()}
+            />
+            <DateTimeField
+              id={`sales-consumptions-${event.id}`}
+              label="Inicio de venta de consumiciones"
+              hint="Cuándo se abre la compra anticipada de barra."
+              value={consumptionsLocal}
+              onChange={setConsumptionsLocal}
+              onCommit={() => void persist()}
+            />
+          </div>
+
+          <div className="mt-6 space-y-2">
+            <label className="block text-md font-medium text-[#98989D]">
+              Diseño de la página pública
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                {
+                  value: "GLASS" as const,
+                  title: "Glassmorphism",
+                  desc: "Flyer a pantalla completa con capas translúcidas.",
+                },
+                {
+                  value: "MINIMAL" as const,
+                  title: "Minimalista",
+                  desc: "Diseño plano, elegante y sobrio.",
+                },
+              ]).map((opt) => {
+                const active = designType === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      if (designType === opt.value) return
+                      setDesignType(opt.value)
+                      void persist({ designType: opt.value })
+                    }}
+                    aria-pressed={active}
+                    className={`rounded-xl border p-4 text-left transition-all ${
+                      active
+                        ? "border-white/60 bg-white/[0.06]"
+                        : "border-white/[0.12] bg-zinc-950 hover:border-white/25"
+                    }`}
+                  >
+                    <span className="block text-[15px] font-semibold text-foreground">
+                      {opt.title}
+                    </span>
+                    <span className="mt-1 block text-[13px] leading-snug text-[#98989D]">
+                      {opt.desc}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {/* Confirmación visual mínima (spec §0): sin toasts, un check efímero al persistir. */}
       <div className="mt-4 h-5 text-[13px]" aria-live="polite">

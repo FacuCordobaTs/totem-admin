@@ -97,19 +97,10 @@ export function EventFinanceProjection({ eventId, refreshTrigger = 0 }: Props) {
     }
   }, [types])
 
-  if (loading) {
-    return (
-      <div className="h-20 animate-pulse rounded-2xl bg-white/[0.04]" />
-    )
-  }
-
-  if (!projection || !projection.hasTypes) {
-    return (
-      <p className="rounded-2xl border border-white/[0.06] px-5 py-6 text-[15px] text-white/45">
-        Cargá al menos un tipo de entrada para ver la proyección de ingresos.
-      </p>
-    )
-  }
+  // Se oculta hasta tener información: sin tipos de entrada no hay proyección que mostrar
+  // (nada "pelado" en Finanzas). Tampoco parpadea un esqueleto mientras carga.
+  if (loading) return null
+  if (!projection || !projection.hasTypes) return null
 
   const canViewCosts = summary?.canViewFinancials ?? false
   const costs =

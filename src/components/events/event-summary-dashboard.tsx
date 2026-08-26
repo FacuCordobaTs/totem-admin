@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import type { EventSummaryResponse, EventMenuProductsResponse } from "@/types/event-dashboard"
+import type {
+  EventSummaryResponse,
+  EventMenuProductsResponse,
+  EventPromoterSalesResponse,
+  EventPromoterSalesRow,
+} from "@/types/event-dashboard"
 import type { ApiTicketType } from "@/components/events/ticket-types"
 import { Lock, Loader2, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -53,6 +58,7 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
   const [types, setTypes] = useState<ApiTicketType[] | null>(null)
+  const [promoters, setPromoters] = useState<EventPromoterSalesRow[]>([])
   const [hasStock, setHasStock] = useState<boolean | null>(null)
   const [hasMenu, setHasMenu] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,13 +86,18 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
         ])
         setHasStock(inv.items.some((i) => Number.parseFloat(i.stockAllocated) > 0))
         setHasMenu(menu.products.some((p) => p.isActiveForEvent))
+        setPromoters([])
       } else {
         setHasStock(null)
         setHasMenu(null)
+        // Tarea 9.2 — Reporte por promotor: cuánto vendió cada uno (entradas + barra).
+        const pr = await apiFetch<EventPromoterSalesResponse>(`/events/${eventId}/promoter-sales`, { method: "GET", token })
+        setPromoters(pr.promoters)
       }
     } catch (e) {
       setSummary(null)
       setTypes(null)
+      setPromoters([])
       setError(e instanceof ApiError ? e.message : "No se pudo cargar el resumen")
     } finally {
       setLoading(false)
@@ -126,10 +137,10 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
   }
 
   if (status === "active") {
-    return <CommercialPulse summary={summary} types={types} />
+    return <CommercialPulse summary={summary} types={types} promoters={promoters} />
   }
 
-  return <ReportGrid data={summary} />
+  return <ReportGrid data={summary} promoters={promoters} />
 }
 
 /* ── Borrador: mapa de preparación (frases declarativas, sin checklists ni %) ────────── */
@@ -184,10 +195,10 @@ function PreparationMap({
                 <button
                   type="button"
                   onClick={() => onNavigate(item.target)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#FF9500]/30 bg-[#FF9500]/[0.08] px-3 py-1.5 text-[13px] font-semibold text-[#FF9500] transition-colors hover:bg-[#FF9500]/[0.16]"
+                  className="group inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-white/40 transition-colors hover:text-white/80"
                 >
                   {item.cta}
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                 </button>
               )}
             </li>
@@ -232,9 +243,11 @@ function tierLines(type: ApiTicketType): TierLine[] {
 function CommercialPulse({
   summary,
   types,
+  promoters,
 }: {
   summary: EventSummaryResponse
   types: ApiTicketType[]
+  promoters: EventPromoterSalesRow[]
 }) {
   const sold = summary.ticketsSold
   const cap = summary.ticketCapacity
@@ -307,6 +320,9 @@ function CommercialPulse({
         </div>
       )}
 
+      {/* Tarea 9.2 — Ventas por promotor (visión §2.8). */}
+      <PromoterSalesBlock rows={promoters} />
+
       {/* Proyección contra punto de equilibrio */}
       {canViewCosts && (
         <p className="border-t border-white/[0.06] pt-5 text-[15px] text-white/70">
@@ -329,7 +345,13 @@ function CommercialPulse({
 
 /* ── Cerrado: reporte (grilla de métricas) ───────────────────────────────────────────── */
 
-function ReportGrid({ data }: { data: EventSummaryResponse }) {
+function ReportGrid({
+  data,
+  promoters,
+}: {
+  data: EventSummaryResponse
+  promoters: EventPromoterSalesRow[]
+}) {
   const sold = data.ticketsSold
   const checked = data.ticketsCheckedIn
   const cap = data.ticketCapacity
@@ -349,7 +371,8 @@ function ReportGrid({ data }: { data: EventSummaryResponse }) {
   const netPositive = !Number.isNaN(netNum) && netNum >= 0
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <MetricCard label="ingresos totales">
         <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
           {formatMoney(data.grossRevenue)}
@@ -439,6 +462,48 @@ function ReportGrid({ data }: { data: EventSummaryResponse }) {
           </div>
         </div>
       </MetricCard>
+      </div>
+
+      {/* Tarea 9.2 — Ventas por promotor (visión §2.8). */}
+      <PromoterSalesBlock rows={promoters} />
+    </div>
+  )
+}
+
+/* ── Tarea 9.2 — Ventas por promotor (se muestra en venta, en el resumen cerrado y en el
+   reporte de cierre 10.3 — `event-closed-report.tsx` la importa con los datos congelados
+   en `closingReport.byPromoter`, mismo shape que la API). ───────────────────────────────── */
+
+export function PromoterSalesBlock({ rows }: { rows: EventPromoterSalesRow[] }) {
+  if (rows.length === 0) return null
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-[13px] lowercase text-white/45">ventas por promotor</h3>
+      <div className="space-y-1.5">
+        {rows.map((p) => (
+          <div
+            key={p.id}
+            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-medium text-foreground">
+                {p.name}
+                {!p.isActive ? (
+                  <span className="ml-2 text-[12px] font-normal text-white/35">inactivo</span>
+                ) : null}
+              </p>
+              <p className="text-[12px] text-white/40">
+                {formatInt(p.ticketsCount)} entrada{p.ticketsCount === 1 ? "" : "s"} ·{" "}
+                {formatInt(p.barItemsCount)} consumo{p.barItemsCount === 1 ? "" : "s"}
+              </p>
+            </div>
+            <p className="shrink-0 text-[15px] font-semibold tabular-nums text-foreground">
+              {formatMoney(p.totalRevenue)}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

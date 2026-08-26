@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router"
-import { ChevronLeft, MoreHorizontal, UserPlus } from "lucide-react"
-import { toast } from "sonner"
+import { ChevronLeft, MoreHorizontal } from "lucide-react"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -37,6 +36,7 @@ import {
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile, type StaffRole } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
+import { StaffInlineCreate } from "@/components/staff/staff-inline-create"
 
 const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "BARTENDER", "SECURITY"]
 
@@ -62,14 +62,6 @@ export function StaffPage() {
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
   const [showInactive, setShowInactive] = useState(false)
-
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createName, setCreateName] = useState("")
-  const [createEmail, setCreateEmail] = useState("")
-  const [createPassword, setCreatePassword] = useState("")
-  const [createRole, setCreateRole] = useState<StaffRole>("BARTENDER")
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [createLoading, setCreateLoading] = useState(false)
 
   const [editing, setEditing] = useState<StaffProfile | null>(null)
   const [editName, setEditName] = useState("")
@@ -108,43 +100,6 @@ export function StaffPage() {
   useEffect(() => {
     void loadTeam()
   }, [loadTeam])
-
-  function resetCreateForm() {
-    setCreateName("")
-    setCreateEmail("")
-    setCreatePassword("")
-    setCreateRole("BARTENDER")
-    setCreateError(null)
-  }
-
-  async function submitCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!token) return
-    setCreateError(null)
-    setCreateLoading(true)
-    try {
-      const data = await apiFetch<{ staff: StaffProfile; imported?: boolean }>("/staff/team", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          name: createName,
-          email: createEmail,
-          password: createPassword,
-          role: createRole,
-        }),
-      })
-      setCreateOpen(false)
-      resetCreateForm()
-      await loadTeam()
-      if (data.imported) {
-        toast.success(`${createName} ya existía en otra Productora y fue agregado/a a la tuya. Usará su contraseña actual.`)
-      }
-    } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : "No se pudo crear la cuenta")
-    } finally {
-      setCreateLoading(false)
-    }
-  }
 
   function openEdit(member: StaffProfile) {
     setEditing(member)
@@ -250,13 +205,6 @@ export function StaffPage() {
                   onClick={() => setShowInactive((v) => !v)}
                 >
                   {showInactive ? "Solo activos" : "Incluir inactivos"}
-                </Button>
-                <Button
-                  onClick={() => setCreateOpen(true)}
-                  className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Agregar
                 </Button>
               </div>
             ) : null}
@@ -385,98 +333,14 @@ export function StaffPage() {
               </TableBody>
             </Table>
           </div>
+
+          {isAdmin ? (
+            <div className="mt-4">
+              <StaffInlineCreate onCreated={loadTeam} />
+            </div>
+          ) : null}
         </div>
       </main>
-
-      <Dialog
-        open={createOpen}
-        onOpenChange={(o) => {
-          setCreateOpen(o)
-          if (!o) resetCreateForm()
-        }}
-      >
-        <DialogContent className="max-w-md rounded-2xl border-zinc-200/50 dark:border-zinc-800/50">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold tracking-tight">
-              Nueva cuenta
-            </DialogTitle>
-            <DialogDescription className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-              Correo y contraseña para iniciar sesión.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={submitCreate} className="flex flex-col gap-4">
-            {createError ? (
-              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                {createError}
-              </p>
-            ) : null}
-            <div className="space-y-2">
-              <label htmlFor="st-name" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                Nombre
-              </label>
-              <Input
-                id="st-name"
-                value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
-                required
-                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="st-email" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                Correo
-              </label>
-              <Input
-                id="st-email"
-                type="email"
-                value={createEmail}
-                onChange={(e) => setCreateEmail(e.target.value)}
-                required
-                autoComplete="off"
-                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="st-pass" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
-                Contraseña inicial
-              </label>
-              <Input
-                id="st-pass"
-                type="password"
-                value={createPassword}
-                onChange={(e) => setCreatePassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-                className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black"
-              />
-            </div>
-            <div className="space-y-2">
-              <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Rol</span>
-              <Select value={createRole} onValueChange={(v) => setCreateRole(v as StaffRole)}>
-                <SelectTrigger className="h-11 rounded-xl border-zinc-200/50 bg-[#F2F2F7] dark:border-zinc-800/50 dark:bg-black">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  {ROLES.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {staffRoleLabel(r)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setCreateOpen(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={createLoading} className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90">
-                {createLoading ? "Creando…" : "Crear"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-md rounded-2xl border-zinc-200/50 dark:border-zinc-800/50">

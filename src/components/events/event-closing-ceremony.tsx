@@ -4,14 +4,23 @@ import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { EventClosingReport } from "@/types/events"
+import { usePrinter } from "@/context/PrinterContext"
+import {
+  commandsToBytes,
+  formatResumenCaja,
+  PAYMENT_LABELS,
+} from "@/lib/printerUtils"
+import { toast } from "sonner"
 import { ArrowLeft, ArrowRight, Loader2, Check } from "lucide-react"
 
 /**
  * Ceremonia de cierre (tarea 4.4 / spec §5 "Cierre") — el ÚNICO flujo por pasos de la app.
  * Tres pasos: (1) conteo de insumos con teclado numérico y la estimación del sistema al lado;
- * (2) caja/efectivo de puerta (solo si hubo venta en efectivo); (3) liquidación automática, con
- * el resultado real (mercadería CONSUMIDA, no comprada) al lado del proyectado. Al confirmar,
- * `POST /:id/closing` recalcula del lado servidor, congela el reporte y cierra el evento.
+ * (2) caja POR PUESTO (tarea 10.1, visión §2.8: "cómo cerró cada caja" — esperado por método
+ * y contado manual por cajero, solo si hubo efectivo); (3) liquidación automática, con el
+ * resultado real (mercadería CONSUMIDA, no comprada) al lado del proyectado. Al confirmar,
+ * `POST /:id/closing` recalcula del lado servidor, congela el reporte, cierra el evento e
+ * imprime el resumen de caja de cada puesto (`formatResumenCaja`).
  */
 
 type ClosingInsumo = {
@@ -23,12 +32,38 @@ type ClosingInsumo = {
   unitCost: string
   purchasedCost: string
 }
+
+/** Caja esperada de un puesto/barra (tarea 10.1). `barId` null = caja de puerta. */
+type CashBarPrep = {
+  barId: string | null
+  barName: string
+  expected: string
+  byMethod: { method: string; expected: string }[]
+}
+
 type ClosingPrep = {
   income: { tickets: string; bar: string; gross: string }
   expenses: { operational: string; merchandisePurchased: string }
   cash: { expected: string; hasCashSales: boolean }
+  cashes: CashBarPrep[]
+  /** Tarea 10.2 — Pendiente de entrega: vendido y no retirado (plata cobrada que se debe). */
+  pendingDelivery?: { quantity: number; amount: string }
   insumos: ClosingInsumo[]
   report: EventClosingReport | null
+}
+
+/** Respuesta del POST de cierre: reporte + ventas por puesto para imprimir. */
+type ClosingResponse = {
+  event: unknown
+  report: EventClosingReport
+  barSales: {
+    barId: string | null
+    barName: string
+    sales: {
+      paymentMethod: "CASH" | "CARD" | "MERCADOPAGO" | "TRANSFER" | "SALDO"
+      totalAmount: string
+    }[]
+  }[]
 }
 
 function money(value: string | number | null | undefined): string {
@@ -78,10 +113,13 @@ export function EventClosingCeremony({
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [counts, setCounts] = useState<Record<string, string>>({})
-  const [cashCounted, setCashCounted] = useState("")
+  // Tarea 10.1 — Contado manual por puesto/barra (key = `barId ?? ""` para la caja de puerta).
+  const [cashCounts, setCashCounts] = useState<Record<string, string>>({})
   const [stepIdx, setStepIdx] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  const { printRaw } = usePrinter()
 
   useEffect(() => {
     if (!token) return
@@ -108,13 +146,14 @@ export function EventClosingCeremony({
     }
   }, [token, eventId])
 
-  // Los pasos son dinámicos: la caja solo aparece si hubo ventas en efectivo (spec §5).
+  // Los pasos son dinámicos: la caja solo aparece si hay puestos con efectivo esperado
+  // (tarea 10.1 — cada puesto con caja física tiene su conteo).
   const steps = useMemo<("conteo" | "caja" | "resultado")[]>(() => {
     const s: ("conteo" | "caja" | "resultado")[] = ["conteo"]
-    if (prep?.cash.hasCashSales) s.push("caja")
+    if ((prep?.cashes.length ?? 0) > 0) s.push("caja")
     s.push("resultado")
     return s
-  }, [prep?.cash.hasCashSales])
+  }, [prep?.cashes.length])
 
   const step = steps[Math.min(stepIdx, steps.length - 1)]
 
@@ -175,22 +214,56 @@ export function EventClosingCeremony({
               : i.estimated
           return { inventoryItemId: i.inventoryItemId, counted }
         }),
-        cashCounted:
-          prep.cash.hasCashSales && cashCounted.trim() !== ""
-            ? Number.parseFloat(cashCounted.replace(",", ".")) || 0
-            : null,
+        // Tarea 10.1 — Conteo por puesto: cada barra con su contado (null = no se contó).
+        cashes: prep.cashes.map((bar) => {
+          const raw = cashCounts[bar.barId ?? ""]
+          return {
+            barId: bar.barId,
+            counted:
+              raw != null && raw.trim() !== ""
+                ? Number.parseFloat(raw.replace(",", ".")) || 0
+                : null,
+          }
+        }),
       }
-      await apiFetch(`/events/${eventId}/closing`, {
+      const res = await apiFetch<ClosingResponse>(`/events/${eventId}/closing`, {
         method: "POST",
         token,
         body: JSON.stringify(body),
       })
+
+      // Tarea 10.1 — Al confirmar se imprime el resumen de caja de cada puesto con caja
+      // (`formatResumenCaja`). La impresión es best-effort: el evento ya quedó cerrado.
+      for (const bar of res.barSales ?? []) {
+        if (bar.sales.length === 0) continue
+        try {
+          await printRaw(
+            commandsToBytes(
+              formatResumenCaja(
+                bar.sales.map((s) => ({
+                  totalAmount: s.totalAmount,
+                  paymentMethod: s.paymentMethod,
+                })),
+                bar.barName,
+                eventName
+              )
+            )
+          )
+        } catch (err) {
+          toast.error(
+            `Resumen de ${bar.barName}: ${
+              err instanceof Error ? err.message : "no se pudo imprimir"
+            }`
+          )
+        }
+      }
+
       onClosed()
     } catch (e) {
       setSubmitError(e instanceof ApiError ? e.message : "No se pudo cerrar el evento")
       setSubmitting(false)
     }
-  }, [token, prep, counts, cashCounted, eventId, onClosed])
+  }, [token, prep, counts, cashCounts, eventId, onClosed, printRaw, eventName])
 
   if (loading) {
     return (
@@ -241,14 +314,23 @@ export function EventClosingCeremony({
       )}
 
       {step === "caja" && (
-        <StepCaja
-          expected={prep.cash.expected}
-          value={cashCounted}
-          onChange={setCashCounted}
+        <StepCajas
+          cashes={prep.cashes}
+          counts={cashCounts}
+          onChange={(key, v) =>
+            setCashCounts((prev) => ({ ...prev, [key]: v }))
+          }
         />
       )}
 
-      {step === "resultado" && <StepResultado preview={preview} cash={prep.cash} cashCounted={cashCounted} />}
+      {step === "resultado" && (
+        <StepResultado
+          preview={preview}
+          cashes={prep.cashes}
+          cashCounts={cashCounts}
+          pending={prep.pendingDelivery}
+        />
+      )}
 
       {submitError && (
         <p className="mt-6 text-center text-[13px] text-red-400/80">{submitError}</p>
@@ -348,59 +430,115 @@ function StepConteo({
   )
 }
 
-function StepCaja({
-  expected,
-  value,
+/**
+ * Tarea 10.1 — Conteo de caja POR PUESTO: una tarjeta por barra con caja (efectivo esperado,
+ * desglose por método y el input del contado manual del cajero). "Si falta, se ve dónde."
+ */
+function StepCajas({
+  cashes,
+  counts,
   onChange,
 }: {
-  expected: string
-  value: string
-  onChange: (v: string) => void
+  cashes: CashBarPrep[]
+  counts: Record<string, string>
+  onChange: (key: string, v: string) => void
 }) {
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight text-white">La caja</h2>
+      <h2 className="text-2xl font-bold tracking-tight text-white">Las cajas</h2>
       <p className="mt-1.5 text-[14px] text-white/40">
-        Contá el efectivo que quedó en la caja de puerta.
+        Contá el efectivo de cada puesto. Al lado está lo que el sistema espera.
       </p>
 
-      <div className="mt-10 flex flex-col items-center gap-6">
-        <div className="text-center">
-          <p className="text-[13px] uppercase tracking-[0.15em] text-white/30">
-            se esperaba
-          </p>
-          <p className="mt-1 text-3xl font-bold tabular-nums text-white/60">
-            {money(expected)}
-          </p>
-        </div>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="0"
-          className="h-20 w-64 rounded-2xl border border-white/[0.12] bg-white/[0.03] text-center text-4xl font-bold tabular-nums text-white outline-none placeholder:text-white/20 focus:border-[#FF9500]/60"
-        />
-        <p className="text-[13px] text-white/35">¿cuánto contaste?</p>
-      </div>
+      {cashes.length === 0 ? (
+        <p className="mt-8 text-[14px] text-white/40">
+          No hay cajas con efectivo para contar. Seguí al resultado.
+        </p>
+      ) : (
+        <ul className="mt-8 space-y-3">
+          {cashes.map((bar) => {
+            const key = bar.barId ?? ""
+            const otherMethods = bar.byMethod.filter(
+              (m) => m.method !== "CASH"
+            )
+            return (
+              <li
+                key={key}
+                className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-[16px] font-semibold text-white">
+                      {bar.barName}
+                    </p>
+                    <p className="mt-0.5 text-[13px] text-white/40">
+                      se esperaba{" "}
+                      <span className="font-semibold tabular-nums text-white/70">
+                        {money(bar.expected)}
+                      </span>{" "}
+                      en efectivo
+                    </p>
+                    {otherMethods.length > 0 && (
+                      <p className="mt-1.5 text-[12px] text-white/30">
+                        {otherMethods
+                          .map(
+                            (m) =>
+                              `${PAYMENT_LABELS[m.method] ?? m.method} ${money(m.expected)}`
+                          )
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={counts[key] ?? ""}
+                    onChange={(e) => onChange(key, e.target.value)}
+                    placeholder="0"
+                    aria-label={`Efectivo contado en ${bar.barName}`}
+                    className="h-16 w-32 shrink-0 rounded-2xl border border-white/[0.12] bg-white/[0.03] text-center text-3xl font-bold tabular-nums text-white outline-none placeholder:text-white/20 focus:border-[#FF9500]/60"
+                  />
+                </div>
+                <p className="mt-2 text-right text-[12px] text-white/30">
+                  ¿cuánto contaste?
+                </p>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
 
 function StepResultado({
   preview,
-  cash,
-  cashCounted,
+  cashes,
+  cashCounts,
+  pending,
 }: {
   preview: Preview
-  cash: { expected: string; hasCashSales: boolean }
-  cashCounted: string
+  cashes: CashBarPrep[]
+  cashCounts: Record<string, string>
+  /** Tarea 10.2 — Pendiente de entrega: tragos vendidos y no retirados. */
+  pending?: { quantity: number; amount: string }
 }) {
-  const cashDiff =
-    cash.hasCashSales && cashCounted.trim() !== ""
-      ? (Number.parseFloat(cashCounted.replace(",", ".")) || 0) -
-        (Number.parseFloat(cash.expected) || 0)
-      : null
+  // Tarea 10.1 — Diferencia contado − esperado POR PUESTO ("si falta, se ve dónde").
+  const cashRows = cashes.map((bar) => {
+    const raw = cashCounts[bar.barId ?? ""]
+    const counted =
+      raw != null && raw.trim() !== ""
+        ? Number.parseFloat(raw.replace(",", ".")) || 0
+        : null
+    const expected = Number.parseFloat(bar.expected) || 0
+    return {
+      bar,
+      expected,
+      counted,
+      diff: counted != null ? counted - expected : null,
+    }
+  })
+  const anyCounted = cashRows.some((r) => r.counted != null)
 
   return (
     <div>
@@ -467,26 +605,63 @@ function StepResultado({
         </div>
       </div>
 
-      {cashDiff != null && (
+      {/* Tarea 10.2 — Pendiente de entrega: "Vendiste $X en tragos que nadie retiró (N)". Es
+          plata cobrada que todavía se debe; se congela en el reporte al confirmar. */}
+      {pending != null && pending.quantity > 0 && (
+        <div className="mt-3 rounded-xl border border-amber-200/25 bg-amber-200/[0.05] px-4 py-3">
+          <p className="text-[12px] uppercase tracking-[0.1em] text-amber-200/60">
+            pendiente de entrega
+          </p>
+          <p className="mt-1 text-[18px] font-semibold tabular-nums text-amber-200">
+            Vendiste {money(pending.amount)} en tragos que nadie retiró ({pending.quantity})
+          </p>
+          <p className="text-[12px] text-white/35">
+            plata cobrada que todavía se debe — queda pendiente hasta su retiro
+          </p>
+        </div>
+      )}
+
+      {cashRows.length > 0 && (
         <div className="mt-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
           <p className="text-[12px] uppercase tracking-[0.1em] text-white/30">
-            caja de puerta
+            cajas por puesto
           </p>
-          <p
-            className={cn(
-              "mt-1 text-[18px] font-semibold tabular-nums",
-              Math.abs(cashDiff) < 0.005
-                ? "text-emerald-300"
-                : cashDiff > 0
-                  ? "text-amber-200"
-                  : "text-red-300"
-            )}
-          >
-            {cashDiff === 0
-              ? "Cuadra"
-              : `${cashDiff > 0 ? "+" : ""}${money(cashDiff)}`}
-          </p>
-          <p className="text-[12px] text-white/35">contado − esperado</p>
+          <ul className="mt-2 space-y-2">
+            {cashRows.map(({ bar, expected, counted, diff }) => (
+              <li
+                key={bar.barId ?? ""}
+                className="flex items-center justify-between gap-3 text-[14px]"
+              >
+                <span className="text-white/60">{bar.barName}</span>
+                <span className="tabular-nums text-white/35">
+                  esperado {money(expected)}
+                </span>
+                {counted != null && diff != null ? (
+                  <span
+                    className={cn(
+                      "w-28 text-right font-semibold tabular-nums",
+                      Math.abs(diff) < 0.005
+                        ? "text-emerald-300"
+                        : diff > 0
+                          ? "text-amber-200"
+                          : "text-red-300"
+                    )}
+                  >
+                    {diff === 0
+                      ? "Cuadra"
+                      : `${diff > 0 ? "+" : ""}${money(diff)}`}
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-white/25">sin contar</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {anyCounted && (
+            <p className="mt-2 text-[12px] text-white/35">
+              contado − esperado por puesto
+            </p>
+          )}
         </div>
       )}
     </div>

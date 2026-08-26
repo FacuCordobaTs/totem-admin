@@ -7,7 +7,6 @@ import {
   AttendeeTable,
   type AttendeeTableHandle,
 } from "@/components/events/attendee-table"
-import { ManualSaleDialog } from "@/components/events/manual-sale-dialog"
 import { EventOverviewTab } from "@/components/events/event-overview-tab"
 import { EventStaffTab } from "@/components/events/event-staff-tab"
 import { EventBarSection } from "@/components/events/event-bar-section"
@@ -19,7 +18,9 @@ import { EventClosingCeremony } from "@/components/events/event-closing-ceremony
 import { EventClosedReport } from "@/components/events/event-closed-report"
 import { EventFlyerMailPreview } from "@/components/events/event-flyer-mail-preview"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
+import { AdmissionBlacklistPanel } from "@/components/events/admission-blacklist-panel"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { cn } from "@/lib/utils"
@@ -28,7 +29,6 @@ import {
   ExternalLink,
   ChevronLeft,
   Loader2,
-  Plus,
   ArrowRight,
   Radio,
   Share2,
@@ -39,6 +39,7 @@ import {
   Users,
   Globe,
   TrendingUp,
+  Ban,
   type LucideIcon,
 } from "lucide-react"
 import type { ApiEvent } from "@/types/events"
@@ -52,6 +53,7 @@ type SectionId =
   | "entradas"
   | "barra"
   | "equipo"
+  | "acceso"
   | "pagina"
   | "finanzas"
 
@@ -60,6 +62,7 @@ const EVENT_SECTIONS: { id: SectionId; label: string; Icon: LucideIcon }[] = [
   { id: "entradas", label: "Entradas", Icon: Ticket },
   { id: "barra", label: "Barra", Icon: Wine },
   { id: "equipo", label: "Equipo", Icon: Users },
+  { id: "acceso", label: "Acceso", Icon: Ban },
   { id: "pagina", label: "Página", Icon: Globe },
   { id: "finanzas", label: "Finanzas", Icon: TrendingUp },
 ]
@@ -104,7 +107,6 @@ export function EventDashboardPage() {
 
   const [activeSection, setActiveSection] = useState<SectionId>("resumen")
   const [refreshTick, setRefreshTick] = useState(0)
-  const [saleOpen, setSaleOpen] = useState(false)
   // En vivo (spec §5): la app cambia de piel al panel de la noche. "Intervenir" abre el
   // workspace por debajo del panel (única puerta a los formularios de config).
   const [intervening, setIntervening] = useState(false)
@@ -114,9 +116,19 @@ export function EventDashboardPage() {
   // Cerrado (spec §5 / 4.5): el reporte compartible por link. Copiado con confirmación efímera.
   const [reportCopied, setReportCopied] = useState(false)
 
+  // Entradas: hasta que exista al menos un tipo de entrada, el resto de la sección
+  // (cortesías, tabla de asistentes) se oculta. null = todavía no sabemos (cargando).
+  const [ticketTypeCount, setTicketTypeCount] = useState<number | null>(null)
+  const hasTicketTypes = (ticketTypeCount ?? 0) > 0
+
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [transitioning, setTransitioning] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  // Tarea 3.1 — Restricción de edad (+18): toggle en la sección Entradas; persiste
+  // `events.ageRestriction` (18 o null). Lo lee el escáner de DNI en la puerta.
+  const [ageRestrictionBusy, setAgeRestrictionBusy] = useState(false)
+  const [ageRestrictionError, setAgeRestrictionError] = useState<string | null>(null)
 
   const attendeeTableRef = useRef<AttendeeTableHandle>(null)
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
@@ -189,6 +201,29 @@ export function EventDashboardPage() {
     [token, id, loadEvent, bump]
   )
 
+  // Tarea 3.1 — Alterna la restricción de edad del evento (18 ⇄ null). La puerta la lee
+  // desde el evento seleccionado: bloquea menores en el escaneo de DNI.
+  const toggleAgeRestriction = useCallback(async () => {
+    if (!token || !id || !event || ageRestrictionBusy) return
+    setAgeRestrictionBusy(true)
+    setAgeRestrictionError(null)
+    const is18 = event.ageRestriction != null && event.ageRestriction > 0
+    try {
+      const data = await apiFetch<{ event: ApiEvent }>(`/events/${id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ ageRestriction: is18 ? null : 18 }),
+      })
+      setEvent(data.event)
+    } catch (err) {
+      setAgeRestrictionError(
+        err instanceof ApiError ? err.message : "No se pudo actualizar el evento"
+      )
+    } finally {
+      setAgeRestrictionBusy(false)
+    }
+  }, [token, id, event, ageRestrictionBusy])
+
   // Trigger automático de "En vivo" a la hora de puertas (spec §5): evaluación perezosa en
   // lectura. Si el evento está en venta y ya pasó `doorsAt`, avanza solo a live. El override
   // manual "Arrancar ahora" vive en el header. (Sin cron: se dispara al abrir/refrescar.)
@@ -249,25 +284,50 @@ export function EventDashboardPage() {
         )
       case "entradas":
         return (
-          <SectionShell title="Entradas">
+          <SectionShell
+            title="Entradas"
+            action={
+              <div className="flex flex-col items-end gap-1 pb-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-semibold text-white/60">
+                    Evento +18
+                  </span>
+                  <Switch
+                    checked={event.ageRestriction != null && event.ageRestriction > 0}
+                    onCheckedChange={() => void toggleAgeRestriction()}
+                    disabled={ageRestrictionBusy}
+                    aria-label="Evento +18"
+                  />
+                </div>
+                {ageRestrictionError && (
+                  <p className="text-[11px] text-red-400">{ageRestrictionError}</p>
+                )}
+              </div>
+            }
+          >
             <TicketTypes
               eventId={id}
               refreshTrigger={refreshTick}
               onChanged={bump}
+              onCountChange={setTicketTypeCount}
             />
-            <CourtesiesPanel
-              eventId={id}
-              refreshTrigger={refreshTick}
-              onChanged={bump}
-            />
-            <AttendeeTable
-              ref={attendeeTableRef}
-              eventId={id}
-              refreshTrigger={refreshTick}
-              layout="canvas"
-              hideExportButton
-              onNewSale={() => setSaleOpen(true)}
-            />
+            {hasTicketTypes && (
+              <>
+                <CourtesiesPanel
+                  eventId={id}
+                  refreshTrigger={refreshTick}
+                  onChanged={bump}
+                />
+                <AttendeeTable
+                  ref={attendeeTableRef}
+                  eventId={id}
+                  refreshTrigger={refreshTick}
+                  layout="canvas"
+                  hideExportButton
+                  onSaleCompleted={bump}
+                />
+              </>
+            )}
           </SectionShell>
         )
       case "barra":
@@ -290,23 +350,31 @@ export function EventDashboardPage() {
         return (
           <SectionShell title="Equipo">
             <EventStaffTab eventId={id} eventStatus={summaryStatus} />
-            <div className="flex justify-end border-t border-white/[0.08] pt-4">
-              <Button asChild variant="ghost" size="sm" className="cursor-pointer gap-1.5 border border-white/[0.10] bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white/75">
-                <Link to={`/staff?from=${id}`}>
-                  Gestionar personal global
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
+          </SectionShell>
+        )
+      case "acceso":
+        return (
+          <SectionShell title="Acceso">
+            <AdmissionBlacklistPanel
+              eventId={id}
+              refreshTrigger={refreshTick}
+              onChanged={bump}
+            />
           </SectionShell>
         )
       case "pagina":
         return (
           <SectionShell title="Página">
-            <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
-              <EventFlyerMailPreview event={event} onUpdated={loadEvent} />
-              <EventSalesConfig event={event} onUpdated={loadEvent} />
-            </div>
+            {event.slug ? (
+              <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
+                <EventFlyerMailPreview event={event} onUpdated={loadEvent} />
+                <EventSalesConfig event={event} onUpdated={loadEvent} />
+              </div>
+            ) : (
+              <div className="max-w-xl">
+                <EventSalesConfig event={event} onUpdated={loadEvent} onlySlug />
+              </div>
+            )}
           </SectionShell>
         )
       case "finanzas":
@@ -461,26 +529,6 @@ export function EventDashboardPage() {
         )}
       </div>
 
-      {/* Mobile FAB for manual sale */}
-      {activeSection === "entradas" && !closing && !(status === "closed" && event.closingReport) && !(status === "live" && !intervening) && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end px-5 pb-5 lg:hidden">
-          <Button
-            type="button"
-            onClick={() => setSaleOpen(true)}
-            className="pointer-events-auto h-14 gap-2 rounded-full bg-[#FF9500] px-6 text-[15px] font-semibold text-white active:opacity-70"
-          >
-            <Plus className="h-5 w-5" />
-            Nueva venta
-          </Button>
-        </div>
-      )}
-
-      <ManualSaleDialog
-        eventId={id}
-        open={saleOpen}
-        onOpenChange={setSaleOpen}
-        onSold={bump}
-      />
     </EventLayout>
   )
 }

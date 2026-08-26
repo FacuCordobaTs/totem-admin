@@ -9,7 +9,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { apiFetch, ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { Flashlight, Smartphone, ScanLine } from "lucide-react"
+import { Flashlight, Smartphone, ScanLine, Package, Check } from "lucide-react"
+import { playScannerSound } from "@/lib/scanner-sound"
+import { usePrinter } from "@/context/PrinterContext"
+import { commandsToBytes, formatPedidoEntregado } from "@/lib/printerUtils"
 
 function playSuccessBeep() {
   try {
@@ -36,13 +39,33 @@ type OverlayState =
   | { kind: "success"; productName: string }
   | { kind: "error"; message: string }
 
-type Phase = "choose" | "scanning"
+type Phase = "choose" | "scanning" | "order"
+
+/** Item agrupado por producto tal como lo responde el backend (4.2). */
+type PickupOrderItem = { productId: string; productName: string; quantity: number }
+
+/** Pedido de retiro (GET /bars/:barId/pickups/:token). */
+type PickupOrderView = {
+  token: string
+  status: "PENDING" | "DELIVERED" | "CANCELLED"
+  items: PickupOrderItem[]
+}
+
+/** Respuesta de POST /bars/:barId/pickups/:token/deliver. */
+type DeliverResponse = {
+  ok: boolean
+  items: PickupOrderItem[]
+  totalAmount?: string
+}
 
 export type PosScannerModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   barId: string | null
   token: string | null
+  /** Para el ticket impreso del pedido entregado (opcional). */
+  eventName?: string | null
+  barName?: string | null
 }
 
 export function PosScannerModal({
@@ -50,17 +73,29 @@ export function PosScannerModal({
   onOpenChange,
   barId,
   token,
+  eventName,
+  barName,
 }: PosScannerModalProps) {
   const [phase, setPhase] = useState<Phase>("choose")
   const [torchDesired, setTorchDesired] = useState(false)
   const [overlay, setOverlay] = useState<OverlayState>({ kind: "none" })
   const [cameraError, setCameraError] = useState<string | null>(null)
 
+  // Pedido de retiro (4.3): el QR escaneado era un pedido → ver lista, entregar.
+  const [order, setOrder] = useState<PickupOrderView | null>(null)
+  const [delivering, setDelivering] = useState(false)
+  const [deliveredSummary, setDeliveredSummary] = useState<{
+    items: PickupOrderItem[]
+    totalAmount?: string
+  } | null>(null)
+
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const readerIdRef = useRef(`pos-scanner-${Math.random().toString(36).slice(2, 11)}`)
   const isProcessingRef = useRef(false)
   const tokenRef = useRef(token)
   const barIdRef = useRef(barId)
+
+  const { selectedPrinter, printRaw } = usePrinter()
 
   tokenRef.current = token
   barIdRef.current = barId
@@ -70,6 +105,9 @@ export function PosScannerModal({
     setTorchDesired(false)
     setCameraError(null)
     setOverlay({ kind: "none" })
+    setOrder(null)
+    setDelivering(false)
+    setDeliveredSummary(null)
     isProcessingRef.current = false
   }, [])
 
@@ -79,21 +117,11 @@ export function PosScannerModal({
     }
   }, [open, resetToChoose])
 
-  const handleDecoded = useCallback(async (decodedText: string) => {
-    if (isProcessingRef.current) return
-    const qrHash = decodedText.trim()
-    if (!qrHash) return
+  // Canje 1×1: mismo mecanismo que antes de los pedidos (QR individual del receipt).
+  const redeemSingle = useCallback(async (qrHash: string) => {
     const t = tokenRef.current
     const b = barIdRef.current
     if (!t || !b) return
-
-    isProcessingRef.current = true
-    try {
-      scannerRef.current?.pause(true)
-    } catch {
-      /* ignore */
-    }
-
     try {
       const res = await apiFetch<{ productName: string }>(`/bars/${b}/redeem`, {
         method: "POST",
@@ -120,6 +148,49 @@ export function PosScannerModal({
       })
     }
   }, [])
+
+  const handleDecoded = useCallback(
+    async (decodedText: string) => {
+      if (isProcessingRef.current) return
+      const qrHash = decodedText.trim()
+      if (!qrHash) return
+      const t = tokenRef.current
+      const b = barIdRef.current
+      if (!t || !b) return
+
+      isProcessingRef.current = true
+      try {
+        scannerRef.current?.pause(true)
+      } catch {
+        /* ignore */
+      }
+
+      // 1) ¿Es un QR de pedido? GET idempotente. Si 404 → no es pedido, cae al canje 1×1.
+      //    Cualquier otro error (ej. pedido de otro evento, 400) se muestra, no se canjea.
+      try {
+        const found = await apiFetch<PickupOrderView>(
+          `/bars/${b}/pickups/${qrHash}`,
+          { method: "GET", token: t }
+        )
+        playScannerSound("success")
+        setOrder(found)
+        isProcessingRef.current = false
+        setPhase("order")
+        return
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404)) {
+          const message =
+            e instanceof ApiError ? e.message : "No se pudo validar el código"
+          setOverlay({ kind: "error", message: message.toUpperCase() })
+          return
+        }
+      }
+
+      // 2) QR individual de consumición.
+      await redeemSingle(qrHash)
+    },
+    [redeemSingle]
+  )
 
   useEffect(() => {
     if (!open || phase !== "scanning" || !barId || !token) {
@@ -185,6 +256,54 @@ export function PosScannerModal({
     }
   }
 
+  // Entrega del pedido: marca todo REDEEMED + descuenta stock en el backend (4.2),
+  // overlay "SERVIR 2× Fernet, 1× Gancia" y beep. Impresión opcional del ticket.
+  const handleDeliver = useCallback(async () => {
+    if (!order || !barId || !token || delivering) return
+    if (order.status !== "PENDING") return
+    setDelivering(true)
+    try {
+      const res = await apiFetch<DeliverResponse>(
+        `/bars/${barId}/pickups/${order.token}/deliver`,
+        { method: "POST", token }
+      )
+      playScannerSound("success")
+
+      if (selectedPrinter) {
+        try {
+          const bytes = commandsToBytes(
+            formatPedidoEntregado({
+              eventoNombre: eventName ?? null,
+              barNombre: barName ?? null,
+              items: res.items.map((i) => ({
+                name: i.productName,
+                quantity: i.quantity,
+              })),
+              totalAmount: res.totalAmount ?? null,
+            })
+          )
+          await printRaw(bytes)
+        } catch {
+          /* sin impresora / browser — la entrega no depende de imprimir */
+        }
+      }
+
+      setDeliveredSummary({ items: res.items, totalAmount: res.totalAmount ?? "" })
+      window.setTimeout(() => {
+        setDeliveredSummary(null)
+        setOrder(null)
+        setDelivering(false)
+        // Sigue escaneando el próximo código.
+        setPhase("scanning")
+      }, 4000)
+    } catch (e) {
+      setDelivering(false)
+      const message =
+        e instanceof ApiError ? e.message : "No se pudo entregar el pedido"
+      setOverlay({ kind: "error", message: message.toUpperCase() })
+    }
+  }, [order, barId, token, delivering, selectedPrinter, printRaw, eventName, barName])
+
   const pickTicket = () => {
     setTorchDesired(true)
     setPhase("scanning")
@@ -194,6 +313,8 @@ export function PosScannerModal({
     setTorchDesired(false)
     setPhase("scanning")
   }
+
+  const orderDelivered = order?.status !== "PENDING"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -257,6 +378,105 @@ export function PosScannerModal({
               </Button>
             </div>
           </div>
+        ) : phase === "order" && order ? (
+          <div className="flex min-h-0 flex-1 flex-col bg-[#0A0A0A]">
+            <div className="shrink-0 border-b border-zinc-800 px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-500/20">
+                    <Package className="h-6 w-6 text-violet-400" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                      Pedido de retiro
+                    </p>
+                    <p className="mt-0.5 text-lg font-black tracking-tighter text-white">
+                      {order.items.reduce((n, i) => n + i.quantity, 0)} consumiciones
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider",
+                    order.status === "PENDING" &&
+                      "bg-amber-500/15 text-amber-400",
+                    order.status === "DELIVERED" &&
+                      "bg-emerald-500/15 text-emerald-400",
+                    order.status === "CANCELLED" && "bg-red-500/15 text-red-400"
+                  )}
+                >
+                  {order.status === "PENDING"
+                    ? "Pendiente"
+                    : order.status === "DELIVERED"
+                      ? "Entregado"
+                      : "Cancelado"}
+                </span>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+              {order.items.length === 0 ? (
+                <p className="py-10 text-center text-base text-zinc-500">
+                  Este pedido no tiene items.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {order.items.map((item) => (
+                    <li
+                      key={item.productId}
+                      className={cn(
+                        "flex items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4",
+                        orderDelivered && "opacity-50"
+                      )}
+                    >
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-xl font-black text-emerald-400">
+                        {item.quantity}×
+                      </span>
+                      <p className="text-xl font-black tracking-tight text-white">
+                        {item.productName}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {orderDelivered ? (
+                <p className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-center text-base font-semibold text-zinc-400">
+                  {order.status === "DELIVERED"
+                    ? "Este pedido ya fue entregado."
+                    : "Este pedido fue cancelado."}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="shrink-0 space-y-3 border-t border-zinc-800 bg-[#0A0A0A]/95 px-4 py-4 backdrop-blur-md">
+              {order.status === "PENDING" ? (
+                <Button
+                  type="button"
+                  disabled={delivering}
+                  onClick={() => void handleDeliver()}
+                  className="h-16 w-full gap-2 rounded-2xl bg-emerald-500 text-lg font-black tracking-tight text-emerald-950 transition-all duration-300 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-60"
+                >
+                  {delivering ? (
+                    <span className="animate-pulse">Entregando…</span>
+                  ) : (
+                    <>
+                      <Check className="h-6 w-6" />
+                      Entregado
+                    </>
+                  )}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-14 w-full rounded-2xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 transition-all duration-300 hover:bg-zinc-800 active:scale-[0.98]"
+                onClick={resetToChoose}
+              >
+                Volver a escanear
+              </Button>
+            </div>
+          </div>
         ) : (
           <div className="relative flex min-h-0 flex-1 flex-col bg-black">
             {cameraError ? (
@@ -303,6 +523,36 @@ export function PosScannerModal({
             <p className="mt-4 text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl">
               ¡SERVIR: 1× {overlay.productName}!
             </p>
+          </div>
+        ) : null}
+
+        {deliveredSummary ? (
+          <div
+            className="pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center bg-emerald-600/92 px-4 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-100">
+              Pedido entregado
+            </p>
+            <p className="mt-4 text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl">
+              ¡SERVIR!
+            </p>
+            <ul className="mt-4 flex flex-col gap-1.5">
+              {deliveredSummary.items.map((item) => (
+                <li
+                  key={item.productId}
+                  className="text-2xl font-black tracking-tight text-white sm:text-3xl"
+                >
+                  {item.quantity}× {item.productName}
+                </li>
+              ))}
+            </ul>
+            {deliveredSummary.totalAmount ? (
+              <p className="mt-5 text-lg font-bold tabular-nums text-emerald-100">
+                ${Number.parseFloat(deliveredSummary.totalAmount).toFixed(2)}
+              </p>
+            ) : null}
           </div>
         ) : null}
 

@@ -20,9 +20,9 @@ function obfuscateMpUserId(raw: string | null): string {
   return `${t.slice(0, 4)}••••••${t.slice(-4)}`
 }
 
-/** Defaults = Totem prod; override con VITE_* en .env si hace falta. */
+/** Defaults de producción de Crow; override con VITE_* en .env si hace falta. */
 const DEFAULT_MP_APP_ID = "3918831191946006"
-const DEFAULT_MP_REDIRECT_URI = "https://api.totem.uno/api/mp/callback"
+const DEFAULT_MP_REDIRECT_URI = "https://api.crow.ar/api/mp/callback"
 
 function buildMpAuthUrl(tenantId: string): string {
   const clientId =

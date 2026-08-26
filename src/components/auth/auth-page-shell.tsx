@@ -1,13 +1,12 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
+import { BrandLockup } from "@/components/auth/brand-lockup"
 
 export function AuthPageShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh flex items-center justify-center w-full bg-background px-6">
       <div className="w-full max-w-sm">
-        <div className="flex justify-center mb-12">
-          <img src="/logo.png" alt="Crow" className="h-12 w-auto rounded-2xl" />
-        </div>
+        <BrandLockup className="mb-12" />
         {children}
       </div>
     </div>

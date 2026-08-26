@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router"
 import { Button } from "@/components/ui/button"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
+import { BrandLockup } from "@/components/auth/brand-lockup"
 
 type AccessResponse = {
   message: string
@@ -71,9 +72,7 @@ export function AccessPage() {
   return (
     <div className="min-h-dvh flex items-center justify-center w-full bg-black px-6 selection:bg-[#FF9500]/10 selection:text-[#FF9500]">
       <div className="w-full max-w-sm animate-in fade-in duration-700">
-        <div className="flex justify-center mb-12">
-          <img src="/logo.png" alt="Crow" className="h-12 w-auto rounded-2xl" />
-        </div>
+        <BrandLockup className="mb-12" />
 
         {error ? (
           <div className="space-y-4">

@@ -35,6 +35,8 @@ type TicketTypesProps = {
   eventId: string
   refreshTrigger: number
   onChanged?: () => void
+  /** Reporta cuántos tipos hay cargados (para ocultar el resto de Entradas hasta tener ≥1). */
+  onCountChange?: (count: number) => void
 }
 
 function formatPrice(price: string | number): string {
@@ -551,7 +553,7 @@ function InlineCreate({
   )
 }
 
-export function TicketTypes({ eventId, refreshTrigger, onChanged }: TicketTypesProps) {
+export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange }: TicketTypesProps) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
@@ -571,13 +573,15 @@ export function TicketTypes({ eventId, refreshTrigger, onChanged }: TicketTypesP
         { method: "GET", token }
       )
       setTypes(data.ticketTypes)
+      onCountChange?.(data.ticketTypes.length)
     } catch (err) {
       setTypes([])
+      onCountChange?.(0)
       setError(err instanceof ApiError ? err.message : "No se pudieron cargar los tipos")
     } finally {
       setLoading(false)
     }
-  }, [token, eventId])
+  }, [token, eventId, onCountChange])
 
   useEffect(() => {
     void load()

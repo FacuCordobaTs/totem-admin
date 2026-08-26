@@ -284,24 +284,37 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-[18px] font-semibold text-white">Menú del evento</h3>
-            <p className="mt-0.5 text-[13px] text-white/35">
-              Prendé lo que se vende esta noche. Tocá el precio para fijar uno especial.
-            </p>
+            {menuRows.length > 0 ? (
+              <p className="mt-0.5 text-[13px] text-white/35">
+                Prendé lo que se vende. Tocá el precio para uno especial.
+              </p>
+            ) : null}
           </div>
-          <Button
-            type="button"
-            onClick={openCreate}
-            className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Nuevo producto
-          </Button>
+          {menuRows.length > 0 ? (
+            <Button
+              type="button"
+              onClick={openCreate}
+              className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Nuevo producto
+            </Button>
+          ) : null}
         </div>
 
         {menuRows.length === 0 ? (
-          <p className="py-6 text-[14px] text-white/30">
-            El catálogo está vacío. Creá el primer producto para armar el menú.
-          </p>
+          <ProductEditorDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            product={null}
+            eventId={eventId}
+            materials={materials}
+            categories={categories}
+            onCategoriesChanged={() => void loadAll({ silent: true })}
+            token={token}
+            onSaved={() => void loadAll({ silent: true })}
+          />
         ) : (
           <div className="divide-y divide-white/[0.06]">
             {menuRows.map((row) => {
@@ -504,14 +517,12 @@ function StockBlock({
       <div className="flex items-center justify-between gap-4">
         <div>
           <h3 className="text-[18px] font-semibold text-white">Stock</h3>
-          <p className="mt-0.5 text-[13px] text-white/35">
-            Cargá lo que comprás. Suma stock y asienta el gasto de una.
-          </p>
+          <p className="mt-0.5 text-[13px] text-white/35">Cargá lo que comprás.</p>
         </div>
         <Button
           type="button"
           onClick={() => setNewOpen((v) => !v)}
-          className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+          className="h-8 gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08] active:opacity-70"
         >
           <Plus className="h-3.5 w-3.5" />
           Comprar mercadería
@@ -558,7 +569,7 @@ function StockBlock({
               type="button"
               disabled={saving}
               onClick={submitNew}
-              className="h-9 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90"
+              className="h-9 shrink-0 rounded-lg border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08]"
             >
               {saving ? "…" : "Registrar"}
             </Button>
@@ -613,7 +624,7 @@ function StockBlock({
                           setCost("")
                         }
                       }}
-                      className="text-[13px] font-medium text-[#FF9500] hover:text-[#FF9500]/80"
+                      className="text-[13px] font-medium text-white/55 hover:text-white/90"
                     >
                       {isOpen ? "Cerrar" : "+ Comprar"}
                     </button>
@@ -646,7 +657,7 @@ function StockBlock({
                       type="button"
                       disabled={saving}
                       onClick={() => submitInline(insumo)}
-                      className="h-9 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90"
+                      className="h-9 shrink-0 rounded-lg border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08]"
                     >
                       {saving ? "…" : "Sumar"}
                     </Button>

@@ -40,6 +40,30 @@ export type EventGateStatsResponse = {
   scannedTickets: number
 }
 
+/** Tarea 9.2 — Reporte por promotor: cuánto vendió cada promotor en el evento (entradas + barra). */
+export type EventPromoterSalesRow = {
+  id: string
+  name: string
+  phone: string | null
+  isActive: boolean
+  /** Entradas vendidas (no canceladas) atribuidas al promotor. */
+  ticketsCount: number
+  /** Suma de precios de tipo de esas entradas. */
+  ticketRevenue: string
+  /** Ventas de barra/caja completadas atribuidas al promotor. */
+  barSalesCount: number
+  /** Unidades vendidas en esas ventas. */
+  barItemsCount: number
+  /** Suma de líneas a precio de venta. */
+  barRevenue: string
+  /** Entradas + barra. */
+  totalRevenue: string
+}
+
+export type EventPromoterSalesResponse = {
+  promoters: EventPromoterSalesRow[]
+}
+
 export type StaffTeamMember = {
   id: string
   tenantId: string | null
@@ -165,7 +189,7 @@ export type EventSaleRowApi = {
   createdAt: Date | string | null
   source: "POS" | "APP" | "WEB"
   totalAmount: string
-  paymentMethod: "CASH" | "CARD" | "MERCADOPAGO" | "TRANSFER"
+  paymentMethod: "CASH" | "CARD" | "MERCADOPAGO" | "TRANSFER" | "SALDO"
   staffName: string | null
   customerName: string | null
   itemsSummary: string

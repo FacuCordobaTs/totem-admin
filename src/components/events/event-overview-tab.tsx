@@ -303,16 +303,24 @@ export function EventOverviewTab({ eventId, refreshTrigger = 0 }: Props) {
     }
   }
 
+  // Finanzas no muestra nada "pelado": el bloque de ventas/ingresos aparece recién cuando hay
+  // ingresos o ventas registradas. Mientras carga, no parpadea nada.
+  if (summaryLoading || salesLoading) return null
+  if (summaryError || salesError) {
+    return (
+      <p className="text-base text-red-600 dark:text-red-400">
+        {summaryError ?? salesError}
+      </p>
+    )
+  }
+  const grossNum = summary ? Number.parseFloat(summary.grossRevenue) : 0
+  const hasIngresos =
+    sales.length > 0 || (Number.isFinite(grossNum) && grossNum > 0)
+  if (!hasIngresos) return null
+
   return (
     <div className="space-y-10">
-      {summaryError ? (
-        <p className="text-base text-red-600 dark:text-red-400">{summaryError}</p>
-      ) : null}
-      {summaryLoading ? (
-        <div className="h-10 animate-pulse rounded-xl bg-zinc-200/50 dark:bg-zinc-700/50" />
-      ) : summary ? (
-        <FinancialEquation summary={summary} />
-      ) : null}
+      {summary ? <FinancialEquation summary={summary} /> : null}
 
       <div className="space-y-8">
         <div className="space-y-8">

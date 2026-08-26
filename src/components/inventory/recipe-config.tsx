@@ -46,6 +46,8 @@ export interface ApiProductRecipeLine {
   id: string
   inventoryItemId: string
   quantityUsed: string
+  /** Modelo 1.5: cuántas porciones rinde un envase del insumo (derivado por el backend). */
+  yieldPerPackage?: string | null
   inventoryItemName: string
   inventoryBaseUnit: ApiInventoryItem["baseUnit"]
   inventoryPackageSize: string

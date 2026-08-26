@@ -33,6 +33,7 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { TicketQrDialog } from "@/components/events/ticket-qr-dialog"
 import type { ApiTicketType } from "@/components/events/ticket-types"
+import type { ApiPromoter } from "@/components/events/promoters-panel"
 import { Mail, Plus, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -81,6 +82,18 @@ function statusPill(status: ApiTicketRow["status"]) {
   }
 }
 
+function formatPrice(price: string | number): string {
+  const n = typeof price === "string" ? Number.parseFloat(price) : price
+  if (Number.isNaN(n)) return "—"
+  return (
+    "$ " +
+    new Intl.NumberFormat("es-AR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(Math.round(n))
+  )
+}
+
 function formatShortDate(value: string | null): string {
   if (value == null) return "—"
   const d = new Date(value)
@@ -97,7 +110,10 @@ type AttendeeTableProps = {
   refreshTrigger: number
   layout?: "default" | "canvas"
   hideExportButton?: boolean
-  onNewSale?: () => void
+  /** Se llama tras emitir una venta desde el formulario embebido, para refrescar el resto. */
+  onSaleCompleted?: () => void
+  /** Si es false, no se muestra el formulario de venta embebido. */
+  allowSale?: boolean
 }
 
 export type AttendeeTableHandle = {
@@ -106,13 +122,15 @@ export type AttendeeTableHandle = {
 
 export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>(
   function AttendeeTable(
-    { eventId, refreshTrigger, hideExportButton = false, onNewSale },
+    { eventId, refreshTrigger, hideExportButton = false, onSaleCompleted, allowSale = true },
     ref
   ) {
     const token = useAuthStore((s) => s.token)
 
     const [rows, setRows] = useState<ApiTicketRow[]>([])
     const [ticketTypes, setTicketTypes] = useState<ApiTicketType[]>([])
+    // Tarea 9.1 — Promotores activos de la productora para el selector de la venta manual.
+    const [promoters, setPromoters] = useState<ApiPromoter[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
@@ -126,6 +144,29 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     const [qrOpen, setQrOpen] = useState(false)
     const [actionLoading, setActionLoading] = useState<"email" | "cancel" | null>(null)
     const [cancelConfirming, setCancelConfirming] = useState(false)
+
+    // Venta embebida (reemplaza el modal de "Nueva venta").
+    const [saleOpen, setSaleOpen] = useState(false)
+    const [saleTypeId, setSaleTypeId] = useState<string>("")
+    const [saleName, setSaleName] = useState("")
+    const [saleEmail, setSaleEmail] = useState("")
+    // Tarea 9.1 — Atribución de la venta manual a un promotor (tickets.promoter_id).
+    const [salePromoterId, setSalePromoterId] = useState<string>("")
+    const [selling, setSelling] = useState(false)
+    const [saleError, setSaleError] = useState<string | null>(null)
+
+    const loadPromoters = useCallback(async () => {
+      if (!token) return
+      try {
+        const data = await apiFetch<{ promoters: ApiPromoter[] }>("/promoters", {
+          method: "GET",
+          token,
+        })
+        setPromoters(data.promoters.filter((p) => p.isActive))
+      } catch {
+        setPromoters([])
+      }
+    }, [token])
 
     const loadTicketTypes = useCallback(async () => {
       if (!token || !eventId) return
@@ -194,6 +235,10 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     useEffect(() => {
       void loadTicketTypes()
     }, [loadTicketTypes, refreshTrigger])
+
+    useEffect(() => {
+      void loadPromoters()
+    }, [loadPromoters])
 
     useEffect(() => {
       void loadTickets()
@@ -289,76 +334,240 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       if (detail == null) setCancelConfirming(false)
     }, [detail])
 
+    const openSale = useCallback(() => {
+      setSaleError(null)
+      setSaleName("")
+      setSaleEmail("")
+      setSalePromoterId("")
+      const first = ticketTypes.find((t) => t.stockLimit == null || t.sold < t.stockLimit)
+      setSaleTypeId(first?.id ?? "")
+      setSaleOpen(true)
+    }, [ticketTypes])
+
+    const submitSale = useCallback(async () => {
+      if (!token || !saleTypeId || selling) return
+      setSaleError(null)
+      setSelling(true)
+      try {
+        await apiFetch("/tickets/sell", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            eventId,
+            ticketTypeId: saleTypeId,
+            buyerName: saleName.trim(),
+            buyerEmail: saleEmail.trim(),
+            ...(salePromoterId !== ""
+              ? { promoterId: salePromoterId }
+              : {}),
+          }),
+        })
+        setSaleOpen(false)
+        toast.success("Venta emitida")
+        await Promise.all([loadTickets({ silent: true }), loadTicketTypes()])
+        onSaleCompleted?.()
+      } catch (err) {
+        setSaleError(err instanceof ApiError ? err.message : "No se pudo completar la venta")
+      } finally {
+        setSelling(false)
+      }
+    }, [token, saleTypeId, selling, eventId, saleName, saleEmail, loadTickets, loadTicketTypes, onSaleCompleted])
+
+    const saleSelected = ticketTypes.find((t) => t.id === saleTypeId)
+    const saleSoldOut =
+      saleSelected != null &&
+      saleSelected.stockLimit != null &&
+      saleSelected.sold >= saleSelected.stockLimit
+
+    const hasAttendees = rows.length > 0
+    const filtersActive = filterStatus !== "all" || filterTicketTypeId !== "all"
+    const showFilters = hasAttendees || filtersActive
+
     return (
       <section className="w-full space-y-5">
-        {/* Header: title + filters + new sale button all on one line */}
+        {/* Header: title + filters (ocultos hasta que haya asistentes) */}
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">
             Asistentes
           </h2>
-          {!hideExportButton && (
-            <Button
-              variant="ghost"
-              type="button"
-              onClick={exportCsv}
-              disabled={loading || filtered.length === 0}
-              className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/40 hover:text-foreground"
-            >
-              Exportar CSV
-            </Button>
+          {showFilters && (
+            <>
+              {!hideExportButton && (
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={exportCsv}
+                  disabled={loading || filtered.length === 0}
+                  className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/40 hover:text-foreground"
+                >
+                  Exportar CSV
+                </Button>
+              )}
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
+                <Input
+                  placeholder="Buscar asistente"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-44 rounded-xl border-white/[0.1] bg-white/[0.05] pl-8 text-[13px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
+                />
+              </div>
+              <Select
+                value={filterTicketTypeId}
+                onValueChange={(v) => setFilterTicketTypeId(v)}
+              >
+                <SelectTrigger className={filterTriggerClass}>
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  {ticketTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filterStatus}
+                onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}
+              >
+                <SelectTrigger className={cn(filterTriggerClass, "min-w-[100px]")}>
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="PENDING">Emitidas</SelectItem>
+                  <SelectItem value="USED">Usadas</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
           )}
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
-            <Input
-              placeholder="Buscar asistente"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 w-44 rounded-xl border-white/[0.1] bg-white/[0.05] pl-8 text-[13px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
-            />
-          </div>
-          <Select
-            value={filterTicketTypeId}
-            onValueChange={(v) => setFilterTicketTypeId(v)}
-          >
-            <SelectTrigger className={filterTriggerClass}>
-              <SelectValue placeholder="Tipo" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl">
-              <SelectItem value="all">Todos los tipos</SelectItem>
-              {ticketTypes.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={filterStatus}
-            onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}
-          >
-            <SelectTrigger className={cn(filterTriggerClass, "min-w-[100px]")}>
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl">
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="PENDING">Emitidas</SelectItem>
-              <SelectItem value="USED">Usadas</SelectItem>
-            </SelectContent>
-          </Select>
-          {onNewSale ? (
-            <Button
-              type="button"
-              onClick={onNewSale}
-              className="h-9 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-80"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Nueva venta</span>
-            </Button>
-          ) : null}
         </div>
 
         {error ? (
           <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p>
+        ) : null}
+
+        {/* Venta embebida en el listado (sin modal) */}
+        {allowSale ? (
+          <div className="rounded-2xl border border-dashed border-white/[0.12] bg-white/[0.015]">
+            {!saleOpen ? (
+              <button
+                type="button"
+                onClick={openSale}
+                className="flex w-full items-center gap-2 px-4 py-3.5 text-left text-[14px] font-medium text-[#FF9500] transition-colors hover:bg-white/[0.02]"
+              >
+                <Plus className="h-4 w-4" />
+                Nueva venta
+              </button>
+            ) : (
+              <div className="space-y-4 p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[15px] font-semibold text-white">Nueva venta</p>
+                  <button
+                    type="button"
+                    onClick={() => setSaleOpen(false)}
+                    className="text-[13px] text-white/40 transition-colors hover:text-white/70"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                {saleError ? (
+                  <p className="rounded-xl border border-red-900/50 bg-red-500/10 px-3 py-2 text-[13px] text-red-400">
+                    {saleError}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  {ticketTypes.map((t) => {
+                    const isSoldOut = t.stockLimit != null && t.sold >= t.stockLimit
+                    const isSelected = saleTypeId === t.id
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={isSoldOut}
+                        onClick={() => setSaleTypeId(t.id)}
+                        className={cn(
+                          "rounded-xl border px-3.5 py-2 text-left transition-colors",
+                          isSelected
+                            ? "border-[#FF9500]/50 bg-[#FF9500]/[0.08]"
+                            : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]",
+                          isSoldOut && "opacity-40"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "block text-[14px] font-medium",
+                            isSelected ? "text-white" : "text-white/60"
+                          )}
+                        >
+                          {t.name}
+                        </span>
+                        <span className="text-[12px] text-white/35">
+                          {isSoldOut ? "agotado" : formatPrice(t.effectivePrice ?? t.price)}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    value={saleName}
+                    onChange={(e) => setSaleName(e.target.value)}
+                    placeholder="Nombre (opcional)"
+                    autoComplete="name"
+                    className="h-10 rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
+                  />
+                  <Input
+                    type="email"
+                    value={saleEmail}
+                    onChange={(e) => setSaleEmail(e.target.value)}
+                    placeholder="Correo (opcional)"
+                    autoComplete="email"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !saleSoldOut) void submitSale()
+                    }}
+                    className="h-10 rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
+                  />
+                </div>
+
+                {/* Tarea 9.1 — Atribución de la venta manual a un promotor (opcional). */}
+                <Select
+                  value={salePromoterId === "" ? "none" : salePromoterId}
+                  onValueChange={(v) =>
+                    setSalePromoterId(v === "none" ? "" : v)
+                  }
+                >
+                  <SelectTrigger className="h-10 w-full rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0">
+                    <SelectValue placeholder="Promotor (opcional)" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="none" className="rounded-lg">
+                      Sin promotor
+                    </SelectItem>
+                    {promoters.map((p) => (
+                      <SelectItem key={p.id} value={p.id} className="rounded-lg">
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  type="button"
+                  onClick={() => void submitSale()}
+                  disabled={selling || !saleTypeId || saleSoldOut}
+                  className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
+                >
+                  {selling ? "Emitiendo…" : "Confirmar venta"}
+                </Button>
+              </div>
+            )}
+          </div>
         ) : null}
 
         <div className="overflow-hidden rounded-2xl">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Plus, Receipt, Trash2 } from "lucide-react"
+import { Receipt, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
@@ -10,13 +10,6 @@ import type {
 } from "@/types/event-dashboard"
 import { Button } from "@/components/ui/button"
 import { CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -45,8 +38,7 @@ const CATEGORY_OPTIONS: { value: EventExpenseCategory; label: string }[] = [
   { value: "OTHER", label: "Otro" },
 ]
 
-/** Música con tinte de acento app */
-function categoryBadgeClass(_category: EventExpenseCategory): string {
+function categoryBadgeClass(): string {
   return "bg-white/[0.07] text-white/45"
 }
 
@@ -107,7 +99,6 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
   const [expenses, setExpenses] = useState<EventExpenseRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [submitBusy, setSubmitBusy] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -177,7 +168,6 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
         }),
       })
       toast.success("Gasto registrado")
-      setDialogOpen(false)
       setFormDescription("")
       setFormCategory("OTHER")
       setFormAmount("")
@@ -223,81 +213,52 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
   }
 
   return (
-    <div className="space-y-8">
-      {embedded ? (
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-            Registro operativo del evento
+    <div className="space-y-6">
+      {!embedded ? (
+        <div>
+          <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
+            Finanzas
           </p>
-          <Button
-            type="button"
-            onClick={() => setDialogOpen(true)}
-            className="h-10 shrink-0 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-all duration-200 active:opacity-70"
-          >
-            <Plus className="h-4 w-4" />
-            Registrar gasto
-          </Button>
+          <h2 className="mt-1 text-[28px] font-bold tracking-tight text-black dark:text-white md:text-[34px]">
+            Gastos del evento
+          </h2>
         </div>
-      ) : (
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-              Finanzas
-            </p>
-            <h2 className="mt-1 text-[28px] font-bold tracking-tight text-black dark:text-white md:text-[34px]">
-              Gastos del evento
-            </h2>
-          </div>
-          <Button
-            type="button"
-            onClick={() => setDialogOpen(true)}
-            className="h-11 shrink-0 gap-2 self-start rounded-xl bg-[#FF9500] px-5 text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20">
-              <Plus className="h-4 w-4 text-white" />
-            </span>
-            Registrar gasto
-          </Button>
-        </div>
-      )}
+      ) : null}
 
-      <div className="rounded-2xl bg-background lg:max-w-md border-0">
-        <div className="pb-2 md:p-6 md:pb-2">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.07]">
-              <Receipt className="h-5 w-5 text-white/30" />
-            </span>
-            <CardTitle className="text-[13px] font-normal lowercase text-white/45">
-              Total de gastos
-            </CardTitle>
-          </div>
-        </div>
-        <div className="md:px-6 md:pb-6">
-          <p className="text-[34px] font-bold tabular-nums tracking-tight text-black dark:text-white">
-            {totalLabel}
-          </p>
-          {mercaderia.length > 0 ? (
-            <div className="mt-3 space-y-1 text-[13px]">
-              <div className="flex items-center justify-between">
-                <span className="text-white/45">Operativos</span>
-                <span className="tabular-nums text-white/70">{operativosLabel}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-white/45">Mercadería (compras de Barra)</span>
-                <span className="tabular-nums text-white/70">{mercaderiaLabel}</span>
-              </div>
+      {/* Total (solo cuando ya hay gastos) */}
+      {expenses.length > 0 ? (
+        <div className="rounded-2xl bg-background lg:max-w-md border-0">
+          <div className="pb-2 md:p-6 md:pb-2">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.07]">
+                <Receipt className="h-5 w-5 text-white/30" />
+              </span>
+              <CardTitle className="text-[13px] font-normal lowercase text-white/45">
+                Total de gastos
+              </CardTitle>
             </div>
-          ) : null}
+          </div>
+          <div className="md:px-6 md:pb-6">
+            <p className="text-[34px] font-bold tabular-nums tracking-tight text-black dark:text-white">
+              {totalLabel}
+            </p>
+            {mercaderia.length > 0 ? (
+              <div className="mt-3 space-y-1 text-[13px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-white/45">Operativos</span>
+                  <span className="tabular-nums text-white/70">{operativosLabel}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/45">Mercadería (compras de Barra)</span>
+                  <span className="tabular-nums text-white/70">{mercaderiaLabel}</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-
-      {operativos.length === 0 ? (
-        <p className="rounded-2xl  px-5 py-12 text-center text-[15px] text-white/40">
-          No hay gastos operativos. Cargá costos como sonido, DJ o alquiler acá; la mercadería
-          entra sola por las compras de la Barra.
-        </p>
-      ) : (
+      {operativos.length > 0 ? (
         <div className="overflow-hidden rounded-2xl ">
           <Table>
             <TableHeader>
@@ -336,7 +297,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
                     </TableCell>
                     <TableCell className="py-3">
                       <span
-                        className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${categoryBadgeClass(row.category)}`}
+                        className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${categoryBadgeClass()}`}
                       >
                         {catLabel}
                       </span>
@@ -363,98 +324,60 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
             </TableBody>
           </Table>
         </div>
-      )}
+      ) : null}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-md">
-          <div className="border-b border-white/[0.06] p-6">
-            <div className="flex gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.07]">
-                <Receipt className="h-6 w-6 text-white/30" />
-              </span>
-              <DialogHeader className="flex-1 text-left">
-                <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
-                  Registrar gasto
-                </DialogTitle>
-              </DialogHeader>
-            </div>
-          </div>
-          <div className="space-y-5 p-6">
-            <div className="space-y-2">
-              <label
-                className="text-[13px] font-normal text-white/45"
-                htmlFor="expense-desc"
-              >
-                Descripción
-              </label>
-              <Input
-                id="expense-desc"
-                placeholder="Ej. Cachet DJ, alquiler sonido"
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="space-y-2">
-              <span className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                Categoría
-              </span>
-              <Select
-                value={formCategory}
-                onValueChange={(v) => setFormCategory(v as EventExpenseCategory)}
-              >
-                <SelectTrigger className={selectClass}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl border-white/[0.08]">
-                  {CATEGORY_OPTIONS.map((c) => (
-                    <SelectItem key={c.value} value={c.value} className="rounded-lg py-2">
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label
-                className="text-[13px] font-normal text-white/45"
-                htmlFor="expense-amount"
-              >
-                Monto (ARS)
-              </label>
-              <Input
-                id="expense-amount"
-                type="text"
-                inputMode="decimal"
-                placeholder="0.00"
-                value={formAmount}
-                onChange={(e) => setFormAmount(e.target.value)}
-                className={cn(inputClass, "font-mono tabular-nums")}
-              />
-            </div>
-          </div>
-          <div className="border-t border-white/[0.06] bg-black/40 p-5">
-            <DialogFooter className="flex-col gap-3 sm:flex-col">
-              <Button
-                type="button"
-                disabled={!formDescription.trim() || !formAmount.trim() || submitBusy}
-                onClick={() => void submitExpense()}
-                className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
-              >
-                {submitBusy ? "Guardando…" : "Guardar"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDialogOpen(false)}
-                className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 transition-all duration-200 hover:border-white/25 active:opacity-50"
-              >
-                Cancelar
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Alta inline (sin modal): siempre disponible para empezar a cargar gastos. */}
+      <div className="space-y-2">
+        <p className="text-[13px] text-white/45">
+          Registrá un gasto operativo (sonido, DJ, alquiler…). La mercadería entra sola por las
+          compras de la Barra.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-white/[0.14] p-2">
+          <Input
+            placeholder="Descripción (ej. Cachet DJ)"
+            value={formDescription}
+            onChange={(e) => setFormDescription(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitExpense()
+            }}
+            className={cn(inputClass, "h-10 min-w-[160px] flex-1")}
+          />
+          <Select
+            value={formCategory}
+            onValueChange={(v) => setFormCategory(v as EventExpenseCategory)}
+          >
+            <SelectTrigger className={cn(selectClass, "h-10 w-[150px]")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border-white/[0.08]">
+              {CATEGORY_OPTIONS.map((c) => (
+                <SelectItem key={c.value} value={c.value} className="rounded-lg py-2">
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            type="text"
+            inputMode="decimal"
+            placeholder="$ Monto"
+            value={formAmount}
+            onChange={(e) => setFormAmount(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitExpense()
+            }}
+            className={cn(inputClass, "h-10 w-32 font-mono tabular-nums")}
+          />
+          <Button
+            type="button"
+            disabled={!formDescription.trim() || !formAmount.trim() || submitBusy}
+            onClick={() => void submitExpense()}
+            className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
+          >
+            {submitBusy ? "…" : "Agregar"}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

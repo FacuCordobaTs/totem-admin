@@ -340,7 +340,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
           <Button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+            className="h-8 gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08] active:opacity-70"
           >
             <Plus className="h-3.5 w-3.5" />
             Agregar puesto

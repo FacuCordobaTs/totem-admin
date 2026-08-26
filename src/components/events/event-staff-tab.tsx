@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
-import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
-import {
-  Check,
-  Copy,
-  ExternalLink,
-  MonitorSmartphone,
-  Plus,
-  QrCode,
-  UserPlus,
-  X,
-} from "lucide-react"
+import { Check, Copy, Plus, QrCode, UserPlus, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
@@ -21,6 +11,8 @@ import type {
   EventStaffListResponse,
 } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
+import { StaffInlineCreate } from "@/components/staff/staff-inline-create"
+import { PromotersPanel } from "@/components/events/promoters-panel"
 import { cn } from "@/lib/utils"
 
 type StaffRole = EventAssignmentStaffRow["role"]
@@ -196,12 +188,7 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
               : "Quién trabaja esta noche."}
           </p>
         </div>
-        {canInvite ? (
-          <div className="flex items-center gap-2">
-            <PosSessionPanel eventId={eventId} bars={bars} />
-            <InvitePanel onInvited={load} />
-          </div>
-        ) : null}
+        {canInvite ? <InvitePanel onInvited={load} /> : null}
       </div>
 
       {rows.length === 0 ? (
@@ -282,15 +269,17 @@ export function EventStaffTab({ eventId, eventStatus }: Props) {
         </div>
       )}
 
-      <div className="pt-1 text-[13px] text-white/40">
-        El equipo se hereda de la Productora.{" "}
-        <Link
-          to="/staff"
-          className="font-medium text-[#FF9500] transition-colors hover:text-[#FF9500]/80"
-        >
-          Gestionar equipo global
-        </Link>
+      {canInvite ? <StaffInlineCreate onCreated={load} /> : null}
+
+      {/* Tarea 9.1 — Promotores: ABM a nivel productora, atribución en ventas (9.1 + 9.2). */}
+      <div className="border-t border-white/[0.06] pt-5">
+        <PromotersPanel />
       </div>
+
+      <p className="pt-1 text-[13px] text-white/40">
+        El equipo se hereda de la Productora. Los empleados que agregues acá quedan disponibles
+        en todos tus eventos.
+      </p>
     </div>
   )
 }
@@ -438,239 +427,6 @@ function InvitePanel({ onInvited }: { onInvited: () => void }) {
               ))
             )}
           </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-// -----------------------------------------------------------------------------
-// Sesión de puesto (spec §1): fijar un dispositivo (POS) a un puesto concreto. El
-// admin genera un link/QR a /pos/sesion/:token; abierto en la tablet, el personal
-// rota entrando y saliendo solo con su PIN, sin volver a loguearse.
-// -----------------------------------------------------------------------------
-type PosSession = {
-  id: string
-  token: string
-  barId: string | null
-  label: string
-  lastUsedAt: string | null
-}
-
-function sessionUrl(token: string): string {
-  return `${window.location.origin}/pos/sesion/${token}`
-}
-
-function PosSessionPanel({
-  eventId,
-  bars,
-}: {
-  eventId: string
-  bars: EventBarRow[]
-}) {
-  const token = useAuthStore((s) => s.token)
-  const navigate = useNavigate()
-  const [open, setOpen] = useState(false)
-  const [sessions, setSessions] = useState<PosSession[]>([])
-  const [barId, setBarId] = useState<string>("")
-  const [creating, setCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const barOptions = bars.map((b) => ({
-    id: b.id,
-    label: b.isDefault ? "General" : b.name,
-  }))
-
-  useEffect(() => {
-    if (barId || barOptions.length === 0) return
-    const def = bars.find((b) => b.isDefault) ?? bars[0]
-    if (def) setBarId(def.id)
-  }, [bars, barId, barOptions.length])
-
-  const loadSessions = useCallback(async () => {
-    if (!token) return
-    try {
-      const data = await apiFetch<{ posSessions: PosSession[] }>(
-        `/staff/pos-sessions?eventId=${encodeURIComponent(eventId)}`,
-        { method: "GET", token }
-      )
-      setSessions(data.posSessions)
-    } catch {
-      // silencioso
-    }
-  }, [token, eventId])
-
-  useEffect(() => {
-    if (open) void loadSessions()
-  }, [open, loadSessions])
-
-  async function create() {
-    if (!token || creating || !barId) return
-    setError(null)
-    setCreating(true)
-    try {
-      await apiFetch<{ posSession: { token: string } }>("/staff/pos-sessions", {
-        method: "POST",
-        token,
-        body: JSON.stringify({ eventId, barId }),
-      })
-      await loadSessions()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo abrir la sesión")
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  async function close(id: string) {
-    if (!token) return
-    const prev = sessions
-    setSessions((list) => list.filter((s) => s.id !== id))
-    try {
-      await apiFetch(`/staff/pos-sessions/${id}/close`, { method: "POST", token })
-    } catch {
-      setSessions(prev)
-    }
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.12] px-3 text-[13px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white"
-      >
-        <MonitorSmartphone className="h-3.5 w-3.5" />
-        Puesto
-      </button>
-
-      {open ? (
-        <div className="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-white/[0.1] bg-zinc-950 p-4 shadow-xl">
-          <p className="mb-2 text-[13px] text-white/45">
-            Fijá una tablet a un puesto. El personal rota con su PIN.
-          </p>
-          <div className="flex items-center gap-2">
-            <select
-              value={barId}
-              onChange={(e) => setBarId(e.target.value)}
-              className="h-10 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none focus:border-white/25"
-            >
-              {barOptions.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={create}
-              disabled={creating || !barId}
-              className="inline-flex h-10 items-center gap-1 rounded-lg bg-[#FF9500] px-3 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Abrir
-            </button>
-          </div>
-          {error ? <p className="mt-2 text-[12px] text-red-400">{error}</p> : null}
-
-          <div className="mt-3 space-y-1.5">
-            {sessions.length === 0 ? (
-              <p className="py-1 text-[13px] text-white/35">
-                Abrí una sesión y en la tablet escaneá el QR o pegá el link. Queda
-                fijada al puesto hasta que la cierres.
-              </p>
-            ) : (
-              sessions.map((s) => (
-                <PosSessionRow
-                  key={s.id}
-                  session={s}
-                  onClose={close}
-                  onOpenHere={() => navigate(`/pos/sesion/${s.token}`)}
-                />
-              ))
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function PosSessionRow({
-  session,
-  onClose,
-  onOpenHere,
-}: {
-  session: PosSession
-  onClose: (id: string) => void
-  onOpenHere: () => void
-}) {
-  const [copied, setCopied] = useState(false)
-  const [showQr, setShowQr] = useState(false)
-  const url = sessionUrl(session.token)
-  function copy() {
-    void navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-  return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
-      <div className="flex items-center gap-2">
-        <span className="flex-1 truncate text-[13px] text-white/70">
-          {session.label}
-        </span>
-        <button
-          type="button"
-          onClick={onOpenHere}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Abrir acá
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowQr((v) => !v)}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
-            showQr
-              ? "border-white/25 text-white"
-              : "border-white/[0.1] text-white/60 hover:border-white/25 hover:text-white"
-          )}
-          aria-pressed={showQr}
-        >
-          <QrCode className="h-3.5 w-3.5" />
-          QR
-        </button>
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-emerald-400" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-          {copied ? "Copiado" : "Link"}
-        </button>
-        <button
-          type="button"
-          onClick={() => onClose(session.id)}
-          className="rounded-md p-1 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
-          aria-label="Cerrar sesión de puesto"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {showQr ? (
-        <div className="mt-2.5 flex flex-col items-center gap-2 border-t border-white/[0.06] pt-3">
-          <div className="rounded-lg bg-white p-3">
-            <QRCodeSVG value={url} size={160} level="M" />
-          </div>
-          <p className="text-center text-[12px] text-white/35">
-            Escaneá desde la tablet del puesto.
-          </p>
         </div>
       ) : null}
     </div>

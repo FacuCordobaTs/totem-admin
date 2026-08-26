@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile, type StaffRole } from "@/stores/auth-store"
+import { BrandLockup } from "@/components/auth/brand-lockup"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { cn } from "@/lib/utils"
 
@@ -102,9 +103,7 @@ export function JoinPage() {
   return (
     <div className="min-h-dvh flex items-center justify-center w-full bg-black px-6 selection:bg-[#FF9500]/10 selection:text-[#FF9500]">
       <div className="w-full max-w-sm animate-in fade-in duration-700">
-        <div className="flex justify-center mb-12">
-          <img src="/logo.png" alt="Crow" className="h-12 w-auto rounded-2xl" />
-        </div>
+        <BrandLockup className="mb-12" />
 
         {loading ? (
           <p className="text-center text-sm text-muted-foreground">Cargando…</p>

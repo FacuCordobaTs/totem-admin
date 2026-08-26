@@ -14,6 +14,7 @@ import {
 } from "@/components/onboarding/productora-setup-card"
 import { CucuruConnectionCard } from "@/components/settings/cucuru-connection-card"
 import { MpConnectionCard } from "@/components/settings/mp-connection-card"
+import { WhatsAppConnectionCard } from "@/components/settings/whatsapp-connection-card"
 
 const SETTINGS_TABS = ["profile", "finances", "productora"] as const
 type SettingsTab = (typeof SETTINGS_TABS)[number]
@@ -151,6 +152,7 @@ export function SettingsPage() {
         <>
           <MpConnectionCard tenantId={tenantId ?? null} token={token} />
           <CucuruConnectionCard tenantId={tenantId ?? null} token={token} />
+          <WhatsAppConnectionCard tenantId={tenantId ?? null} token={token} />
         </>
       ) : null}
       <Panel>

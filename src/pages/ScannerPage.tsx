@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { Scanner } from "@yudiel/react-qr-scanner"
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/select"
 import { apiFetch, ApiError } from "@/lib/api"
 import { parseQrHash } from "@/lib/parse-qr-hash"
+import { parseDniBarcode } from "@/lib/dni-barcode"
 import { playScannerSound } from "@/lib/scanner-sound"
 import { useAuthStore } from "@/stores/auth-store"
 import { Sidebar } from "@/components/dashboard/sidebar"
@@ -20,9 +22,12 @@ import {
   Camera,
   CameraOff,
   ChevronLeft,
+  IdCard,
+  QrCode,
   RefreshCw,
   ScanLine,
   SwitchCamera,
+  UserX,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -33,20 +38,108 @@ type ValidateResponse = {
     buyerName: string | null
     buyerEmail: string | null
   }
+  /** Tarea 3.2 — id del tipo de entrada: el color del chip sale de este id (mapa por tipo). */
+  ticketTypeId: string
   ticketTypeName: string
+}
+
+/** Tarea 1.4 — Respuesta de `POST /tickets/validate-by-dni` (misma lógica que el QR, con
+ * discriminadores para la puerta: tipo de entrada y `reentry`). */
+type ValidateByDniResponse = {
+  message: string
+  ticket: {
+    id: string
+    buyerName: string | null
+    buyerEmail: string | null
+    status: string
+  }
+  buyerName: string | null
+  /** Tarea 3.2 — id del tipo de entrada: el color del chip sale de este id (mapa por tipo). */
+  ticketTypeId: string
+  ticketTypeName: string
+  status: string
+  reentry?: boolean
+  gatePassCount?: number
 }
 
 type OverlayState =
   | {
       kind: "success"
       buyerName: string
+      /** Tarea 3.2 — id del tipo de entrada: el color del chip sale de este id (mapa por tipo). */
+      ticketTypeId: string
       ticketTypeName: string
+      /** Tarea 1.3 — true cuando el ticket ya había entrado y el evento permite reingreso. */
+      reentry?: boolean
+      /** Tarea 1.3 — número de pase (gate_logs) para el aviso de reingreso. */
+      gatePassCount?: number
     }
   | {
       kind: "error"
       headline: string
       detail: string
+      /** Tarea 3.2 — persona en la lista de admisión: foto (R2) + motivo + nombre. */
+      blacklist?: { motivo: string; foto: string | null; fullName: string | null }
     }
+
+type ScanMode = "qr" | "dni"
+
+/** Tarea 3.1 — id del contenedor del lector de DNI: html5-qrcode v2 resuelve el elemento por
+ * `document.getElementById(id)` en el constructor (no acepta el elemento directo). */
+const DNI_SCANNER_ELEMENT_ID = "dni-barcode-scanner"
+
+/** Tarea 3.2 — El evento elegido en puerta persiste entre sesiones (localStorage): el guardia
+ * no tiene que volver a elegirlo cada vez que abre la pantalla. */
+const SCANNER_EVENT_STORAGE_KEY = "crow:scanner:selectedEventId"
+
+/** Tarea 3.2 — Color por tipo de entrada (visión §2.4: "VIP o General, bien diferenciado por
+ * color"). Los nombres conocidos mapean a colores de marca — VIP = dorado, General = blanco —
+ * y los tipos custom del evento caen en una paleta determinística por hash del `ticketTypeId`
+ * para distinguirse de un vistazo. */
+type TicketTypeColor = { chip: string; halo: string }
+
+const KNOWN_TICKET_TYPE_COLORS: { match: RegExp; color: TicketTypeColor }[] = [
+  { match: /vip|dorad|gold/i, color: { chip: "bg-amber-400 text-amber-950", halo: "shadow-amber-400/60" } },
+  { match: /general/i, color: { chip: "bg-white text-neutral-950", halo: "shadow-white/60" } },
+  { match: /early|anticip/i, color: { chip: "bg-sky-300 text-sky-950", halo: "shadow-sky-300/60" } },
+  { match: /premium|plus/i, color: { chip: "bg-fuchsia-400 text-fuchsia-950", halo: "shadow-fuchsia-400/60" } },
+]
+
+const FALLBACK_TICKET_TYPE_COLORS: TicketTypeColor[] = [
+  { chip: "bg-violet-400 text-violet-950", halo: "shadow-violet-400/60" },
+  { chip: "bg-cyan-300 text-cyan-950", halo: "shadow-cyan-300/60" },
+  { chip: "bg-rose-400 text-rose-950", halo: "shadow-rose-400/60" },
+  { chip: "bg-lime-300 text-lime-950", halo: "shadow-lime-300/60" },
+  { chip: "bg-orange-300 text-orange-950", halo: "shadow-orange-300/60" },
+]
+
+function ticketTypeColor(ticketTypeId: string, ticketTypeName: string): TicketTypeColor {
+  for (const { match, color } of KNOWN_TICKET_TYPE_COLORS) {
+    if (match.test(ticketTypeName)) return color
+  }
+  // Fallback ante un backend desplegado sin el `ticketTypeId` nuevo (frontend y backend se
+  // despliegan por separado): se hashea lo que haya.
+  const seed = ticketTypeId || ticketTypeName
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return FALLBACK_TICKET_TYPE_COLORS[h % FALLBACK_TICKET_TYPE_COLORS.length]
+}
+
+/** Tarea 3.2 — Extrae la entrada de blacklist (motivo + foto de R2 + nombre) del error 403 de
+ * `POST /tickets/validate*`: el backend la devuelve en el body cuando la persona figura en la
+ * lista de admisión. */
+function blacklistFromError(
+  err: unknown
+): { motivo: string; foto: string | null; fullName: string | null } | undefined {
+  if (!(err instanceof ApiError) || err.body == null) return undefined
+  const { motivo } = err.body
+  if (typeof motivo !== "string") return undefined
+  return {
+    motivo,
+    foto: typeof err.body.foto === "string" ? err.body.foto : null,
+    fullName: typeof err.body.fullName === "string" ? err.body.fullName : null,
+  }
+}
 
 function formatEventLabel(ev: ApiEvent): string {
   const d = new Date(ev.date)
@@ -63,10 +156,21 @@ function formatEventLabel(ev: ApiEvent): string {
 
 function errorHeadline(message: string): string {
   const m = message.toLowerCase()
+  if (m.includes("lista de admisión")) return "¡Lista de admisión!"
   if (m.includes("otro evento")) return "¡Evento incorrecto!"
   if (m.includes("ya usado")) return "¡Ya usado!"
   if (m.includes("inválido")) return "¡QR no válido!"
   return "No se pudo validar"
+}
+
+/** Tarea 3.1 — Edad en años cumplidos a partir de una fecha de nacimiento ISO (chequeo +18). */
+function ageFromBirthDate(iso: string): number {
+  const b = new Date(iso)
+  const now = new Date()
+  let age = now.getFullYear() - b.getFullYear()
+  const monthDiff = now.getMonth() - b.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < b.getDate())) age--
+  return age
 }
 
 export function ScannerPage() {
@@ -83,13 +187,32 @@ export function ScannerPage() {
   const [cameraOn, setCameraOn] = useState(true)
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
 
+  /** Tarea 3.1 — Modo de lectura: QR de entrada (default) o código de barras del DNI físico. */
+  const [mode, setMode] = useState<ScanMode>("qr")
+
   const [overlay, setOverlay] = useState<OverlayState | null>(null)
   const [sessionOk, setSessionOk] = useState(0)
+
+  /** Tarea 3.1 — Paso mínimo del guardia: el documento escaneado no trae fecha de nacimiento
+   * (libreta verde) y el evento exige +18: hay que cargarla para validar la edad. */
+  const [dniDatePrompt, setDniDatePrompt] = useState<{ dni: string } | null>(null)
+  const [promptBirthDate, setPromptBirthDate] = useState("")
 
   const inFlightRef = useRef(false)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Tarea 3.1 — ciclo de vida del escáner de DNI (html5-qrcode, Code 128/39) -----------
+  const dniScannerRef = useRef<Html5Qrcode | null>(null)
+  const dniRunRef = useRef(0)
+  const dniShouldScanRef = useRef(false)
+
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null
+
+  /** Tarea 3.2 — Cambio de evento en puerta: se persiste para la próxima sesión. */
+  const handleEventChange = (id: string) => {
+    setSelectedEventId(id)
+    localStorage.setItem(SCANNER_EVENT_STORAGE_KEY, id)
+  }
 
   const loadEvents = useCallback(async () => {
     if (!token) return
@@ -100,10 +223,15 @@ export function ScannerPage() {
         method: "GET",
         token,
       })
-      const list = data.events.filter((e) => e.isActive !== false)
+      // Tarea 11.3 — `isActive` retirado del modelo: la puerta ofrece eventos no cerrados.
+      const list = data.events.filter((e) => e.status !== "closed")
       setEvents(list)
       setSelectedEventId((prev) => {
         if (prev && list.some((e) => e.id === prev)) return prev
+        // Tarea 3.2 — Si el guardia ya eligió un evento antes (localStorage), se respeta;
+        // la puerta arranca lista sin volver a elegir.
+        const saved = localStorage.getItem(SCANNER_EVENT_STORAGE_KEY)
+        if (saved && list.some((e) => e.id === saved)) return saved
         return list[0]?.id ?? ""
       })
     } catch (err) {
@@ -164,6 +292,8 @@ export function ScannerPage() {
         setOverlay({
           kind: "success",
           buyerName: name,
+          // Tarea 3.2 — el chip del tipo de entrada se colorea con este id.
+          ticketTypeId: res.ticketTypeId,
           ticketTypeName: typeName,
         })
         setSessionOk((n) => n + 1)
@@ -176,10 +306,14 @@ export function ScannerPage() {
         playScannerSound("error")
         const msg =
           err instanceof ApiError ? err.message : "Error de red. Probá de nuevo."
+        // Tarea 3.2 — blacklist: el 403 trae motivo + foto (R2) + nombre; la pantalla los
+        // muestra en grande para que el guardia identifique a la persona.
+        const blacklist = blacklistFromError(err)
         setOverlay({
           kind: "error",
           headline: errorHeadline(msg),
           detail: msg,
+          blacklist,
         })
         inFlightRef.current = false
       }
@@ -187,8 +321,247 @@ export function ScannerPage() {
     [token, selectedEventId, overlay]
   )
 
+  /** Tarea 1.4 — Valida la entrada por DNI: mismo endpoint de lógica que el QR, resuelto por
+   * `tickets.buyer_dni`. La blacklist ya la chequea el backend (403 con motivo/foto). */
+  const validateDni = useCallback(
+    async (dni: string) => {
+      if (!token || !selectedEventId) return
+      inFlightRef.current = true
+      try {
+        const res = await apiFetch<ValidateByDniResponse>(
+          "/tickets/validate-by-dni",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify({ eventId: selectedEventId, dni }),
+          }
+        )
+
+        playScannerSound("success")
+        const name = res.buyerName?.trim() || "Asistente"
+        const typeName = res.ticketTypeName || "Entrada"
+        setOverlay({
+          kind: "success",
+          buyerName: name,
+          // Tarea 3.2 — el chip del tipo de entrada se colorea con este id.
+          ticketTypeId: res.ticketTypeId,
+          ticketTypeName: typeName,
+          reentry: res.reentry === true,
+          gatePassCount: res.gatePassCount,
+        })
+        setSessionOk((n) => n + 1)
+
+        clearSuccessTimer()
+        successTimerRef.current = setTimeout(() => {
+          dismissOverlay()
+        }, 1500)
+      } catch (err) {
+        playScannerSound("error")
+        const msg =
+          err instanceof ApiError ? err.message : "Error de red. Probá de nuevo."
+        // Tarea 3.2 — blacklist: el 403 trae motivo + foto (R2) + nombre; la pantalla los
+        // muestra en grande para que el guardia identifique a la persona.
+        const blacklist = blacklistFromError(err)
+        setOverlay({
+          kind: "error",
+          headline: errorHeadline(msg),
+          detail: msg,
+          blacklist,
+        })
+        inFlightRef.current = false
+      }
+    },
+    [token, selectedEventId]
+  )
+
+  /** Tarea 3.1 — Un código de barras de DNI escaneado: parsea el documento, chequea +18
+   * (si el evento lo exige) y recién entonces valida la entrada por DNI. */
+  const handleDniScan = useCallback(
+    async (raw: string) => {
+      if (!token || !selectedEventId || overlay || dniDatePrompt || inFlightRef.current)
+        return
+
+      const parsed = parseDniBarcode(raw)
+      if (!parsed) {
+        playScannerSound("error")
+        setOverlay({
+          kind: "error",
+          headline: "Código no reconocido",
+          detail: "Escaneá el código de barras de la parte de atrás del DNI.",
+        })
+        return
+      }
+
+      const restriction = selectedEvent?.ageRestriction ?? null
+      if (restriction != null && restriction > 0) {
+        if (!parsed.birthDate) {
+          // Libreta verde: no trae fecha de nacimiento → paso mínimo del guardia (3.1).
+          setDniDatePrompt({ dni: parsed.dni })
+          return
+        }
+        const age = ageFromBirthDate(parsed.birthDate)
+        if (age < restriction) {
+          playScannerSound("error")
+          setOverlay({
+            kind: "error",
+            headline: "Menor de edad",
+            detail: `El evento es +${restriction} y esta persona tiene ${age} años.`,
+          })
+          return
+        }
+      }
+
+      void validateDni(parsed.dni)
+    },
+    [token, selectedEventId, overlay, dniDatePrompt, validateDni, selectedEvent]
+  )
+
+  const handleDniScanRef = useRef(handleDniScan)
+  handleDniScanRef.current = handleDniScan
+
+  const stopDniScanner = useCallback(async () => {
+    // Invalida cualquier arranque en vuelo (un `start()` pendiente de la cámara se auto-detiene
+    // al resolver) y suelta la cámara del escáner activo.
+    dniRunRef.current++
+    const s = dniScannerRef.current
+    dniScannerRef.current = null
+    if (s?.isScanning) {
+      try {
+        await s.stop()
+      } catch {
+        // Cámara ya liberada o detenida en paralelo: no es un error de la puerta.
+      }
+    }
+  }, [])
+
+  const startDniScanner = useCallback(async () => {
+    if (!document.getElementById(DNI_SCANNER_ELEMENT_ID)) return
+    const run = ++dniRunRef.current
+    // Suelta el escáner anterior SIN invalidar este arranque (stopDniScanner sí lo haría).
+    const prev = dniScannerRef.current
+    dniScannerRef.current = null
+    if (prev?.isScanning) {
+      try {
+        await prev.stop()
+      } catch {
+        // Cámara ya liberada: no es un error.
+      }
+    }
+    if (run !== dniRunRef.current) return
+
+    const attempt = async (tryCount: number): Promise<void> => {
+      if (run !== dniRunRef.current || !dniShouldScanRef.current) return
+      const s = new Html5Qrcode(DNI_SCANNER_ELEMENT_ID, {
+        verbose: false,
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.CODE_128, // DNI nuevo (tarjeta plástica)
+          Html5QrcodeSupportedFormats.CODE_39, // libreta verde
+        ],
+      })
+      if (run !== dniRunRef.current) return
+      dniScannerRef.current = s
+      try {
+        await s.start(
+          { facingMode },
+          {
+            fps: 10,
+            qrbox: { width: 300, height: 120 }, // la barra del DNI es horizontal
+          },
+          (decodedText) => handleDniScanRef.current(decodedText),
+          () => {
+            /* errores por frame: silenciosos */
+          }
+        )
+        // Invalidado mientras arrancaba (overlay, cambio de evento/modo, cámara off):
+        // el escáner no debe quedar encendido aunque la cámara ya se haya adquirido.
+        if (run !== dniRunRef.current || !dniShouldScanRef.current) {
+          dniScannerRef.current = null
+          if (s.isScanning) {
+            try {
+              await s.stop()
+            } catch {
+              // ya detenida
+            }
+          }
+        }
+      } catch {
+        // Cámara en uso (permiso negado o el lector de QR recién se apagó): reintenta una vez.
+        dniScannerRef.current = null
+        if (
+          run === dniRunRef.current &&
+          tryCount < 2 &&
+          dniShouldScanRef.current
+        ) {
+          setTimeout(() => void attempt(tryCount + 1), 500)
+        }
+      }
+    }
+
+    await attempt(1)
+  }, [facingMode, stopDniScanner])
+
+  const dniScanningActive =
+    mode === "dni" &&
+    !!selectedEventId &&
+    cameraOn &&
+    overlay === null &&
+    dniDatePrompt === null &&
+    !!token
+  dniShouldScanRef.current = dniScanningActive
+
+  useEffect(() => {
+    if (!dniScanningActive) {
+      void stopDniScanner()
+      return
+    }
+    void startDniScanner()
+    return () => {
+      void stopDniScanner()
+    }
+  }, [dniScanningActive, startDniScanner, stopDniScanner])
+
+  const switchMode = (next: ScanMode) => {
+    setMode(next)
+    if (next === "qr") {
+      // El prompt de fecha solo vive en modo DNI.
+      setDniDatePrompt(null)
+      setPromptBirthDate("")
+    }
+  }
+
+  const confirmPromptBirthDate = () => {
+    if (!dniDatePrompt || !promptBirthDate) return
+    const dni = dniDatePrompt.dni
+    const restriction = selectedEvent?.ageRestriction ?? null
+    setDniDatePrompt(null)
+    setPromptBirthDate("")
+    if (restriction != null && restriction > 0) {
+      const age = ageFromBirthDate(promptBirthDate)
+      if (age < restriction) {
+        playScannerSound("error")
+        setOverlay({
+          kind: "error",
+          headline: "Menor de edad",
+          detail: `El evento es +${restriction} y esta persona tiene ${age} años.`,
+        })
+        return
+      }
+    }
+    void validateDni(dni)
+  }
+
   const scannerPaused =
-    !cameraOn || !selectedEventId || overlay !== null || !token
+    !cameraOn ||
+    !selectedEventId ||
+    overlay !== null ||
+    dniDatePrompt !== null ||
+    !token
+
+  /** Tarea 3.2 — Color del chip del tipo de entrada del overlay activo (si es un éxito). */
+  const successColor =
+    overlay?.kind === "success"
+      ? ticketTypeColor(overlay.ticketTypeId, overlay.ticketTypeName)
+      : null
 
   const scannerMain = (
     <div
@@ -240,7 +613,7 @@ export function ScannerPage() {
             No hay eventos activos. Creá uno en el panel de eventos.
           </p>
         ) : (
-          <Select value={selectedEventId} onValueChange={setSelectedEventId}>
+          <Select value={selectedEventId} onValueChange={handleEventChange}>
             <SelectTrigger className="h-12 w-full rounded-xl border-zinc-700 bg-[#1C1C1E] text-[15px] text-white">
               <SelectValue placeholder="Seleccionar evento" />
             </SelectTrigger>
@@ -253,6 +626,36 @@ export function ScannerPage() {
             </SelectContent>
           </Select>
         )}
+      </div>
+
+      {/* Tarea 3.1 — Alternar QR de entrada / DNI físico. */}
+      <div className="mx-auto mt-4 flex w-full max-w-lg gap-1 rounded-xl border border-zinc-800 bg-[#1C1C1E] p-1">
+        <button
+          type="button"
+          onClick={() => switchMode("qr")}
+          className={cn(
+            "flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-[14px] font-semibold transition-colors",
+            mode === "qr"
+              ? "bg-[#FF9500] text-white"
+              : "text-[#98989D] hover:text-white"
+          )}
+        >
+          <QrCode className="h-4 w-4" />
+          Código QR
+        </button>
+        <button
+          type="button"
+          onClick={() => switchMode("dni")}
+          className={cn(
+            "flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-[14px] font-semibold transition-colors",
+            mode === "dni"
+              ? "bg-[#FF9500] text-white"
+              : "text-[#98989D] hover:text-white"
+          )}
+        >
+          <IdCard className="h-4 w-4" />
+          DNI físico
+        </button>
       </div>
 
       {sessionOk > 0 && (
@@ -271,20 +674,27 @@ export function ScannerPage() {
           style={{ aspectRatio: "1" }}
         >
           {selectedEventId && cameraOn && token ? (
-            <Scanner
-              onScan={(detected) => void handleScan(detected)}
-              constraints={{ facingMode }}
-              paused={scannerPaused}
-              sound={false}
-              scanDelay={600}
-              components={{ torch: false }}
-              onError={() => {
-                /* cámara: errores silenciosos; el usuario puede reiniciar */
-              }}
-              classNames={{
-                container: "h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover",
-              }}
-            />
+            mode === "qr" ? (
+              <Scanner
+                onScan={(detected) => void handleScan(detected)}
+                constraints={{ facingMode }}
+                paused={scannerPaused}
+                sound={false}
+                scanDelay={600}
+                components={{ torch: false }}
+                onError={() => {
+                  /* cámara: errores silenciosos; el usuario puede reiniciar */
+                }}
+                classNames={{
+                  container: "h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover",
+                }}
+              />
+            ) : (
+              <div
+                id={DNI_SCANNER_ELEMENT_ID}
+                className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover"
+              />
+            )
           ) : (
             <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 bg-neutral-900 p-6 text-center">
               <CameraOff className="h-14 w-14 text-neutral-600" />
@@ -301,7 +711,7 @@ export function ScannerPage() {
           {!scannerPaused && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent py-4 text-center">
               <p className="text-[13px] font-semibold tracking-wide text-[#FF9500]">
-                Buscando QR…
+                {mode === "qr" ? "Buscando QR…" : "Buscando DNI…"}
               </p>
             </div>
           )}
@@ -349,23 +759,42 @@ export function ScannerPage() {
         </div>
 
         <p className="mx-auto mt-8 max-w-lg text-center text-[13px] leading-relaxed text-[#636366]">
-          Apuntá al código de la entrada.
+          {mode === "qr"
+            ? "Apuntá al código de la entrada."
+            : "Apuntá al código de barras de la parte de atrás del DNI."}
         </p>
       </div>
 
-      {overlay?.kind === "success" && (
+      {overlay?.kind === "success" && successColor && (
         <div
           className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-emerald-500 px-6 text-center text-neutral-950"
           role="alert"
         >
-          <p className="text-4xl font-black tracking-tight sm:text-5xl">
-            ¡Ticket válido!
-          </p>
-          <p className="mt-6 text-2xl font-bold sm:text-3xl">{overlay.buyerName}</p>
-          <p className="mt-2 text-lg font-medium opacity-90">
+          {/* Tarea 3.2 — Chip del tipo de entrada: el color identifica el tipo de un vistazo
+              (VIP = dorado, General = blanco; tipos custom → paleta por hash del id). */}
+          <span
+            className={cn(
+              "rounded-full px-6 py-2 text-xl font-black uppercase tracking-widest shadow-2xl sm:text-2xl",
+              successColor.chip,
+              successColor.halo
+            )}
+          >
             {overlay.ticketTypeName}
+          </span>
+          <p className="mt-7 text-4xl font-black tracking-tight sm:text-5xl">
+            {overlay.reentry ? "¡Reingreso!" : "¡Ticket válido!"}
           </p>
-          <p className="mt-8 text-sm font-medium opacity-80">Ingreso autorizado</p>
+          {/* Tarea 3.2 — Nombre grande: se lee desde la fila (visión §2.4). */}
+          <p className="mt-4 w-full max-w-3xl truncate text-5xl font-black leading-tight sm:text-7xl">
+            {overlay.buyerName}
+          </p>
+          <p className="mt-7 text-lg font-medium opacity-90 sm:text-xl">
+            {overlay.reentry
+              ? overlay.gatePassCount
+                ? `Ya entró — reingreso (pase #${overlay.gatePassCount})`
+                : "Ya entró — reingreso"
+              : "Ingreso autorizado"}
+          </p>
         </div>
       )}
 
@@ -377,9 +806,33 @@ export function ScannerPage() {
           <p className="text-4xl font-black tracking-tight sm:text-5xl">
             {overlay.headline}
           </p>
-          <p className="mt-4 max-w-md text-lg font-medium opacity-95">
-            {overlay.detail}
-          </p>
+          {overlay.blacklist ? (
+            <>
+              {/* Tarea 3.2 — Blacklist: foto cargada en R2 + nombre + motivo en grande. Sin
+                  foto, un ícono ocupa el lugar para que el guardia igual tenga el bloque. */}
+              {overlay.blacklist.foto ? (
+                <img
+                  src={overlay.blacklist.foto}
+                  alt="Foto de la persona en la lista de admisión"
+                  className="mt-6 h-44 w-44 rounded-2xl border-4 border-white/80 object-cover shadow-2xl sm:h-52 sm:w-52"
+                />
+              ) : (
+                <div className="mt-6 flex h-44 w-44 items-center justify-center rounded-2xl border-4 border-white/30 bg-black/20 sm:h-52 sm:w-52">
+                  <UserX className="h-16 w-16 opacity-80" />
+                </div>
+              )}
+              <p className="mt-4 text-3xl font-black">
+                {overlay.blacklist.fullName ?? "Persona sin nombre"}
+              </p>
+              <p className="mt-2 max-w-md text-lg font-medium opacity-95">
+                Motivo: {overlay.blacklist.motivo}
+              </p>
+            </>
+          ) : (
+            <p className="mt-4 max-w-md text-lg font-medium opacity-95">
+              {overlay.detail}
+            </p>
+          )}
           <Button
             type="button"
             size="lg"
@@ -389,6 +842,53 @@ export function ScannerPage() {
             <RefreshCw className="mr-2 h-6 w-6" />
             Volver a intentar
           </Button>
+        </div>
+      )}
+
+      {/* Tarea 3.1 — Paso mínimo del guardia: fecha de nacimiento para el +18 cuando el
+          código del documento (libreta verde) no la trae. */}
+      {dniDatePrompt && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 p-6"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-[#1C1C1E] p-6 text-white">
+            <h2 className="text-lg font-bold">Control de edad</h2>
+            <p className="mt-2 text-[14px] leading-relaxed text-[#98989D]">
+              Este documento no trae la fecha de nacimiento en el código. Ingresala para
+              validar el +{selectedEvent?.ageRestriction ?? 18} del evento.
+            </p>
+            <input
+              type="date"
+              value={promptBirthDate}
+              onChange={(e) => setPromptBirthDate(e.target.value)}
+              className="mt-4 h-12 w-full rounded-xl border border-zinc-700 bg-[#0C0C0E] px-3 text-[15px] text-white [color-scheme:dark]"
+            />
+            <div className="mt-5 flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="lg"
+                className="h-12 flex-1 rounded-xl border border-zinc-700 text-white hover:bg-white/5"
+                onClick={() => {
+                  setDniDatePrompt(null)
+                  setPromptBirthDate("")
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                className="h-12 flex-1 rounded-xl bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+                disabled={!promptBirthDate}
+                onClick={confirmPromptBirthDate}
+              >
+                Validar
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

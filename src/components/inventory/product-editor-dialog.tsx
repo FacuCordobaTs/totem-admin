@@ -13,9 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { RecipeIngredientRow } from "@/components/inventory/recipe-ingredient-row"
+import { RecipeYieldEditor } from "@/components/inventory/recipe-yield-editor"
 import { ProductImageUploader } from "@/components/inventory/product-image-uploader"
 import {
   draftLineQuantityForApi,
+  draftLineYieldForApi,
   materialSupportsFullBottle,
   recipeApiLineToDraft,
   type ProductSaleType,
@@ -89,6 +91,8 @@ export type ProductEditorDialogProps = {
   onRemovedFromMenu?: () => void
   /** Called after deactivating product from catalog */
   onDeletedFromCatalog?: () => void
+  /** Modo empotrado (solo alta): renderiza el wizard en la página, sin modal. */
+  embedded?: boolean
 }
 
 export function ProductEditorDialog({
@@ -104,6 +108,7 @@ export function ProductEditorDialog({
   onSaved,
   onRemovedFromMenu,
   onDeletedFromCatalog,
+  embedded = false,
 }: ProductEditorDialogProps) {
   const isCreate = product === null
 
@@ -242,16 +247,47 @@ export function ProductEditorDialog({
     if (!token || !name.trim() || !basePrice.trim()) return
     setSaving(true)
     try {
-      const effectiveMaterials = localMaterials
-      const recipes = recipeDraftLines
-        .filter((l) => lineIsSavable(l, effectiveMaterials, saleType))
-        .map((l) => ({
-          inventoryItemId: l.inventoryItemId,
-          quantityUsed: draftLineQuantityForApi(
-            l,
-            effectiveMaterials.find((m) => m.id === l.inventoryItemId)
-          ),
-        }))
+      const effectiveMaterials = [...localMaterials]
+      let recipes: { inventoryItemId: string; quantityUsed?: string; yieldPerPackage?: string }[]
+
+      if (saleType === "GLASS") {
+        // Modelo "rinde N por envase": cada fila trae nombre + rinde. Resolvemos el insumo por
+        // nombre (o lo creamos como contable) y mandamos yieldPerPackage; el backend deriva el ml.
+        recipes = []
+        for (const l of recipeDraftLines) {
+          const itemName = (l.name ?? "").trim()
+          const yieldValue = draftLineYieldForApi(l)
+          if (!itemName || yieldValue === "0") continue
+          let itemId = l.inventoryItemId
+          if (!itemId) {
+            const existing = effectiveMaterials.find(
+              (m) => m.name.trim().toLowerCase() === itemName.toLowerCase()
+            )
+            if (existing) {
+              itemId = existing.id
+            } else {
+              const res = await apiFetch<{ item: ApiInventoryItem }>("/inventory/items", {
+                method: "POST",
+                token,
+                body: JSON.stringify({ name: itemName, baseUnit: "UNIT", countingUnit: "envase" }),
+              })
+              itemId = res.item.id
+              effectiveMaterials.push(res.item)
+            }
+          }
+          recipes.push({ inventoryItemId: itemId, yieldPerPackage: yieldValue })
+        }
+      } else {
+        recipes = recipeDraftLines
+          .filter((l) => lineIsSavable(l, effectiveMaterials, saleType))
+          .map((l) => ({
+            inventoryItemId: l.inventoryItemId,
+            quantityUsed: draftLineQuantityForApi(
+              l,
+              effectiveMaterials.find((m) => m.id === l.inventoryItemId)
+            ),
+          }))
+      }
 
       let productId: string
 
@@ -352,9 +388,8 @@ export function ProductEditorDialog({
   if (isCreate) {
     const step1Valid = name.trim().length > 0 && basePrice.trim().length > 0
 
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-black p-0 sm:max-w-[600px]">
+    const wizardBody = (
+      <>
           {/* Header */}
           <DialogHeader className="flex flex-row items-start justify-between border-b border-white/[0.06] px-6 py-5">
             <div className="flex flex-col gap-3">
@@ -597,9 +632,23 @@ export function ProductEditorDialog({
               {wizardStep === 3 && (
                 <>
                   <div className="space-y-1.5">
-                    <p className="text-[22px] font-bold text-white">Receta de insumos</p>                    
+                    <p className="text-[22px] font-bold text-white">Receta de insumos</p>
+                    <p className="text-[13px] text-white/35">
+                      {saleType === "GLASS"
+                        ? `Anotá cada insumo y cuántos ${name.trim() || "tragos"} rinde un envase.`
+                        : "Elegí qué envase se descuenta por cada venta."}
+                    </p>
                   </div>
 
+                  {saleType === "GLASS" ? (
+                    <RecipeYieldEditor
+                      lines={recipeDraftLines}
+                      materials={localMaterials}
+                      productName={name}
+                      onChange={setRecipeDraftLines}
+                    />
+                  ) : (
+                  <>
                   {/* Recipe lines */}
                   {recipeDraftLines.length > 0 ? (
                     <div className="space-y-3">
@@ -729,6 +778,8 @@ export function ProductEditorDialog({
                       </div>
                     </div>
                   ) : null}
+                  </>
+                  )}
                 </>
               )}
             </div>
@@ -739,13 +790,17 @@ export function ProductEditorDialog({
             <div className="flex items-center justify-between gap-4">
               {/* Left: back or cancel */}
               {wizardStep === 1 ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenChange(false)}
-                  className="text-[14px] text-white/35 transition-colors hover:text-white/60"
-                >
-                  Cancelar
-                </button>
+                embedded ? (
+                  <span />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onOpenChange(false)}
+                    className="text-[14px] text-white/35 transition-colors hover:text-white/60"
+                  >
+                    Cancelar
+                  </button>
+                )
               ) : (
                 <button
                   type="button"
@@ -787,6 +842,21 @@ export function ProductEditorDialog({
               )}
             </div>
           </div>
+      </>
+    )
+
+    if (embedded) {
+      return (
+        <div className="flex w-full flex-col gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
+          {wizardBody}
+        </div>
+      )
+    }
+
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-black p-0 sm:max-w-[600px]">
+          {wizardBody}
         </DialogContent>
       </Dialog>
     )
@@ -985,36 +1055,49 @@ export function ProductEditorDialog({
               <div>
                 <p className="text-[15px] font-semibold text-white">Receta</p>
                 <p className="mt-0.5 text-[13px] text-white/40">
-                  Qué se descuenta del stock por cada venta.
+                  {saleType === "GLASS"
+                    ? `Cuántos ${name.trim() || "tragos"} rinde un envase de cada insumo.`
+                    : "Qué se descuenta del stock por cada venta."}
                 </p>
               </div>
-              <div className="space-y-3">
-                {recipeDraftLines.map((line, idx) => (
-                  <RecipeIngredientRow
-                    key={`${line.inventoryItemId}-${idx}`}
-                    line={line}
-                    index={idx}
-                    materials={materials}
-                    saleType={saleType}
-                    onChange={(i, patch) =>
-                      setRecipeDraftLines((prev) =>
-                        prev.map((l, j) => (j === i ? { ...l, ...patch } : l))
-                      )
-                    }
-                    onRemove={(i) =>
-                      setRecipeDraftLines((prev) => prev.filter((_, j) => j !== i))
-                    }
-                  />
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={addLine}
-                className="flex items-center gap-1.5 text-[13px] text-white/35 transition-colors hover:text-white/60"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Agregar insumo
-              </button>
+              {saleType === "GLASS" ? (
+                <RecipeYieldEditor
+                  lines={recipeDraftLines}
+                  materials={localMaterials}
+                  productName={name}
+                  onChange={setRecipeDraftLines}
+                />
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    {recipeDraftLines.map((line, idx) => (
+                      <RecipeIngredientRow
+                        key={`${line.inventoryItemId}-${idx}`}
+                        line={line}
+                        index={idx}
+                        materials={materials}
+                        saleType={saleType}
+                        onChange={(i, patch) =>
+                          setRecipeDraftLines((prev) =>
+                            prev.map((l, j) => (j === i ? { ...l, ...patch } : l))
+                          )
+                        }
+                        onRemove={(i) =>
+                          setRecipeDraftLines((prev) => prev.filter((_, j) => j !== i))
+                        }
+                      />
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="flex items-center gap-1.5 text-[13px] text-white/35 transition-colors hover:text-white/60"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Agregar insumo
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Imagen */}
