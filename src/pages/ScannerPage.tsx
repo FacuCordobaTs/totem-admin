@@ -497,16 +497,19 @@ export function ScannerPage() {
       dniScannerRef.current = s
       try {
         await s.start(
-          {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            advanced: [
-              { focusMode: "continuous" } as ExtendedMediaTrackConstraintSet,
-            ],
-          },
+          { facingMode },
           {
             fps: 10,
+            // html5-qrcode exige las restricciones completas dentro de `videoConstraints`;
+            // el primer argumento solo admite facingMode o deviceId.
+            videoConstraints: {
+              facingMode: { ideal: facingMode },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              advanced: [
+                { focusMode: "continuous" } as ExtendedMediaTrackConstraintSet,
+              ],
+            },
             // Un cuadro cuadrado sirve para el QR nuevo y sigue dejando entrar completo el
             // PDF417/código de barras horizontal de los documentos anteriores.
             qrbox: (viewfinderWidth, viewfinderHeight) => {
@@ -574,7 +577,7 @@ export function ScannerPage() {
     }
 
     await attempt(1)
-  }, [facingMode, stopDniScanner])
+  }, [facingMode])
 
   const dniScanningActive =
     mode === "dni" &&

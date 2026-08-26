@@ -835,6 +835,14 @@ export function PosPage() {
     if (posSession) navigate(`/pos/sesion/${posSession.token}`, { replace: true })
   }
 
+  // Este hook debe ejecutarse antes de los retornos de los estados de turno. Al resolver
+  // una barra asignada, el componente pasa de "cargando" al POS sin cambiar el orden de hooks.
+  const balanceAmount = useMemo(() => {
+    if (customerBalance == null) return null
+    const n = Number.parseFloat(customerBalance)
+    return Number.isFinite(n) ? n : null
+  }, [customerBalance])
+
   if (shiftResolving) {
     return (
       <div
@@ -900,12 +908,6 @@ export function PosPage() {
 
   // Tarea 6.3 — Saldo en caja: con "Saldo" seleccionado, el cobro exige DNI y fondos
   // suficientes (el backend lo valida de nuevo; esto desactiva el botón antes de tiempo).
-  const balanceAmount = useMemo(() => {
-    if (customerBalance == null) return null
-    const n = Number.parseFloat(customerBalance)
-    return Number.isFinite(n) ? n : null
-  }, [customerBalance])
-
   const canCharge =
     posReady &&
     cart.length > 0 &&
