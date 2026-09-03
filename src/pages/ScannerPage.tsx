@@ -19,8 +19,10 @@ import {
   Camera,
   CameraOff,
   ChevronLeft,
+  ChevronRight,
   EllipsisVertical,
   Flashlight,
+  History,
   IdCard,
   QrCode,
   RefreshCw,
@@ -83,6 +85,17 @@ type OverlayState =
     }
 
 type ScanMode = "qr" | "dni"
+
+type ScannedTicket = {
+  id: string
+  buyerName: string | null
+  scannedAt: string | null
+  ticketTypeName: string
+}
+
+type ScannedTicketsResponse = { tickets: ScannedTicket[] }
+
+const SCANNED_TICKETS_PER_PAGE = 10
 
 /** Tarea 3.1 — id del contenedor del lector de DNI: html5-qrcode v2 resuelve el elemento por
  * `document.getElementById(id)` en el constructor (no acepta el elemento directo). */
@@ -195,6 +208,11 @@ export function ScannerPage() {
   const [eventsError, setEventsError] = useState<string | null>(null)
   const [selectedEventId, setSelectedEventId] = useState<string>("")
 
+  const [scannedTickets, setScannedTickets] = useState<ScannedTicket[]>([])
+  const [scannedTicketsLoading, setScannedTicketsLoading] = useState(false)
+  const [scannedTicketsError, setScannedTicketsError] = useState<string | null>(null)
+  const [scannedTicketsPage, setScannedTicketsPage] = useState(1)
+
   const [cameraOn, setCameraOn] = useState(true)
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
   const [torchAvailable, setTorchAvailable] = useState(false)
@@ -256,6 +274,37 @@ export function ScannerPage() {
     void loadEvents()
   }, [loadEvents])
 
+  const loadScannedTickets = useCallback(async () => {
+    if (!token || !selectedEventId) {
+      setScannedTickets([])
+      return
+    }
+
+    setScannedTicketsError(null)
+    setScannedTicketsLoading(true)
+    try {
+      const data = await apiFetch<ScannedTicketsResponse>(
+        `/events/${selectedEventId}/tickets?status=USED&orderBy=scannedAt&order=desc`,
+        { method: "GET", token }
+      )
+      setScannedTickets(data.tickets)
+    } catch (err) {
+      setScannedTickets([])
+      setScannedTicketsError(
+        err instanceof ApiError
+          ? err.message
+          : "No se pudieron cargar las entradas escaneadas"
+      )
+    } finally {
+      setScannedTicketsLoading(false)
+    }
+  }, [selectedEventId, token])
+
+  useEffect(() => {
+    setScannedTicketsPage(1)
+    void loadScannedTickets()
+  }, [loadScannedTickets])
+
   const dismissOverlay = () => {
     setOverlay(null)
     inFlightRef.current = false
@@ -290,6 +339,7 @@ export function ScannerPage() {
           ticketTypeId: res.ticketTypeId,
           ticketTypeName: typeName,
         })
+        void loadScannedTickets()
       } catch (err) {
         playScannerSound("error")
         const msg =
@@ -306,7 +356,7 @@ export function ScannerPage() {
         inFlightRef.current = false
       }
     },
-    [token, selectedEventId, overlay]
+    [token, selectedEventId, overlay, loadScannedTickets]
   )
 
   /** Tarea 1.4 — Valida la entrada por DNI: mismo endpoint de lógica que el QR, resuelto por
@@ -337,6 +387,7 @@ export function ScannerPage() {
           reentry: res.reentry === true,
           gatePassCount: res.gatePassCount,
         })
+        void loadScannedTickets()
         if (closeManualKeyboard) manualDniInputRef.current?.blur()
       } catch (err) {
         playScannerSound("error")
@@ -354,7 +405,7 @@ export function ScannerPage() {
         inFlightRef.current = false
       }
     },
-    [token, selectedEventId]
+    [token, selectedEventId, loadScannedTickets]
   )
 
   /** Tarea 3.1 — Un código de barras de DNI escaneado: parsea el documento, chequea +18
@@ -635,6 +686,15 @@ export function ScannerPage() {
     !token
 
   /** Tarea 3.2 — Color del chip del tipo de entrada del overlay activo (si es un éxito). */
+  const scannedTicketsTotalPages = Math.max(
+    1,
+    Math.ceil(scannedTickets.length / SCANNED_TICKETS_PER_PAGE)
+  )
+  const scannedTicketsPageItems = scannedTickets.slice(
+    (scannedTicketsPage - 1) * SCANNED_TICKETS_PER_PAGE,
+    scannedTicketsPage * SCANNED_TICKETS_PER_PAGE
+  )
+
   const successColor =
     overlay?.kind === "success"
       ? ticketTypeColor(overlay.ticketTypeId, overlay.ticketTypeName)
@@ -903,6 +963,102 @@ export function ScannerPage() {
             ? "Apuntá al código de la entrada."
             : "Apuntá al QR o código de barras de la parte de atrás del DNI."}
         </p>
+
+        <section
+          className="mx-auto mt-8 w-full max-w-lg border-t border-zinc-800 pt-6"
+          aria-labelledby="scanned-tickets-title"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <History className="h-5 w-5 text-[#FF9500]" />
+              <h2 id="scanned-tickets-title" className="text-base font-bold text-white">
+                Entradas escaneadas
+              </h2>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-[#98989D] hover:bg-white/5 hover:text-white"
+              onClick={() => void loadScannedTickets()}
+              disabled={scannedTicketsLoading}
+            >
+              Actualizar
+            </Button>
+          </div>
+
+          {scannedTicketsLoading ? (
+            <p className="py-5 text-sm text-[#98989D]">Cargando entradas escaneadas…</p>
+          ) : scannedTicketsError ? (
+            <p className="py-5 text-sm text-red-400">{scannedTicketsError}</p>
+          ) : scannedTicketsPageItems.length === 0 ? (
+            <p className="py-5 text-sm text-[#98989D]">
+              Todavía no se escaneó ninguna entrada.
+            </p>
+          ) : (
+            <>
+              <ul className="mt-4 space-y-2">
+                {scannedTicketsPageItems.map((ticket) => (
+                  <li
+                    key={ticket.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-[#1C1C1E] px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-white">
+                        {ticket.buyerName?.trim() || "Asistente"}
+                      </p>
+                      <p className="mt-0.5 truncate text-sm text-[#98989D]">
+                        {ticket.ticketTypeName || "Entrada"}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-right text-xs text-[#98989D]">
+                      {ticket.scannedAt
+                        ? new Date(ticket.scannedAt).toLocaleTimeString("es-AR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "Sin hora"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              {scannedTicketsTotalPages > 1 ? (
+                <div className="mt-4 flex items-center justify-between">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-[#98989D] hover:bg-white/5 hover:text-white"
+                    disabled={scannedTicketsPage === 1}
+                    onClick={() => setScannedTicketsPage((page) => Math.max(1, page - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <span className="text-xs font-medium text-[#98989D]">
+                    Página {scannedTicketsPage} de {scannedTicketsTotalPages}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-[#98989D] hover:bg-white/5 hover:text-white"
+                    disabled={scannedTicketsPage === scannedTicketsTotalPages}
+                    onClick={() =>
+                      setScannedTicketsPage((page) =>
+                        Math.min(scannedTicketsTotalPages, page + 1)
+                      )
+                    }
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
       </div>
 
       {overlay?.kind === "success" && successColor && (
