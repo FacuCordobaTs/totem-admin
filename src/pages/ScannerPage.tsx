@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { BrandLockup } from "@/components/auth/brand-lockup"
 import { apiFetch, ApiError } from "@/lib/api"
 import { parseQrHash } from "@/lib/parse-qr-hash"
 import { parseDniBarcode } from "@/lib/dni-barcode"
@@ -205,17 +206,19 @@ export function ScannerPage() {
   const [mode, setMode] = useState<ScanMode>("qr")
 
   const [overlay, setOverlay] = useState<OverlayState | null>(null)
-  const [sessionOk, setSessionOk] = useState(0)
 
   /** Tarea 3.1 — Paso mínimo del guardia: el documento escaneado no trae fecha de nacimiento
    * (libreta verde) y el evento exige +18: hay que cargarla para validar la edad. */
-  const [dniDatePrompt, setDniDatePrompt] = useState<{ dni: string } | null>(null)
+  const [dniDatePrompt, setDniDatePrompt] = useState<{
+    dni: string
+    closeManualKeyboard?: boolean
+  } | null>(null)
   const [promptBirthDate, setPromptBirthDate] = useState("")
   const [manualDni, setManualDni] = useState("")
   const [manualDniError, setManualDniError] = useState<string | null>(null)
 
   const inFlightRef = useRef(false)
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manualDniInputRef = useRef<HTMLInputElement | null>(null)
 
   // --- Tarea 3.1 — ciclo de vida del escáner de DNI (QR, PDF417 y barras legacy) ----------
   const dniScannerRef = useRef<Html5Qrcode | null>(null)
@@ -253,21 +256,7 @@ export function ScannerPage() {
     void loadEvents()
   }, [loadEvents])
 
-  useEffect(() => {
-    return () => {
-      if (successTimerRef.current) clearTimeout(successTimerRef.current)
-    }
-  }, [])
-
-  const clearSuccessTimer = () => {
-    if (successTimerRef.current) {
-      clearTimeout(successTimerRef.current)
-      successTimerRef.current = null
-    }
-  }
-
   const dismissOverlay = () => {
-    clearSuccessTimer()
     setOverlay(null)
     inFlightRef.current = false
   }
@@ -301,12 +290,6 @@ export function ScannerPage() {
           ticketTypeId: res.ticketTypeId,
           ticketTypeName: typeName,
         })
-        setSessionOk((n) => n + 1)
-
-        clearSuccessTimer()
-        successTimerRef.current = setTimeout(() => {
-          dismissOverlay()
-        }, 1500)
       } catch (err) {
         playScannerSound("error")
         const msg =
@@ -329,7 +312,7 @@ export function ScannerPage() {
   /** Tarea 1.4 — Valida la entrada por DNI: mismo endpoint de lógica que el QR, resuelto por
    * `tickets.buyer_dni`. La blacklist ya la chequea el backend (403 con motivo/foto). */
   const validateDni = useCallback(
-    async (dni: string) => {
+    async (dni: string, closeManualKeyboard = false) => {
       if (!token || !selectedEventId) return
       inFlightRef.current = true
       try {
@@ -354,12 +337,7 @@ export function ScannerPage() {
           reentry: res.reentry === true,
           gatePassCount: res.gatePassCount,
         })
-        setSessionOk((n) => n + 1)
-
-        clearSuccessTimer()
-        successTimerRef.current = setTimeout(() => {
-          dismissOverlay()
-        }, 1500)
+        if (closeManualKeyboard) manualDniInputRef.current?.blur()
       } catch (err) {
         playScannerSound("error")
         const msg =
@@ -401,7 +379,7 @@ export function ScannerPage() {
       if (restriction != null && restriction > 0) {
         if (!parsed.birthDate) {
           // Libreta verde: no trae fecha de nacimiento → paso mínimo del guardia (3.1).
-          setDniDatePrompt({ dni: parsed.dni })
+      setDniDatePrompt({ dni: parsed.dni })
           return
         }
         const age = ageFromBirthDate(parsed.birthDate)
@@ -621,10 +599,11 @@ export function ScannerPage() {
     setManualDniError(null)
     const restriction = selectedEvent?.ageRestriction ?? null
     if (restriction != null && restriction > 0) {
-      setDniDatePrompt({ dni })
+      manualDniInputRef.current?.blur()
+      setDniDatePrompt({ dni, closeManualKeyboard: true })
       return
     }
-    void validateDni(dni)
+    void validateDni(dni, true)
   }
 
   const confirmPromptBirthDate = () => {
@@ -645,7 +624,7 @@ export function ScannerPage() {
         return
       }
     }
-    void validateDni(dni)
+    void validateDni(dni, dniDatePrompt.closeManualKeyboard)
   }
 
   const scannerPaused =
@@ -664,6 +643,7 @@ export function ScannerPage() {
   const eventSelection = (
     <main className="flex min-h-svh items-center bg-black px-5 py-8 text-white">
       <section className="mx-auto w-full max-w-lg">
+        <BrandLockup className="mb-8" />
         <h1 className="text-2xl font-bold tracking-tight">Elegí un evento</h1>
         <p className="mt-2 text-[15px] text-[#98989D]">
           Seleccioná el evento en el que vas a controlar los accesos.
@@ -694,7 +674,6 @@ export function ScannerPage() {
                 className="w-full rounded-2xl border border-zinc-800 bg-[#1C1C1E] px-5 py-4 text-left transition-colors hover:border-[#FF9500]/60 hover:bg-zinc-900 active:opacity-70"
                 onClick={() => {
                   setSelectedEventId(event.id)
-                  setSessionOk(0)
                 }}
               >
                 <span className="block text-[17px] font-semibold text-white">{event.name}</span>
@@ -786,14 +765,39 @@ export function ScannerPage() {
         </button>
       </div>
 
-      {sessionOk > 0 && (
-        <div className="flex items-center justify-center gap-2 border-b border-zinc-800/50 bg-white/5 py-2.5 text-[13px] font-medium text-[#98989D]">
-          <ScanLine className="h-4 w-4 text-[#FF9500]" />
-          <span>Validados en esta sesión: {sessionOk}</span>
-        </div>
-      )}
-
       <div className="flex flex-1 flex-col px-3 py-4 sm:px-4">
+        {mode === "dni" && (
+          <div className="mx-auto mb-4 w-full max-w-lg">
+            <label htmlFor="manual-dni" className="sr-only">Ingresar DNI</label>
+            <input
+              ref={manualDniInputRef}
+              id="manual-dni"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={manualDni}
+              onChange={(e) => {
+                setManualDni(e.target.value.replace(/\D/g, "").slice(0, 9))
+                setManualDniError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmManualDni()
+              }}
+              placeholder="Ingresar DNI"
+              disabled={!selectedEventId || !token}
+              aria-invalid={manualDniError != null}
+              aria-describedby={manualDniError ? "manual-dni-error" : undefined}
+              className="h-16 w-full rounded-2xl border border-zinc-700 bg-[#1C1C1E] px-5 text-xl font-semibold tracking-wide text-white outline-none placeholder:font-medium placeholder:text-[#98989D] focus:border-[#FF9500] focus:ring-2 focus:ring-[#FF9500]/25 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+            {manualDniError && (
+              <p id="manual-dni-error" className="mt-2 text-sm font-medium text-red-400">
+                {manualDniError}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-[#636366]">Presioná Enter para validar.</p>
+          </div>
+        )}
+
         <div
           className={cn(
             "relative mx-auto w-full max-w-lg overflow-hidden rounded-2xl border-2 bg-black",
@@ -891,35 +895,6 @@ export function ScannerPage() {
                 </div>
               </div>
             )}
-
-            <div>
-              <label htmlFor="manual-dni" className="sr-only">Ingresar DNI</label>
-              <input
-                id="manual-dni"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                value={manualDni}
-                onChange={(e) => {
-                  setManualDni(e.target.value.replace(/\D/g, "").slice(0, 9))
-                  setManualDniError(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") confirmManualDni()
-                }}
-                placeholder="Ingresar DNI"
-                disabled={!selectedEventId || !token}
-                aria-invalid={manualDniError != null}
-                aria-describedby={manualDniError ? "manual-dni-error" : undefined}
-                className="h-16 w-full rounded-2xl border border-zinc-700 bg-[#1C1C1E] px-5 text-xl font-semibold tracking-wide text-white outline-none placeholder:font-medium placeholder:text-[#98989D] focus:border-[#FF9500] focus:ring-2 focus:ring-[#FF9500]/25 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              {manualDniError && (
-                <p id="manual-dni-error" className="mt-2 text-sm font-medium text-red-400">
-                  {manualDniError}
-                </p>
-              )}
-              <p className="mt-2 text-xs text-[#636366]">Presioná Enter para validar.</p>
-            </div>
           </div>
         )}
 
@@ -960,6 +935,15 @@ export function ScannerPage() {
                 : "Ya entró — reingreso"
               : "Ingreso autorizado"}
           </p>
+          <Button
+            type="button"
+            size="lg"
+            className="mt-10 h-16 min-w-[min(100%,280px)] bg-white text-lg font-bold text-emerald-700 hover:bg-neutral-100"
+            onClick={dismissOverlay}
+          >
+            <ScanLine className="mr-2 h-6 w-6" />
+            Volver a escanear
+          </Button>
         </div>
       )}
 
