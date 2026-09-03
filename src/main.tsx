@@ -44,7 +44,7 @@ function LegacyEventRedirect() {
 function MpOAuthRedirect() {
   const [sp] = useSearchParams()
   const next = new URLSearchParams(sp)
-  next.set("tab", "finances")
+  next.delete("tab")
   return <Navigate to={`/configuracion?${next.toString()}`} replace />
 }
 

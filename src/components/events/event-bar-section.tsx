@@ -7,14 +7,14 @@ import type {
   EventMenuProductRow,
   EventMenuProductsResponse,
 } from "@/types/event-dashboard"
-import type { ApiProduct, ApiProductCategory } from "@/components/inventory/recipe-config"
+import type { ApiProduct } from "@/components/inventory/recipe-config"
 import type { ApiInventoryItem } from "@/components/inventory/raw-materials"
 import { hasBottlePackage, stockBaseToBottleDraft } from "@/lib/inventory-units"
 import { ProductEditorDialog } from "@/components/inventory/product-editor-dialog"
 import { EventBarsTab } from "@/components/events/event-bars-tab"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
 const inputClass =
@@ -31,7 +31,6 @@ type EventInvRow = {
 
 type EventInventoryListResponse = { items: EventInvRow[] }
 type ProductsApi = { products: ApiProduct[] }
-type CategoriesApi = { categories: ApiProductCategory[] }
 type MaterialsApi = { items: ApiInventoryItem[] }
 
 function money(value: string | number): string {
@@ -117,35 +116,30 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
   const [menuRows, setMenuRows] = useState<EventMenuProductRow[]>([])
   const [catalogProducts, setCatalogProducts] = useState<ApiProduct[]>([])
   const [materials, setMaterials] = useState<ApiInventoryItem[]>([])
-  const [categories, setCategories] = useState<ApiProductCategory[]>([])
   const [insumos, setInsumos] = useState<EventInvRow[]>([])
   const [loading, setLoading] = useState(true)
 
   // Menu inline editing
   const [priceDraft, setPriceDraft] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [menuConfigOpen, setMenuConfigOpen] = useState(false)
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
 
-  // Product editor (create / edit)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editorProduct, setEditorProduct] = useState<ApiProduct | null>(null)
-  const [editorOverride, setEditorOverride] = useState<string | null>(null)
 
   const loadAll = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!token) return
       if (!opts?.silent) setLoading(true)
       try {
-        const [menuRes, productsRes, materialsRes, categoriesRes, invRes] = await Promise.all([
+        const [menuRes, productsRes, materialsRes, invRes] = await Promise.all([
           apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token }),
           apiFetch<ProductsApi>("/inventory/products", { method: "GET", token }),
           apiFetch<MaterialsApi>("/inventory/items", { method: "GET", token }),
-          apiFetch<CategoriesApi>("/inventory/categories", { method: "GET", token }),
           apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token }),
         ])
         setMenuRows(menuRes.products)
         setCatalogProducts(productsRes.products)
         setMaterials(materialsRes.items)
-        setCategories(categoriesRes.categories)
         setInsumos(invRes.items)
       } catch (e) {
         toast.error(e instanceof ApiError ? e.message : "No se pudo cargar la barra")
@@ -183,6 +177,10 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
           menuRows.some((m) => m.id === p.id && m.isActiveForEvent)
       ),
     [catalogProducts, menuRows]
+  )
+  const activeMenuRows = useMemo(
+    () => menuRows.filter((row) => row.isActiveForEvent),
+    [menuRows]
   )
 
   async function toggleMenu(productId: string, next: boolean) {
@@ -252,18 +250,6 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
     }
   }
 
-  function openCreate() {
-    setEditorProduct(null)
-    setEditorOverride(null)
-    setEditorOpen(true)
-  }
-
-  function openEdit(row: EventMenuProductRow) {
-    setEditorProduct(catalogById.get(row.id) ?? null)
-    setEditorOverride(row.priceOverride ?? null)
-    setEditorOpen(true)
-  }
-
   if (loading) {
     return (
       <div className="space-y-10">
@@ -279,25 +265,24 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
 
   return (
     <div className="space-y-12">
+      {/* ── Bloque A: Barras ──────────────────────────────────────── */}
+      <EventBarsTab eventId={eventId} embedded />
+
       {/* ── Bloque A: Menú del evento ─────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-[18px] font-semibold text-white">Menú del evento</h3>
-            {menuRows.length > 0 ? (
-              <p className="mt-0.5 text-[13px] text-white/35">
-                Prendé lo que se vende. Tocá el precio para uno especial.
-              </p>
-            ) : null}
+            <p className="mt-0.5 text-[13px] text-white/35">Productos activos y precio de venta del evento.</p>
           </div>
           {menuRows.length > 0 ? (
             <Button
               type="button"
-              onClick={openCreate}
+              onClick={() => setMenuConfigOpen(true)}
               className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
             >
               <Plus className="h-3.5 w-3.5" />
-              Nuevo producto
+              Configurar menú
             </Button>
           ) : null}
         </div>
@@ -310,38 +295,22 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
             product={null}
             eventId={eventId}
             materials={materials}
-            categories={categories}
-            onCategoriesChanged={() => void loadAll({ silent: true })}
             token={token}
             onSaved={() => void loadAll({ silent: true })}
           />
         ) : (
           <div className="divide-y divide-white/[0.06]">
-            {menuRows.map((row) => {
+            {activeMenuRows.map((row) => {
               const full = catalogById.get(row.id) ?? null
               const availability =
                 full && full.recipes.length > 0
                   ? calcProductAvailability(full, eventStockMap)
                   : null
-              const hasOverride = row.priceOverride != null && row.priceOverride !== ""
-              const draft = priceDraft[row.id]
-              const priceValue =
-                draft != null
-                  ? draft
-                  : hasOverride
-                    ? String(Number.parseFloat(row.priceOverride!))
-                    : ""
               return (
                 <div key={row.id} className="flex items-center gap-3 py-3">
-                  <Switch
-                    checked={row.isActiveForEvent}
-                    onCheckedChange={(v) => void toggleMenu(row.id, v)}
-                    disabled={togglingId === row.id}
-                    className="scale-90"
-                  />
                   <button
                     type="button"
-                    onClick={() => openEdit(row)}
+                    onClick={() => setMenuConfigOpen(true)}
                     className={cn(
                       "min-w-0 flex-1 text-left",
                       row.isActiveForEvent ? "" : "opacity-45"
@@ -358,64 +327,35 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
                     </span>
                   ) : null}
 
-                  {row.isActiveForEvent ? (
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Input
-                        type="text"
-                        inputMode="decimal"
-                        value={priceValue}
-                        placeholder={String(Number.parseFloat(row.price))}
-                        onChange={(e) =>
-                          setPriceDraft((d) => ({ ...d, [row.id]: e.target.value }))
-                        }
-                        onBlur={() => void persistOverride(row)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") (e.target as HTMLInputElement).blur()
-                        }}
-                        className={cn(
-                          inputClass,
-                          "w-24 text-right font-mono",
-                          hasOverride ? "text-[#FF9500]" : "text-white"
-                        )}
-                        aria-label={`Precio de evento de ${row.name}`}
-                      />
-                    </div>
-                  ) : null}
+                  <span className="shrink-0 text-sm font-semibold text-[#FF9500]">{money(row.priceOverride ?? row.price)}</span>
                 </div>
               )
             })}
           </div>
         )}
+        <Dialog open={menuConfigOpen} onOpenChange={setMenuConfigOpen}>
+          <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto rounded-2xl border-white/[0.1] bg-black p-0 text-white">
+            <DialogHeader className="border-b border-white/[0.06] px-5 py-5 text-left"><DialogTitle className="text-xl text-white">Configurar menú</DialogTitle><DialogDescription className="text-sm text-white/45">Activá productos y configurá su precio para este evento.</DialogDescription></DialogHeader>
+            <div className="space-y-5 p-5">
+              {[{ title: "Activos para el evento", rows: menuRows.filter((r) => r.isActiveForEvent) }, { title: "No activos para el evento", rows: menuRows.filter((r) => !r.isActiveForEvent) }].map((group) => <div key={group.title}><p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/35">{group.title}</p><div className="overflow-hidden rounded-xl border border-white/[0.07]">{group.rows.map((row) => { const open = editingPriceId === row.id; const value = priceDraft[row.id] ?? (row.priceOverride != null ? String(Number.parseFloat(row.priceOverride)) : ""); return <div key={row.id} onClick={() => void toggleMenu(row.id, !row.isActiveForEvent)} className="cursor-pointer border-b border-white/[0.05] px-3 py-2.5 last:border-0 hover:bg-white/[0.04]"><div className="flex items-center gap-3"><input type="checkbox" checked={row.isActiveForEvent} readOnly className="pointer-events-none accent-[#FF9500]" /><span className="min-w-0 flex-1 truncate text-sm text-white/80">{row.name}</span><span className="text-sm text-[#FF9500]">{money(row.priceOverride ?? row.price)}</span><Button type="button" variant="outline" onClick={(e) => { e.stopPropagation(); setEditingPriceId(open ? null : row.id) }} className="h-8 border-white/[0.12] bg-transparent px-2.5 text-xs text-white/70">Cambiar precio</Button></div>{open ? <div className="mt-2 flex gap-2 pl-10" onClick={(e) => e.stopPropagation()}><Input autoFocus inputMode="decimal" value={value} placeholder={String(Number.parseFloat(row.price))} onChange={(e) => setPriceDraft((d) => ({ ...d, [row.id]: e.target.value }))} className="h-9 max-w-36 border-white/[0.1] bg-white/[0.04] text-sm" /><Button type="button" onClick={() => { void persistOverride(row); setEditingPriceId(null) }} className="h-9 bg-[#FF9500] text-xs text-white">Guardar</Button></div> : null}</div> })}</div></div>)}
+            </div>
+          </DialogContent>
+        </Dialog>
       </section>
 
-      {/* ── Bloque B: Stock ───────────────────────────────────────── */}
+      {/* ── Bloque C: Stock ───────────────────────────────────────── */}
       <StockBlock
         eventId={eventId}
         insumos={insumos}
         activeGlassProducts={activeGlassProducts}
+        catalogProducts={catalogProducts}
+        materials={materials}
         onChanged={() => {
           onLogisticsChange?.()
           void loadAll({ silent: true })
         }}
       />
 
-      {/* ── Bloque C: Puestos ─────────────────────────────────────── */}
-      <EventBarsTab eventId={eventId} puestosMode />
-
-      <ProductEditorDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
-        product={editorProduct}
-        priceOverride={editorOverride}
-        eventId={eventId}
-        materials={materials}
-        categories={categories}
-        onCategoriesChanged={() => void loadAll({ silent: true })}
-        token={token}
-        onSaved={() => void loadAll({ silent: true })}
-        onRemovedFromMenu={() => void loadAll({ silent: true })}
-        onDeletedFromCatalog={() => void loadAll({ silent: true })}
-      />
     </div>
   )
 }
@@ -425,11 +365,15 @@ function StockBlock({
   eventId,
   insumos,
   activeGlassProducts,
+  catalogProducts,
+  materials,
   onChanged,
 }: {
   eventId: string
   insumos: EventInvRow[]
   activeGlassProducts: ApiProduct[]
+  catalogProducts: ApiProduct[]
+  materials: ApiInventoryItem[]
   onChanged: () => void
 }) {
   const token = useAuthStore((s) => s.token)
@@ -440,12 +384,13 @@ function StockBlock({
   const [cost, setCost] = useState("")
   const [saving, setSaving] = useState(false)
 
-  // new insumo compra
-  const [newOpen, setNewOpen] = useState(false)
-  const [newName, setNewName] = useState("")
-  const [newUnit, setNewUnit] = useState("botella")
-  const [newQty, setNewQty] = useState("")
-  const [newCost, setNewCost] = useState("")
+  // Compra guiada: primero se eligen los productos, después el insumo que se les asigna.
+  const [purchaseOpen, setPurchaseOpen] = useState(false)
+  const [purchaseProductIds, setPurchaseProductIds] = useState<string[]>([])
+  const [purchaseName, setPurchaseName] = useState("")
+  const [purchaseQty, setPurchaseQty] = useState("")
+  const [purchaseCost, setPurchaseCost] = useState("")
+  const [recipeAmounts, setRecipeAmounts] = useState<Record<string, string>>({})
 
   function resetInline() {
     setOpenId(null)
@@ -464,10 +409,6 @@ function StockBlock({
       })
       toast.success("Compra registrada")
       resetInline()
-      setNewOpen(false)
-      setNewName("")
-      setNewQty("")
-      setNewCost("")
       onChanged()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo registrar la compra")
@@ -491,25 +432,120 @@ function StockBlock({
     void submitPurchase(body)
   }
 
-  function submitNew() {
-    const name = newName.trim()
+  function closePurchase() {
+    if (saving) return
+    setPurchaseOpen(false)
+    setPurchaseProductIds([])
+    setPurchaseName("")
+    setPurchaseQty("")
+    setPurchaseCost("")
+    setRecipeAmounts({})
+  }
+
+  function togglePurchaseProduct(productId: string) {
+    setPurchaseProductIds((ids) =>
+      ids.includes(productId) ? ids.filter((id) => id !== productId) : [...ids, productId]
+    )
+  }
+
+  const purchaseMaterial = useMemo(
+    () => materials.find((m) => m.name.trim().toLowerCase() === purchaseName.trim().toLowerCase()),
+    [materials, purchaseName]
+  )
+  const selectedPurchaseProducts = useMemo(
+    () => catalogProducts.filter((p) => purchaseProductIds.includes(p.id)),
+    [catalogProducts, purchaseProductIds]
+  )
+  const productsNeedingRecipe = useMemo(
+    () =>
+      purchaseName.trim()
+        ? selectedPurchaseProducts.filter(
+            (p) => !purchaseMaterial || !p.recipes.some((r) => r.inventoryItemId === purchaseMaterial.id)
+          )
+        : [],
+    [purchaseMaterial, purchaseName, selectedPurchaseProducts]
+  )
+
+  async function submitGuidedPurchase() {
+    const name = purchaseName.trim()
     if (!name) {
       toast.error("Poné el nombre del insumo")
       return
     }
-    const q = Number.parseFloat(newQty.replace(",", "."))
+    if (selectedPurchaseProducts.length === 0) {
+      toast.error("Elegí al menos un producto para este insumo")
+      return
+    }
+    const q = Number.parseFloat(purchaseQty.replace(",", "."))
     if (!Number.isFinite(q) || q <= 0) {
       toast.error("Ingresá la cantidad")
       return
     }
-    const c = newCost.trim().replace(",", ".")
-    const body: Record<string, unknown> = {
-      itemName: name,
-      countingUnit: newUnit.trim() || "unidad",
-      quantity: q,
+    for (const product of productsNeedingRecipe) {
+      const amount = Number.parseFloat((recipeAmounts[product.id] ?? "").replace(",", "."))
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast.error(
+          product.saleType === "BOTTLE"
+            ? `Indicá cuántos envases consume ${product.name}`
+            : `Indicá cuántos tragos rinde ${name} para ${product.name}`
+        )
+        return
+      }
     }
-    if (c !== "") body.totalCost = Number.parseFloat(c)
-    void submitPurchase(body)
+
+    setSaving(true)
+    try {
+      // Si el insumo es nuevo lo creamos antes de la compra para poder asociarlo a las recetas.
+      let item = purchaseMaterial
+      if (!item) {
+        const res = await apiFetch<{ item: ApiInventoryItem }>("/inventory/items", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ name, baseUnit: "UNIT", countingUnit: "envase" }),
+        })
+        item = res.item
+      }
+
+      // PUT conserva la receta existente y agrega únicamente esta relación producto ↔ insumo.
+      for (const product of productsNeedingRecipe) {
+        const amount = (recipeAmounts[product.id] ?? "").trim().replace(",", ".")
+        await apiFetch(`/inventory/products/${product.id}`, {
+          method: "PUT",
+          token,
+          body: JSON.stringify({
+            name: product.name,
+            price: product.price,
+            saleType: product.saleType ?? "GLASS",
+            categoryId: product.categoryId ?? null,
+            recipes: [
+              ...product.recipes.map((r) => ({
+                inventoryItemId: r.inventoryItemId,
+                quantityUsed: r.quantityUsed,
+              })),
+              (product.saleType ?? "GLASS") === "BOTTLE"
+                ? { inventoryItemId: item.id, quantityUsed: amount }
+                : { inventoryItemId: item.id, yieldPerPackage: amount },
+            ],
+          }),
+        })
+      }
+
+      const c = purchaseCost.trim().replace(",", ".")
+      const body: Record<string, unknown> = { inventoryItemId: item.id, quantity: q }
+      if (c !== "") body.totalCost = Number.parseFloat(c)
+      await apiFetch(`/events/${eventId}/purchases`, {
+        method: "POST",
+        token,
+        body: JSON.stringify(body),
+      })
+      toast.success("Compra registrada y receta actualizada")
+      closePurchase()
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "No se pudo registrar la compra")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -521,7 +557,7 @@ function StockBlock({
         </div>
         <Button
           type="button"
-          onClick={() => setNewOpen((v) => !v)}
+          onClick={() => setPurchaseOpen(true)}
           className="h-8 gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08] active:opacity-70"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -529,60 +565,32 @@ function StockBlock({
         </Button>
       </div>
 
-      {newOpen ? (
-        <div className="space-y-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Insumo (ej. Fernet)"
-              className={inputClass}
-              autoFocus
-            />
-            <Input
-              value={newUnit}
-              onChange={(e) => setNewUnit(e.target.value)}
-              placeholder="botella"
-              className={cn(inputClass, "sm:w-28")}
-              aria-label="Unidad contable"
-            />
+      <Dialog open={purchaseOpen} onOpenChange={(open) => (open ? setPurchaseOpen(true) : closePurchase())}>
+        <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto rounded-2xl border-white/[0.1] bg-black p-0 text-white">
+          <DialogHeader className="border-b border-white/[0.06] px-5 py-5 text-left">
+            <DialogTitle className="text-xl text-white">Comprar mercadería</DialogTitle>
+            <DialogDescription className="text-sm text-white/45">Elegí a qué productos pertenece el insumo. Podés asignarlo a varios.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 p-5">
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-white/35">Productos</p>
+              <div className="max-h-44 divide-y divide-white/[0.06] overflow-y-auto rounded-xl border border-white/[0.08]">
+                {catalogProducts.map((product) => {
+                  const checked = purchaseProductIds.includes(product.id)
+                  return <label key={product.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04]"><input type="checkbox" checked={checked} onChange={() => togglePurchaseProduct(product.id)} className="accent-[#FF9500]" /><span className="min-w-0 flex-1 truncate text-sm text-white/85">{product.name}</span><span className="text-xs text-white/35">{(product.saleType ?? "GLASS") === "BOTTLE" ? "Botella" : "Trago"}</span></label>
+                })}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input autoFocus value={purchaseName} onChange={(e) => setPurchaseName(e.target.value)} placeholder="Insumo (ej. Fernet)" className={inputClass} />
+              <Input type="text" inputMode="decimal" value={purchaseQty} onChange={(e) => setPurchaseQty(e.target.value)} placeholder="Cantidad" className={inputClass} />
+              <Input type="text" inputMode="decimal" value={purchaseCost} onChange={(e) => setPurchaseCost(e.target.value)} placeholder="$ total (opcional)" className={cn(inputClass, "font-mono sm:col-span-2")} />
+            </div>
+            {productsNeedingRecipe.length > 0 ? <div className="space-y-3 rounded-xl border border-[#FF9500]/20 bg-[#FF9500]/[0.06] p-3"><p className="text-sm font-medium text-white">Asignar a la receta</p><p className="text-xs text-white/45">Estos productos todavía no usan este insumo.</p>{productsNeedingRecipe.map((product) => { const bottle = (product.saleType ?? "GLASS") === "BOTTLE"; return <div key={product.id}><label className="mb-1 block text-xs text-white/60">{product.name} · {bottle ? `¿Cuántos envases de ${purchaseName.trim() || "este insumo"} consume por producto?` : `¿Cuántos tragos de ${product.name} rinde un envase?`}</label><Input type="text" inputMode="decimal" value={recipeAmounts[product.id] ?? ""} onChange={(e) => setRecipeAmounts((v) => ({ ...v, [product.id]: e.target.value }))} placeholder={bottle ? "Ej. 2" : "Ej. 20"} className={inputClass} /></div> })}</div> : null}
+            <div className="flex justify-end gap-2"><Button type="button" variant="ghost" disabled={saving} onClick={closePurchase} className="text-white/60">Cancelar</Button><Button type="button" disabled={saving} onClick={() => void submitGuidedPurchase()} className="bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving ? "Registrando…" : "Registrar compra"}</Button></div>
           </div>
-          <div className="flex items-center gap-2">
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={newQty}
-              onChange={(e) => setNewQty(e.target.value)}
-              placeholder="Cantidad"
-              className={cn(inputClass, "flex-1")}
-            />
-            <span className="text-[13px] text-white/30">—</span>
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={newCost}
-              onChange={(e) => setNewCost(e.target.value)}
-              placeholder="$ total (opcional)"
-              className={cn(inputClass, "flex-1 font-mono")}
-            />
-            <Button
-              type="button"
-              disabled={saving}
-              onClick={submitNew}
-              className="h-9 shrink-0 rounded-lg border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08]"
-            >
-              {saving ? "…" : "Registrar"}
-            </Button>
-          </div>
-          <p className="text-[12px] text-white/30">
-            {newName.trim()
-              ? `${newQty || "—"} ${newUnit.trim() || "unidad"}s de ${newName.trim()}${
-                  newCost.trim() ? ` por ${money(newCost.replace(",", "."))}` : ""
-                }.`
-              : "El insumo nace la primera vez que lo comprás."}
-          </p>
-        </div>
-      ) : null}
+        </DialogContent>
+      </Dialog>
 
       {insumos.length === 0 ? (
         <p className="py-6 text-[14px] text-white/30">

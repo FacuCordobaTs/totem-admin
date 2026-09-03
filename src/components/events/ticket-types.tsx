@@ -453,7 +453,7 @@ function TypeRow({
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Crear inline (spec §4.2: crear un tipo es inline, no un modal).
+// Crear inline (spec §4.2): el formulario se despliega sobre su propio disparador.
 // ───────────────────────────────────────────────────────────────────────────
 
 function InlineCreate({
@@ -464,11 +464,35 @@ function InlineCreate({
   onCreated: () => void
 }) {
   const token = useAuthStore((s) => s.token)
+  const createRef = useRef<HTMLDivElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
   const [stock, setStock] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const focusInput = window.setTimeout(() => nameInputRef.current?.focus(), 150)
+    return () => window.clearTimeout(focusInput)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!createRef.current?.contains(event.target as Node)) close()
+    }
+    document.addEventListener("mousedown", closeOnOutsideClick)
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick)
+  }, [open, saving])
+
+  function close() {
+    if (saving) return
+    setOpen(false)
+    setError(null)
+  }
 
   async function create() {
     if (!token || saving) return
@@ -498,6 +522,7 @@ function InlineCreate({
       setName("")
       setPrice("")
       setStock("")
+      setOpen(false)
       onCreated()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo crear")
@@ -507,48 +532,67 @@ function InlineCreate({
   }
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 rounded-xl border border-dashed border-white/[0.12] bg-transparent px-4 py-2.5">
-        <Plus className="h-4 w-4 shrink-0 text-white/30" />
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+    <div ref={createRef} className="relative h-15">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-15 w-full items-center gap-2 rounded-xl border border-dashed border-white/[0.12] px-4 text-[15px] text-white/50 transition-colors hover:border-white/25 hover:text-white/80"
+      >
+        <Plus className="h-4 w-4 shrink-0" />
+        Nuevo tipo
+      </button>
+
+      {open ? (
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 origin-bottom-left animate-in fade-in-0 zoom-in-95 duration-200"
           onKeyDown={(e) => {
-            if (e.key === "Enter") void create()
+            if (e.key === "Escape") close()
           }}
-          placeholder="Nuevo tipo (General, VIP…)"
-          className={cn(fieldClass, "flex-1 border-transparent bg-transparent px-0")}
-        />
-        <input
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void create()
-          }}
-          inputMode="decimal"
-          placeholder="Precio"
-          className={cn(fieldClass, "w-24")}
-        />
-        <input
-          value={stock}
-          onChange={(e) => setStock(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void create()
-          }}
-          inputMode="numeric"
-          placeholder="Cupo"
-          className={cn(fieldClass, "w-20")}
-        />
-        <button
-          type="button"
-          onClick={create}
-          disabled={saving || name.trim() === ""}
-          className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
         >
-          {saving ? "…" : "Crear"}
-        </button>
-      </div>
-      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+          <div className="flex min-h-20 items-center gap-2 rounded-xl border border-white/[0.12] bg-black px-4 py-2.5 shadow-2xl shadow-black/80 sm:min-w-[560px]">
+            <Plus className="h-4 w-4 shrink-0 text-white/30" />
+            <input
+              ref={nameInputRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void create()
+              }}
+              placeholder="+ Nuevo tipo"
+              className={cn(fieldClass, "flex-1 border-transparent bg-transparent px-0")}
+            />
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void create()
+              }}
+              inputMode="decimal"
+              placeholder="Precio"
+              className="h-10 w-24 rounded-lg bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:bg-white/[0.08]"
+            />
+            <input
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void create()
+              }}
+              inputMode="numeric"
+              placeholder="Cupo"
+              className="h-10 w-20 rounded-lg bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:bg-white/[0.08]"
+            />
+            <button
+              type="button"
+              onClick={create}
+              disabled={saving || name.trim() === ""}
+              className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              {saving ? "…" : "Crear"}
+            </button>
+          </div>
+          {error ? <p className="mt-1.5 text-[12px] text-red-400">{error}</p> : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -604,6 +648,9 @@ export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange 
         <p className="py-3 text-[15px] text-white/40">Cargando tipos…</p>
       ) : (
         <div className="space-y-2">
+          {canManage ? (
+            <InlineCreate eventId={eventId} onCreated={handleChanged} />
+          ) : null}
           {types.map((t) => (
             <TypeRow
               key={t.id}
@@ -617,9 +664,7 @@ export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange 
               canManage={canManage}
             />
           ))}
-          {canManage ? (
-            <InlineCreate eventId={eventId} onCreated={handleChanged} />
-          ) : types.length === 0 ? (
+          {!canManage && types.length === 0 ? (
             <p className="py-3 text-[15px] text-white/40">
               No hay tipos de entrada.
             </p>

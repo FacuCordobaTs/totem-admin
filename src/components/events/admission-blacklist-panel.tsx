@@ -1,27 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import { Ban, ImagePlus, Loader2, Pencil, Plus, Search, Trash2, User, X } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import {
-  Ban,
-  ImagePlus,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-  User,
-  X,
-} from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 
-/**
- * Tarea 3.3 — ABM de blacklist / registro de admisión (visión §2.4).
- * Listado + alta (DNI, nombre, motivo, foto opcional), edición inline, activar/desactivar,
- * quitar foto y eliminar. La puerta (ScannerPage) ya chequea `findActiveBlacklistEntry` al
- * validar: cargar acá una persona hace que su entrada (o su DNI) se rechace con motivo + foto.
- * La foto se adjunta por separado (`POST .../:entryId/image`, multipart "image" — misma
- * convención que el uploader del evento): el alta crea y, si se eligió archivo, sube después.
- */
 type BlacklistEntry = {
   id: string
   eventId: string
@@ -37,541 +23,128 @@ type BlacklistEntry = {
 type BlacklistResponse = { entries: BlacklistEntry[] }
 type EntryResponse = { entry: BlacklistEntry }
 
-const fieldClass =
-  "h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:border-white/25"
+const fieldClass = "border-white/[0.1] bg-white/[0.04] text-white placeholder:text-white/30"
 
-export function AdmissionBlacklistPanel({
-  eventId,
-  refreshTrigger,
-  onChanged,
-}: {
-  eventId: string
-  refreshTrigger: number
-  onChanged?: () => void
-}) {
+export function AdmissionBlacklistPanel({ eventId, refreshTrigger, onChanged }: { eventId: string; refreshTrigger: number; onChanged?: () => void }) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
-
   const [entries, setEntries] = useState<BlacklistEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // Alta
-  const [open, setOpen] = useState(false)
-  const [dni, setDni] = useState("")
-  const [fullName, setFullName] = useState("")
-  const [reason, setReason] = useState("")
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-
-  // Edición inline
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editDni, setEditDni] = useState("")
-  const [editName, setEditName] = useState("")
-  const [editReason, setEditReason] = useState("")
-
-  // Foto de una fila: un solo input oculto compartido; `photoTargetId` dice a quién se sube.
-  const photoInputRef = useRef<HTMLInputElement>(null)
-  const [photoTargetId, setPhotoTargetId] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+  const [createOpen, setCreateOpen] = useState(false)
+  const [selected, setSelected] = useState<BlacklistEntry | null>(null)
 
   const load = useCallback(async () => {
     if (!token || !eventId) return
     setError(null)
     setLoading(true)
     try {
-      const res = await apiFetch<BlacklistResponse>(`/events/${eventId}/blacklist`, {
-        method: "GET",
-        token,
-      })
+      const res = await apiFetch<BlacklistResponse>(`/events/${eventId}/blacklist`, { method: "GET", token })
       setEntries(res.entries)
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "No se pudo cargar el registro de admisión"
-      )
+      setError(err instanceof ApiError ? err.message : "No se pudo cargar el registro de admisión")
     } finally {
       setLoading(false)
     }
-  }, [token, eventId])
+  }, [eventId, token])
 
-  useEffect(() => {
-    void load()
-  }, [load, refreshTrigger])
+  useEffect(() => { void load() }, [load, refreshTrigger])
 
-  async function uploadPhoto(entryId: string, file: File) {
-    if (!token) return
-    setBusyId(entryId)
-    setError(null)
-    try {
-      const fd = new FormData()
-      fd.set("image", file)
-      await apiFetch<EntryResponse>(
-        `/events/${eventId}/blacklist/${entryId}/image`,
-        { method: "POST", token, body: fd }
-      )
-      await load()
-      onChanged?.()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo subir la foto")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function create() {
-    if (!token || saving) return
-    if (dni.trim() === "") {
-      setFormError("Poné el DNI de la persona")
-      return
-    }
-    if (reason.trim() === "") {
-      setFormError("Poné el motivo")
-      return
-    }
-    setFormError(null)
-    setSaving(true)
-    try {
-      const res = await apiFetch<EntryResponse>(`/events/${eventId}/blacklist`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          dni: dni.trim(),
-          fullName: fullName.trim() || null,
-          reason: reason.trim(),
-        }),
-      })
-      if (photoFile) await uploadPhoto(res.entry.id, photoFile)
-      setDni("")
-      setFullName("")
-      setReason("")
-      setPhotoFile(null)
-      await load()
-      onChanged?.()
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "No se pudo agregar la persona")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function startEdit(entry: BlacklistEntry) {
-    setEditingId(entry.id)
-    setEditDni(entry.dni)
-    setEditName(entry.fullName ?? "")
-    setEditReason(entry.reason)
-  }
-
-  async function saveEdit(id: string) {
-    if (!token) return
-    if (editDni.trim() === "" || editReason.trim() === "") {
-      setError("El DNI y el motivo no pueden quedar vacíos")
-      return
-    }
-    setBusyId(id)
-    setError(null)
-    try {
-      await apiFetch<EntryResponse>(`/events/${eventId}/blacklist/${id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          dni: editDni.trim(),
-          fullName: editName.trim() || null,
-          reason: editReason.trim(),
-        }),
-      })
-      setEditingId(null)
-      await load()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo guardar")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function removePhoto(entryId: string) {
-    if (!token) return
-    setBusyId(entryId)
-    setError(null)
-    try {
-      await apiFetch<EntryResponse>(`/events/${eventId}/blacklist/${entryId}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ photoUrl: null }),
-      })
-      await load()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo quitar la foto")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function toggle(id: string, nextActive: boolean) {
-    if (!token) return
-    setBusyId(id)
-    setError(null)
-    try {
-      await apiFetch<EntryResponse>(`/events/${eventId}/blacklist/${id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ isActive: nextActive }),
-      })
-      await load()
-      onChanged?.()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo actualizar")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function remove(id: string, name: string) {
-    if (!token) return
-    if (!confirm(`¿Eliminar a ${name} del registro de admisión?`)) return
-    setBusyId(id)
-    try {
-      await apiFetch(`/events/${eventId}/blacklist/${id}`, {
-        method: "DELETE",
-        token,
-      })
-      await load()
-      onChanged?.()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo eliminar")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  function pickPhotoFor(id: string) {
-    setError(null)
-    setPhotoTargetId(id)
-    photoInputRef.current?.click()
-  }
-
-  const onPhotoInput = useCallback(
-    async (e: ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      e.target.value = ""
-      if (!file || !photoTargetId) return
-      await uploadPhoto(photoTargetId, file)
-    },
-    [photoTargetId] // eslint-disable-line react-hooks/exhaustive-deps
-  )
+  const filteredEntries = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase()
+    if (!term) return entries
+    return entries.filter((entry) => [entry.fullName, entry.dni, entry.reason].some((value) => value?.toLocaleLowerCase().includes(term)))
+  }, [entries, query])
 
   if (!canManage) return null
-
-  const activeCount = entries.filter((e) => e.isActive).length
+  const activeCount = entries.filter((entry) => entry.isActive).length
 
   return (
     <section className="w-full">
-      {/* Input de foto compartido por todas las filas */}
-      <input
-        ref={photoInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        className="sr-only"
-        onChange={onPhotoInput}
-        aria-hidden
-      />
-
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Ban className="h-4 w-4 text-white/40" />
-          <h3 className="text-[17px] font-medium text-foreground">
-            Registro de admisión
-          </h3>
-          {activeCount > 0 ? (
-            <span className="text-[13px] text-white/35">· {activeCount} activa(s)</span>
-          ) : null}
+          <div>
+            <h3 className="text-[17px] font-medium text-foreground">Registro de admisión</h3>
+            <p className="text-[13px] text-white/40">{activeCount > 0 ? `${activeCount} persona${activeCount === 1 ? "" : "s"} activa${activeCount === 1 ? "" : "s"}` : "Personas con acceso restringido"}</p>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center gap-1 text-[13px] text-white/50 transition-colors hover:text-white/80"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Agregar
-        </button>
+        <Button type="button" onClick={() => setCreateOpen(true)} className="gap-2 rounded-lg bg-[#FF9500] text-white hover:bg-[#FF9500]/90">
+          <Plus className="h-4 w-4" />
+          Agregar persona
+        </Button>
       </div>
 
-      {open ? (
-        <div className="mb-3 space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={dni}
-              onChange={(e) => setDni(e.target.value)}
-              placeholder="DNI (ej. 40123456)"
-              className={cn(fieldClass, "w-40 min-w-[140px]")}
-            />
-            <input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Nombre y apellido (opcional)"
-              className={cn(fieldClass, "min-w-[160px] flex-1")}
-            />
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Motivo (ej. pelea, prohibido)"
-              className={cn(fieldClass, "min-w-[160px] flex-1")}
-            />
-            <button
-              type="button"
-              onClick={() => void create()}
-              disabled={saving}
-              className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-            >
-              {saving ? "…" : "Agregar"}
-            </button>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2 text-[13px] text-white/50 transition-colors hover:text-white/80">
-              <ImagePlus className="h-4 w-4" />
-              {photoFile ? (
-                <span className="max-w-[220px] truncate text-white/70">
-                  {photoFile.name}
-                </span>
-              ) : (
-                "Foto (opcional)"
-              )}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                className="sr-only"
-                onChange={(e) => {
-                  setPhotoFile(e.target.files?.[0] ?? null)
-                  e.target.value = ""
-                }}
-                aria-hidden
-              />
-            </label>
-            {photoFile ? (
-              <button
-                type="button"
-                onClick={() => setPhotoFile(null)}
-                className="inline-flex items-center gap-1 text-[12px] text-white/40 transition-colors hover:text-red-400"
-              >
-                <X className="h-3.5 w-3.5" />
-                Quitar
-              </button>
-            ) : null}
-          </div>
-          {formError ? <p className="text-[12px] text-red-400">{formError}</p> : null}
-        </div>
-      ) : null}
+      <div className="relative mb-3 max-w-md">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, DNI o motivo…" className={cn("h-10 pl-9", fieldClass)} />
+      </div>
 
-      {error ? (
-        <p className="py-2 text-[14px] text-red-400">{error}</p>
-      ) : loading ? (
-        <p className="py-2 text-[14px] text-white/40">Cargando…</p>
-      ) : entries.length === 0 ? (
-        <p className="py-2 text-[14px] text-white/35">
-          Sin entradas. Al escanear la entrada o el DNI de una persona cargada acá, la puerta
-          avisa con el motivo y la foto.
-        </p>
+      {error ? <p className="py-2 text-[14px] text-red-400" role="alert">{error}</p> : null}
+      {loading ? <p className="py-5 text-[14px] text-white/40">Cargando…</p> : entries.length === 0 ? (
+        <p className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center text-[14px] text-white/40">No hay personas en el registro de admisión.</p>
+      ) : filteredEntries.length === 0 ? (
+        <p className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-8 text-center text-[14px] text-white/40">No encontramos personas para esa búsqueda.</p>
       ) : (
-        <div className="space-y-1.5">
-          {entries.map((entry) => (
-            <EntryRow
-              key={entry.id}
-              entry={entry}
-              busy={busyId === entry.id}
-              editing={editingId === entry.id}
-              editDni={editDni}
-              editName={editName}
-              editReason={editReason}
-              onEditDniChange={setEditDni}
-              onEditNameChange={setEditName}
-              onEditReasonChange={setEditReason}
-              onStartEdit={() => startEdit(entry)}
-              onCancelEdit={() => setEditingId(null)}
-              onSaveEdit={() => void saveEdit(entry.id)}
-              onToggle={(next) => void toggle(entry.id, next)}
-              onDelete={() => void remove(entry.id, entry.fullName?.trim() || entry.dni)}
-              onPickPhoto={() => pickPhotoFor(entry.id)}
-              onRemovePhoto={() => void removePhoto(entry.id)}
-            />
-          ))}
+        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+          {filteredEntries.map((entry, index) => <EntryListItem key={entry.id} entry={entry} separated={index > 0} onClick={() => setSelected(entry)} />)}
         </div>
       )}
+
+      <CreateEntryDialog open={createOpen} onOpenChange={setCreateOpen} eventId={eventId} onCreated={() => { setCreateOpen(false); void load(); onChanged?.() }} />
+      <EntryDialog entry={selected} onOpenChange={(open) => !open && setSelected(null)} eventId={eventId} onChanged={() => { setSelected(null); void load(); onChanged?.() }} />
     </section>
   )
 }
 
-function EntryRow({
-  entry,
-  busy,
-  editing,
-  editDni,
-  editName,
-  editReason,
-  onEditDniChange,
-  onEditNameChange,
-  onEditReasonChange,
-  onStartEdit,
-  onCancelEdit,
-  onSaveEdit,
-  onToggle,
-  onDelete,
-  onPickPhoto,
-  onRemovePhoto,
-}: {
-  entry: BlacklistEntry
-  busy: boolean
-  editing: boolean
-  editDni: string
-  editName: string
-  editReason: string
-  onEditDniChange: (v: string) => void
-  onEditNameChange: (v: string) => void
-  onEditReasonChange: (v: string) => void
-  onStartEdit: () => void
-  onCancelEdit: () => void
-  onSaveEdit: () => void
-  onToggle: (nextActive: boolean) => void
-  onDelete: () => void
-  onPickPhoto: () => void
-  onRemovePhoto: () => void
-}) {
+function EntryListItem({ entry, separated, onClick }: { entry: BlacklistEntry; separated: boolean; onClick: () => void }) {
   const name = entry.fullName?.trim() || "Sin nombre"
-
-  if (editing) {
-    return (
-      <div className="space-y-2 rounded-lg border border-[#FF9500]/25 bg-[#FF9500]/[0.04] p-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={editDni}
-            onChange={(e) => onEditDniChange(e.target.value)}
-            placeholder="DNI"
-            className={cn(fieldClass, "w-40")}
-          />
-          <input
-            value={editName}
-            onChange={(e) => onEditNameChange(e.target.value)}
-            placeholder="Nombre y apellido"
-            className={cn(fieldClass, "min-w-[160px] flex-1")}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={editReason}
-            onChange={(e) => onEditReasonChange(e.target.value)}
-            placeholder="Motivo"
-            className={cn(fieldClass, "min-w-[160px] flex-1")}
-          />
-          <button
-            type="button"
-            onClick={onSaveEdit}
-            disabled={busy}
-            className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-          >
-            {busy ? "…" : "Guardar"}
-          </button>
-          <button
-            type="button"
-            onClick={onCancelEdit}
-            className="h-10 shrink-0 rounded-lg border border-white/[0.1] px-4 text-[14px] font-semibold text-white/60 transition-colors hover:text-white"
-          >
-            Cancelar
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5",
-        !entry.isActive && "opacity-50"
-      )}
-    >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/[0.06]">
-        {entry.photoUrl ? (
-          <img
-            src={entry.photoUrl}
-            alt={name}
-            className="h-full w-full object-cover"
-            loading="lazy"
-            decoding="async"
-          />
-        ) : (
-          <User className="h-5 w-5 text-white/30" aria-hidden />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-medium text-white">{name}</p>
-        <p className="truncate text-[12px] text-white/40">
-          DNI {entry.dni} · {entry.reason}
-        </p>
-      </div>
-
-      <span
-        className={cn(
-          "rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-          entry.isActive
-            ? "border-red-400/25 bg-red-400/[0.08] text-red-300"
-            : "border-white/[0.1] bg-white/[0.04] text-white/40"
-        )}
-      >
-        {entry.isActive ? "Activa" : "Desactivada"}
-      </span>
-
-      <Switch
-        checked={entry.isActive}
-        onCheckedChange={onToggle}
-        disabled={busy}
-        aria-label={entry.isActive ? "Desactivar entrada" : "Activar entrada"}
-      />
-
-      {busy ? (
-        <Loader2 className="h-4 w-4 animate-spin text-white/40" aria-hidden />
-      ) : (
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onPickPhoto}
-            className="rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-white"
-            aria-label="Subir o reemplazar foto"
-            title="Foto"
-          >
-            <ImagePlus className="h-4 w-4" />
-          </button>
-          {entry.photoUrl ? (
-            <button
-              type="button"
-              onClick={onRemovePhoto}
-              className="rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
-              aria-label="Quitar foto"
-              title="Quitar foto"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onStartEdit}
-            className="rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-white"
-            aria-label="Editar"
-            title="Editar"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
-            aria-label="Eliminar"
-            title="Eliminar"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+  return <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF9500]", separated && "border-t border-white/[0.06]", !entry.isActive && "opacity-50")}>
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/[0.06]">
+      {entry.photoUrl ? <img src={entry.photoUrl} alt={name} className="h-full w-full object-cover" loading="lazy" decoding="async" /> : <User className="h-5 w-5 text-white/30" aria-hidden />}
     </div>
-  )
+    <div className="min-w-0 flex-1"><p className="truncate text-[15px] font-medium text-white">{name}</p><p className="truncate text-[12px] text-white/40">DNI {entry.dni} · {entry.reason}</p></div>
+    <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold", entry.isActive ? "border-red-400/25 bg-red-400/[0.08] text-red-300" : "border-white/[0.1] bg-white/[0.04] text-white/40")}>{entry.isActive ? "Activa" : "Desactivada"}</span>
+  </button>
 }
+
+function CreateEntryDialog({ open, onOpenChange, eventId, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; eventId: string; onCreated: () => void }) {
+  const token = useAuthStore((s) => s.token)
+  const [dni, setDni] = useState("")
+  const [fullName, setFullName] = useState("")
+  const [reason, setReason] = useState("")
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  function close(next: boolean) { if (!next) { setDni(""); setFullName(""); setReason(""); setPhotoFile(null); setFormError(null) }; onOpenChange(next) }
+  async function create(event: React.FormEvent) {
+    event.preventDefault()
+    if (!token || saving) return
+    if (!dni.trim() || !reason.trim()) return setFormError("Completá el DNI y el motivo.")
+    setSaving(true); setFormError(null)
+    try {
+      const res = await apiFetch<EntryResponse>(`/events/${eventId}/blacklist`, { method: "POST", token, body: JSON.stringify({ dni: dni.trim(), fullName: fullName.trim() || null, reason: reason.trim() }) })
+      if (photoFile) { const data = new FormData(); data.set("image", photoFile); await apiFetch(`/events/${eventId}/blacklist/${res.entry.id}/image`, { method: "POST", token, body: data }) }
+      onCreated()
+    } catch (err) { setFormError(err instanceof ApiError ? err.message : "No se pudo agregar la persona") } finally { setSaving(false) }
+  }
+  return <Dialog open={open} onOpenChange={close}><DialogContent className="max-w-md rounded-2xl border-white/[0.1] bg-black text-white"><DialogHeader><DialogTitle>Agregar persona</DialogTitle><DialogDescription className="text-white/45">La puerta rechazará las entradas asociadas a este DNI.</DialogDescription></DialogHeader><form onSubmit={create} className="space-y-4"><EntryFields dni={dni} fullName={fullName} reason={reason} onDniChange={setDni} onNameChange={setFullName} onReasonChange={setReason} /><PhotoPicker file={photoFile} onChange={setPhotoFile} />{formError ? <p className="text-sm text-red-400">{formError}</p> : null}<DialogFooter><Button type="button" variant="ghost" onClick={() => close(false)}>Cancelar</Button><Button type="submit" disabled={saving} className="bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{saving ? "Agregando…" : "Agregar persona"}</Button></DialogFooter></form></DialogContent></Dialog>
+}
+
+function EntryDialog({ entry, onOpenChange, eventId, onChanged }: { entry: BlacklistEntry | null; onOpenChange: (open: boolean) => void; eventId: string; onChanged: () => void }) {
+  const token = useAuthStore((s) => s.token)
+  const photoInput = useRef<HTMLInputElement>(null)
+  const [dni, setDni] = useState(""); const [fullName, setFullName] = useState(""); const [reason, setReason] = useState(""); const [active, setActive] = useState(true); const [photoUrl, setPhotoUrl] = useState<string | null>(null); const [saving, setSaving] = useState(false); const [deleting, setDeleting] = useState(false); const [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (entry) { setDni(entry.dni); setFullName(entry.fullName ?? ""); setReason(entry.reason); setActive(entry.isActive); setPhotoUrl(entry.photoUrl); setError(null) } }, [entry])
+  async function save(event: React.FormEvent) { event.preventDefault(); if (!token || !entry || saving) return; if (!dni.trim() || !reason.trim()) return setError("Completá el DNI y el motivo."); setSaving(true); setError(null); try { await apiFetch(`/events/${eventId}/blacklist/${entry.id}`, { method: "PATCH", token, body: JSON.stringify({ dni: dni.trim(), fullName: fullName.trim() || null, reason: reason.trim(), isActive: active }) }); onChanged() } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo guardar") } finally { setSaving(false) } }
+  async function upload(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; event.target.value = ""; if (!token || !entry || !file) return; setSaving(true); setError(null); try { const data = new FormData(); data.set("image", file); const res = await apiFetch<EntryResponse>(`/events/${eventId}/blacklist/${entry.id}/image`, { method: "POST", token, body: data }); setPhotoUrl(res.entry.photoUrl) } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo subir la foto") } finally { setSaving(false) } }
+  async function removePhoto() { if (!token || !entry) return; setSaving(true); try { await apiFetch(`/events/${eventId}/blacklist/${entry.id}`, { method: "PATCH", token, body: JSON.stringify({ photoUrl: null }) }); setPhotoUrl(null) } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo quitar la foto") } finally { setSaving(false) } }
+  async function remove() { if (!token || !entry) return; setDeleting(true); setError(null); try { await apiFetch(`/events/${eventId}/blacklist/${entry.id}`, { method: "DELETE", token }); onChanged() } catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo eliminar") } finally { setDeleting(false) } }
+  return <Dialog open={entry !== null} onOpenChange={onOpenChange}><DialogContent className="max-w-md rounded-2xl border-white/[0.1] bg-black text-white"><DialogHeader><DialogTitle>Persona del registro</DialogTitle><DialogDescription className="text-white/45">Editá sus datos, estado y foto desde acá.</DialogDescription></DialogHeader>{entry ? <form onSubmit={save} className="space-y-4"><div className="flex items-center gap-3"><div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/[0.06]">{photoUrl ? <img src={photoUrl} alt={fullName || "Persona"} className="h-full w-full object-cover" /> : <User className="h-6 w-6 text-white/30" />}</div><input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={upload} /><Button type="button" variant="outline" disabled={saving} onClick={() => photoInput.current?.click()} className="border-white/[0.12] bg-transparent text-white hover:bg-white/[0.08]"><ImagePlus className="mr-2 h-4 w-4" />{photoUrl ? "Cambiar foto" : "Agregar foto"}</Button>{photoUrl ? <Button type="button" variant="ghost" disabled={saving} onClick={() => void removePhoto()} className="text-white/50 hover:text-red-400"><X className="h-4 w-4" /></Button> : null}</div><EntryFields dni={dni} fullName={fullName} reason={reason} onDniChange={setDni} onNameChange={setFullName} onReasonChange={setReason} /><div className="flex items-center justify-between rounded-xl border border-white/[0.08] px-3 py-2.5"><div><p className="text-sm font-medium">Restricción activa</p><p className="text-xs text-white/40">{active ? "Se bloqueará el acceso." : "No bloqueará el acceso."}</p></div><Switch checked={active} onCheckedChange={setActive} disabled={saving} /></div>{error ? <p className="text-sm text-red-400">{error}</p> : null}<DialogFooter className="gap-2 sm:justify-between"><Button type="button" variant="ghost" disabled={deleting} onClick={() => void remove()} className="text-red-400 hover:bg-red-400/10 hover:text-red-300"><Trash2 className="mr-2 h-4 w-4" />{deleting ? "Eliminando…" : "Eliminar"}</Button><div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving || deleting} className="bg-[#FF9500] text-white hover:bg-[#FF9500]/90"><Pencil className="mr-2 h-4 w-4" />{saving ? "Guardando…" : "Guardar cambios"}</Button></div></DialogFooter></form> : null}</DialogContent></Dialog>
+}
+
+function EntryFields({ dni, fullName, reason, onDniChange, onNameChange, onReasonChange }: { dni: string; fullName: string; reason: string; onDniChange: (value: string) => void; onNameChange: (value: string) => void; onReasonChange: (value: string) => void }) { return <div className="space-y-3"><label className="block space-y-1.5"><span className="text-sm text-white/65">DNI</span><Input required value={dni} onChange={(event) => onDniChange(event.target.value)} placeholder="40123456" className={fieldClass} /></label><label className="block space-y-1.5"><span className="text-sm text-white/65">Nombre y apellido <span className="text-white/35">(opcional)</span></span><Input value={fullName} onChange={(event) => onNameChange(event.target.value)} placeholder="Nombre y apellido" className={fieldClass} /></label><label className="block space-y-1.5"><span className="text-sm text-white/65">Motivo</span><Input required value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="Pelea, prohibido…" className={fieldClass} /></label></div> }
+
+function PhotoPicker({ file, onChange }: { file: File | null; onChange: (file: File | null) => void }) { return <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-white/[0.14] px-3 py-2.5 text-sm text-white/55 hover:border-white/25 hover:text-white/75"><ImagePlus className="h-4 w-4" /><span className="min-w-0 flex-1 truncate">{file ? file.name : "Agregar foto (opcional)"}</span>{file ? <button type="button" onClick={(event) => { event.preventDefault(); onChange(null) }} className="rounded p-1 hover:text-red-400" aria-label="Quitar foto"><X className="h-4 w-4" /></button> : null}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={(event) => { onChange(event.target.files?.[0] ?? null); event.target.value = "" }} /></label> }

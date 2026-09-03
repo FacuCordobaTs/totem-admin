@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { X, Plus, ChevronRight, ChevronLeft, Loader2 } from "lucide-react"
+import { Plus, ChevronRight, ChevronLeft, Loader2 } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,7 +24,7 @@ import {
   type RecipeDraftLine,
 } from "@/lib/inventory-recipe-helpers"
 import type { ApiInventoryItem, InventoryBaseUnit } from "@/components/inventory/raw-materials"
-import type { ApiProduct, ApiProductCategory } from "@/components/inventory/recipe-config"
+import type { ApiProduct } from "@/components/inventory/recipe-config"
 import { cn } from "@/lib/utils"
 
 type MaterialKind = "liquid" | "solid" | "unit"
@@ -81,10 +81,6 @@ export type ProductEditorDialogProps = {
   /** If set, shows event-specific fields and actions */
   eventId?: string
   materials: ApiInventoryItem[]
-  /** Categorías del catálogo (global). */
-  categories?: ApiProductCategory[]
-  /** Llamado cuando se crea una categoría nueva desde el diálogo. */
-  onCategoriesChanged?: () => void
   token: string | null
   onSaved: () => void
   /** Called after removing product from event menu */
@@ -102,8 +98,6 @@ export function ProductEditorDialog({
   priceOverride,
   eventId,
   materials,
-  categories = [],
-  onCategoriesChanged,
   token,
   onSaved,
   onRemovedFromMenu,
@@ -117,14 +111,11 @@ export function ProductEditorDialog({
   const [basePrice, setBasePrice] = useState("")
   const [eventPrice, setEventPrice] = useState("")
   const [saleType, setSaleType] = useState<ProductSaleType>("GLASS")
-  const [categoryId, setCategoryId] = useState<string | null>(null)
-  const [newCategoryOpen, setNewCategoryOpen] = useState(false)
-  const [newCategoryName, setNewCategoryName] = useState("")
-  const [creatingCategory, setCreatingCategory] = useState(false)
   const [recipeDraftLines, setRecipeDraftLines] = useState<RecipeDraftLine[]>([])
   const [saving, setSaving] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [editTab, setEditTab] = useState<"info" | "recipe" | "image">("info")
 
   // Wizard state (create mode only)
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1)
@@ -145,9 +136,8 @@ export function ProductEditorDialog({
   useEffect(() => {
     if (!open) return
     setDeleteConfirm(false)
-    setNewCategoryOpen(false)
-    setNewCategoryName("")
     setWizardStep(1)
+    setEditTab("info")
     setInlineMatOpen(false)
     setInlineMatName("")
     setInlineMatKind("liquid")
@@ -157,7 +147,6 @@ export function ProductEditorDialog({
       setBasePrice(product.price)
       setEventPrice(priceOverride ?? "")
       setSaleType(product.saleType ?? "GLASS")
-      setCategoryId(product.categoryId ?? null)
       setRecipeDraftLines(
         (product.recipes ?? []).map((r) =>
           recipeApiLineToDraft(r, materials.find((m) => m.id === r.inventoryItemId))
@@ -168,31 +157,9 @@ export function ProductEditorDialog({
       setBasePrice("")
       setEventPrice("")
       setSaleType("GLASS")
-      setCategoryId(null)
       setRecipeDraftLines([])
     }
   }, [open, product, priceOverride, materials])
-
-  async function handleCreateCategory() {
-    const trimmed = newCategoryName.trim()
-    if (!token || !trimmed || creatingCategory) return
-    setCreatingCategory(true)
-    try {
-      const res = await apiFetch<{ category: ApiProductCategory }>(
-        "/inventory/categories",
-        { method: "POST", token, body: JSON.stringify({ name: trimmed }) }
-      )
-      setCategoryId(res.category.id)
-      setNewCategoryOpen(false)
-      setNewCategoryName("")
-      onCategoriesChanged?.()
-      toast.success("Categoría creada")
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "No se pudo crear la categoría")
-    } finally {
-      setCreatingCategory(false)
-    }
-  }
 
   function addLine() {
     const all = localMaterials
@@ -299,7 +266,6 @@ export function ProductEditorDialog({
             name: name.trim(),
             price: basePrice,
             saleType,
-            categoryId,
             recipes,
           }),
         })
@@ -320,7 +286,6 @@ export function ProductEditorDialog({
             name: name.trim(),
             price: basePrice,
             saleType,
-            categoryId,
             recipes,
           }),
         })
@@ -510,7 +475,7 @@ export function ProductEditorDialog({
                 </>
               )}
 
-              {/* ── PASO 2: TIPO Y CATEGORÍA ── */}
+              {/* ── PASO 2: TIPO DE VENTA ── */}
               {wizardStep === 2 && (
                 <>
                   <div className="space-y-1.5">
@@ -544,86 +509,6 @@ export function ProductEditorDialog({
                         </button>
                       ))}
                     </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="text-[13px] text-white/45 mb-1">
-                      Categoría <span className="text-white/20">(opcional)</span>
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCategoryId(null)}
-                        className={cn(
-                          "rounded-xl px-3.5 py-2 text-[13px] font-medium transition-colors mt-2",
-                          categoryId === null
-                            ? "bg-[#FF9500] text-white"
-                            : "bg-white/[0.06] text-white/50 hover:bg-white/[0.1] hover:text-white/80"
-                        )}
-                      >
-                        Sin categoría
-                      </button>
-                      {categories.map((cat) => (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setCategoryId(cat.id)}
-                          className={cn(
-                            "rounded-xl px-3.5 py-2 text-[13px] font-medium transition-colors",
-                            categoryId === cat.id
-                              ? "bg-[#FF9500] text-white"
-                              : "bg-white/[0.06] text-white/50 hover:bg-white/[0.1] hover:text-white/80"
-                          )}
-                        >
-                          {cat.name}
-                        </button>
-                      ))}
-                      {!newCategoryOpen ? (
-                        <button
-                          type="button"
-                          onClick={() => setNewCategoryOpen(true)}
-                          className="flex items-center gap-1 rounded-xl border border-white/[0.1] px-3.5 py-2 text-[13px] font-medium text-white/35 transition-colors hover:text-white/60"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          Nueva
-                        </button>
-                      ) : null}
-                    </div>
-                    {newCategoryOpen ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={newCategoryName}
-                          onChange={(e) => setNewCategoryName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault()
-                              void handleCreateCategory()
-                            }
-                          }}
-                          className={cn(inputClass, "h-11")}
-                          placeholder="Nombre de la categoría"
-                          autoFocus
-                        />
-                        <Button
-                          type="button"
-                          disabled={creatingCategory || !newCategoryName.trim()}
-                          onClick={() => void handleCreateCategory()}
-                          className="h-11 shrink-0 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
-                        >
-                          {creatingCategory ? "Creando…" : "Crear"}
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewCategoryOpen(false)
-                            setNewCategoryName("")
-                          }}
-                          className="shrink-0 text-[13px] text-white/35 transition-colors hover:text-white/60"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                 </>
               )}
@@ -867,21 +752,37 @@ export function ProductEditorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-black p-0 sm:max-w-[720px]">
-        <DialogHeader className="flex flex-row items-center justify-between border-b border-white/[0.06] px-6 py-5">
+        <DialogHeader className="border-b border-white/[0.06] px-6 py-5">
           <DialogTitle className="text-[18px] font-bold tracking-tight text-white">
             Editar producto
           </DialogTitle>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/70"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </DialogHeader>
+
+        <div className="flex gap-1 border-b border-white/[0.06] px-6 pt-3">
+          {[
+            ["info", "Información"],
+            ["recipe", "Receta"],
+            ["image", "Imagen"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setEditTab(id as "info" | "recipe" | "image")}
+              className={cn(
+                "border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors",
+                editTab === id
+                  ? "border-[#FF9500] text-white"
+                  : "border-transparent text-white/40 hover:text-white/70"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         <div className="flex-1 overflow-y-auto">
           <div className="space-y-8 p-6">
+            {editTab === "info" ? <>
             {/* Nombre */}
             <div className="space-y-2">
               <label className="text-[13px] text-white/45">Nombre</label>
@@ -968,90 +869,10 @@ export function ProductEditorDialog({
                 ))}
               </div>
             </div>
-
-            {/* Categoría */}
-            <div className="space-y-3">
-              <label className="text-[13px] text-white/45">
-                Categoría <span className="text-white/20">(opcional)</span>
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCategoryId(null)}
-                  className={cn(
-                    "rounded-xl px-3.5 py-2 text-[13px] font-medium transition-colors",
-                    categoryId === null
-                      ? "bg-[#FF9500] text-white"
-                      : "bg-white/[0.06] text-white/50 hover:bg-white/[0.1] hover:text-white/80"
-                  )}
-                >
-                  Sin categoría
-                </button>
-                {categories.map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setCategoryId(cat.id)}
-                    className={cn(
-                      "rounded-xl px-3.5 py-2 text-[13px] font-medium transition-colors",
-                      categoryId === cat.id
-                        ? "bg-[#FF9500] text-white"
-                        : "bg-white/[0.06] text-white/50 hover:bg-white/[0.1] hover:text-white/80"
-                    )}
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-                {!newCategoryOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => setNewCategoryOpen(true)}
-                    className="flex items-center gap-1 rounded-xl border border-white/[0.1] px-3.5 py-2 text-[13px] font-medium text-white/35 transition-colors hover:text-white/60"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Nueva
-                  </button>
-                ) : null}
-              </div>
-              {newCategoryOpen ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        void handleCreateCategory()
-                      }
-                    }}
-                    className={cn(inputClass, "h-11")}
-                    placeholder="Nombre de la categoría"
-                    autoFocus
-                  />
-                  <Button
-                    type="button"
-                    disabled={creatingCategory || !newCategoryName.trim()}
-                    onClick={() => void handleCreateCategory()}
-                    className="h-11 shrink-0 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
-                  >
-                    {creatingCategory ? "Creando…" : "Crear"}
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewCategoryOpen(false)
-                      setNewCategoryName("")
-                    }}
-                    className="shrink-0 text-[13px] text-white/35 transition-colors hover:text-white/60"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            </> : null}
 
             {/* Receta */}
-            <div className="space-y-4">
+            {editTab === "recipe" ? <div className="space-y-4">
               <div>
                 <p className="text-[15px] font-semibold text-white">Receta</p>
                 <p className="mt-0.5 text-[13px] text-white/40">
@@ -1098,10 +919,10 @@ export function ProductEditorDialog({
                   </button>
                 </>
               )}
-            </div>
+            </div> : null}
 
             {/* Imagen */}
-            {product && !isCreate ? (
+            {editTab === "image" && product && !isCreate ? (
               <div className="space-y-2">
                 <label className="text-[13px] text-white/45">
                   Imagen{" "}

@@ -250,7 +250,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
             </span>
             <DialogHeader className="flex-1 text-left">
               <DialogTitle className="text-[22px] font-bold tracking-tight text-black dark:text-white">
-                {puestosMode ? "Nuevo puesto" : "Nueva barra"}
+                Nueva barra
               </DialogTitle>
             </DialogHeader>
           </div>
@@ -318,11 +318,10 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
             onClick={() => setCreateOpen(true)}
             className="text-[13px] font-medium text-white/35 transition-colors hover:text-white/60"
           >
-            Dividir en puestos
+            Configurar Barras
           </button>
           <p className="mt-1 text-[12px] text-white/25">
-            Una sola barra vende todo. Dividí en puestos cuando tengas más de un punto de venta;
-            cada puesto hereda el menú, el stock y el equipo.
+            Organizá los puntos de venta del evento, su menú, stock y equipo.
           </p>
           {createDialog}
         </section>
@@ -332,9 +331,9 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
       <section className="space-y-4 border-t border-white/[0.06] pt-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h3 className="text-[18px] font-semibold text-white">Puestos</h3>
+            <h3 className="text-[18px] font-semibold text-white">Configurar Barras</h3>
             <p className="mt-0.5 text-[13px] text-white/35">
-              Cada puesto vende, cobra y descuenta stock por separado.
+              Cada barra vende, cobra y descuenta stock por separado.
             </p>
           </div>
           <Button
@@ -343,7 +342,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
             className="h-8 gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.05] px-4 text-[13px] font-semibold text-white/70 hover:bg-white/[0.08] active:opacity-70"
           >
             <Plus className="h-3.5 w-3.5" />
-            Agregar puesto
+            Agregar barra
           </Button>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -368,7 +367,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
     <div className="space-y-8">
       {embedded ? (
         <div className="flex items-center justify-between gap-4">
-          <h3 className="text-[18px] font-semibold text-white">Barras</h3>
+          <h3 className="text-[18px] font-semibold text-white">Configurar Barras</h3>
           <Button
             type="button"
             onClick={() => setCreateOpen(true)}
@@ -406,21 +405,21 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
       )}
 
       {bars.length === 0 ? (
-        <Card className="rounded-2xl ">
+        <Card className="rounded-2xl border border-dashed border-white/[0.12] bg-white/[0.015]">
           <CardContent className="flex flex-col items-center gap-5 py-14 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-zinc-500/10">
               <Wine className="h-7 w-7 text-[#8E8E93]" />
             </span>
             <p className="max-w-md text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-              No hay barras creadas en este evento. Creá la primera para organizar stock,
-              personal y ventas por punto de venta.
+              Configurá las barras del evento para asignar productos, stock y personal a cada
+              punto de venta.
             </p>
             <Button
               type="button"
               onClick={() => setCreateOpen(true)}
               className="h-11 rounded-xl bg-[#FF9500] px-6 text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
             >
-              Crear barra
+              Configurar Barras
             </Button>
           </CardContent>
         </Card>

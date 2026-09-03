@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Receipt, Trash2 } from "lucide-react"
+import { Plus, Receipt, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
@@ -11,6 +11,14 @@ import type {
 import { Button } from "@/components/ui/button"
 import { CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -101,6 +109,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
   const [error, setError] = useState<string | null>(null)
   const [submitBusy, setSubmitBusy] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   const [formDescription, setFormDescription] = useState("")
   const [formCategory, setFormCategory] = useState<EventExpenseCategory>("OTHER")
@@ -171,6 +180,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
       setFormDescription("")
       setFormCategory("OTHER")
       setFormAmount("")
+      setDialogOpen(false)
       await load()
       onExpensesChanged?.()
     } catch (e) {
@@ -214,20 +224,18 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
 
   return (
     <div className="space-y-6">
-      {!embedded ? (
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-            Finanzas
-          </p>
-          <h2 className="mt-1 text-[28px] font-bold tracking-tight text-black dark:text-white md:text-[34px]">
-            Gastos del evento
-          </h2>
+          {!embedded ? <p className="text-[13px] uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">Finanzas</p> : null}
+          <h2 className="mt-1 text-lg font-semibold text-white">Resumen de gastos</h2>
         </div>
-      ) : null}
+        <Button type="button" onClick={() => setDialogOpen(true)} className="gap-2 bg-[#FF9500] text-white hover:bg-[#FF9500]/90">
+          <Plus className="h-4 w-4" /> Nuevo gasto
+        </Button>
+      </div>
 
       {/* Total (solo cuando ya hay gastos) */}
-      {expenses.length > 0 ? (
-        <div className="rounded-2xl bg-background lg:max-w-md border-0">
+      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] lg:max-w-md">
           <div className="pb-2 md:p-6 md:pb-2">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.07]">
@@ -255,8 +263,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
               </div>
             ) : null}
           </div>
-        </div>
-      ) : null}
+      </div>
 
       {operativos.length > 0 ? (
         <div className="overflow-hidden rounded-2xl ">
@@ -326,27 +333,24 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
         </div>
       ) : null}
 
-      {/* Alta inline (sin modal): siempre disponible para empezar a cargar gastos. */}
-      <div className="space-y-2">
-        <p className="text-[13px] text-white/45">
-          Registrá un gasto operativo (sonido, DJ, alquiler…). La mercadería entra sola por las
-          compras de la Barra.
-        </p>
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-white/[0.14] p-2">
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="border-white/[0.1] bg-[#111] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar gasto</DialogTitle>
+            <DialogDescription>Los gastos de mercadería se registran automáticamente desde las compras de Barra.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
           <Input
             placeholder="Descripción (ej. Cachet DJ)"
             value={formDescription}
             onChange={(e) => setFormDescription(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submitExpense()
-            }}
-            className={cn(inputClass, "h-10 min-w-[160px] flex-1")}
+            className={inputClass}
           />
           <Select
             value={formCategory}
             onValueChange={(v) => setFormCategory(v as EventExpenseCategory)}
           >
-            <SelectTrigger className={cn(selectClass, "h-10 w-[150px]")}>
+            <SelectTrigger className={selectClass}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-white/[0.08]">
@@ -363,21 +367,23 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
             placeholder="$ Monto"
             value={formAmount}
             onChange={(e) => setFormAmount(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submitExpense()
-            }}
-            className={cn(inputClass, "h-10 w-32 font-mono tabular-nums")}
+            onKeyDown={(e) => { if (e.key === "Enter") void submitExpense() }}
+            className={cn(inputClass, "font-mono tabular-nums")}
           />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancelar</Button>
           <Button
             type="button"
             disabled={!formDescription.trim() || !formAmount.trim() || submitBusy}
             onClick={() => void submitExpense()}
-            className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
+            className="bg-[#FF9500] text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
           >
             {submitBusy ? "…" : "Agregar"}
           </Button>
-        </div>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

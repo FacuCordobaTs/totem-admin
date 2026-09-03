@@ -101,10 +101,12 @@ export type ApiEvent = {
   /** URL-friendly identifier: crow.ar/e/{slug}. null = sin slug personalizado. */
   slug: string | null
   date: string
+  /** Nombre visible del lugar, independiente de la dirección del mapa. */
+  venue: string | null
   location: string | null
   /** URL pública (R2 u otro CDN) */
   imageUrl?: string | null
-  /** Diseño de la página pública: GLASS = glassmorphism (default), MINIMAL = plano/minimalista. */
+  /** Diseño de la página pública: MINIMAL = clásico (default), GLASS = glassmorphism. */
   designType?: "GLASS" | "MINIMAL"
   /** Tarea 3.1 — Edad mínima para entrar (+18: 18). null = sin restricción. La lee el escáner de DNI. */
   ageRestriction?: number | null

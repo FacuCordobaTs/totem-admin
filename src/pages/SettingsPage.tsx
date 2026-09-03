@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef } from "react"
-import { Link, useNavigate, useSearchParams } from "react-router"
-import { ChevronLeft, LogOut } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Header } from "@/components/dashboard/header"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuthStore } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
-import { apiFetch } from "@/lib/api"
+import { ApiError, apiFetch } from "@/lib/api"
 import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
@@ -16,29 +15,44 @@ import { CucuruConnectionCard } from "@/components/settings/cucuru-connection-ca
 import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 import { WhatsAppConnectionCard } from "@/components/settings/whatsapp-connection-card"
 
-const SETTINGS_TABS = ["profile", "finances", "productora"] as const
-type SettingsTab = (typeof SETTINGS_TABS)[number]
-
-function isSettingsTab(v: string): v is SettingsTab {
-  return (SETTINGS_TABS as readonly string[]).includes(v)
-}
-
 function Panel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl bg-background p-6 sm:p-8">{children}</div>
-  )
+  return <section className="rounded-2xl bg-background p-6 sm:p-8">{children}</section>
 }
 
 export function SettingsPage() {
-  const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
   const mpToastHandled = useRef(false)
   const tenantId = useAuthStore((s) => s.staff?.tenantId)
   const tenantName = useAuthStore((s) => s.staff?.tenantName)
   const staff = useAuthStore((s) => s.staff)
   const token = useAuthStore((s) => s.token)
+  const updateStaff = useAuthStore((s) => s.updateStaff)
   const logoutStore = useAuthStore((s) => s.logout)
-  const role = useAuthStore((s) => s.staff?.role)
+  const [productoraName, setProductoraName] = useState(tenantName ?? "")
+  const [savingProductora, setSavingProductora] = useState(false)
+  const role = staff?.role
+  const isAdmin = role === "ADMIN"
+  const restrictedSettings = role === "BARTENDER" || role === "SECURITY"
+  const hasTenant = tenantId != null && tenantId !== ""
+
+  useEffect(() => {
+    setProductoraName(tenantName ?? "")
+  }, [tenantName])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const mpStatus = params.get("mp_status")
+    if (mpStatus !== "success" && mpStatus !== "error") {
+      mpToastHandled.current = false
+      return
+    }
+    if (mpToastHandled.current) return
+    mpToastHandled.current = true
+    if (mpStatus === "success") toast.success("Mercado Pago conectado correctamente")
+    else toast.error("No se pudo conectar Mercado Pago")
+    params.delete("mp_status")
+    params.delete("mp_error")
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`)
+  }, [])
 
   async function handleLogout() {
     try {
@@ -47,218 +61,83 @@ export function SettingsPage() {
       /* ignorar error de red */
     }
     logoutStore()
-    navigate("/login", { replace: true })
-  }
-  const isAdmin = role === "ADMIN"
-  const isBartender = role === "BARTENDER"
-  const isSecurity = role === "SECURITY"
-  const restrictedSettingsTabs = isBartender || isSecurity
-  const hasTenant = tenantId != null && tenantId !== ""
-
-  const tabFromUrl = searchParams.get("tab") ?? "profile"
-  const activeTab = useMemo((): SettingsTab => {
-    if (restrictedSettingsTabs) return "profile"
-    if (isSettingsTab(tabFromUrl)) return tabFromUrl
-    return "profile"
-  }, [restrictedSettingsTabs, tabFromUrl])
-
-  function setTab(value: string) {
-    if (!isSettingsTab(value)) return
-    setSearchParams({ tab: value }, { replace: true })
+    window.location.assign("/login")
   }
 
-  useEffect(() => {
-    if (restrictedSettingsTabs && tabFromUrl !== "profile") {
-      setSearchParams({ tab: "profile" }, { replace: true })
-    }
-  }, [restrictedSettingsTabs, tabFromUrl, setSearchParams])
-
-  useEffect(() => {
-    const mpStatus = searchParams.get("mp_status")
-    if (mpStatus !== "success" && mpStatus !== "error") {
-      mpToastHandled.current = false
+  async function saveProductoraName(e: React.FormEvent) {
+    e.preventDefault()
+    if (!token || !staff || !hasTenant) return
+    const name = productoraName.trim()
+    if (!name) {
+      toast.error("Ingresá el nombre de la productora")
       return
     }
-    if (mpToastHandled.current) return
-    mpToastHandled.current = true
-    if (mpStatus === "success") {
-      toast.success("Mercado Pago conectado correctamente")
-    } else {
-      const mpError = searchParams.get("mp_error")
-      if (mpError === "config_error") {
-        toast.error(
-          "Falta la configuración de Mercado Pago en el servidor (Client ID, Secret o URL de retorno). Contactá a soporte."
-        )
-      } else if (mpError === "missing_params") {
-        toast.error(
-          "La respuesta de Mercado Pago vino incompleta. Volvé a conectar."
-        )
-      } else if (mpError === "oauth_failed") {
-        toast.error("Mercado Pago no autorizó la conexión. Volvé a intentar.")
-      } else {
-        toast.error("No se pudo conectar Mercado Pago")
-      }
+    setSavingProductora(true)
+    try {
+      const data = await apiFetch<{ tenant: { name: string } }>("/tenants/me", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ name }),
+      })
+      updateStaff({ ...staff, tenantName: data.tenant.name })
+      toast.success("Nombre de la productora actualizado")
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "No se pudo guardar el nombre")
+    } finally {
+      setSavingProductora(false)
     }
-    const next = new URLSearchParams(searchParams)
-    next.delete("mp_status")
-    next.delete("mp_error")
-    setSearchParams(next, { replace: true })
-  }, [searchParams, setSearchParams])
-
-  const profileSection = (
-    <Panel>
-      <h2 className="text-xl font-bold tracking-tight text-foreground">Cuenta</h2>
-      <div className="mt-8 space-y-6">
-        <div>
-          <p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
-            Nombre
-          </p>
-          <p className="mt-1 text-[17px] text-foreground">{staff?.name ?? "—"}</p>
-        </div>
-        <div>
-          <p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
-            Correo
-          </p>
-          <p className="mt-1 text-[17px] text-foreground">{staff?.email ?? "—"}</p>
-        </div>
-        <div>
-          <p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">
-            Rol
-          </p>
-          <p className="mt-1 text-[17px] text-foreground">
-            {staff ? staffRoleLabel(staff.role) : "—"}
-          </p>
-        </div>
-        {restrictedSettingsTabs ? (
-          <div className="pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 w-full gap-2 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
-              onClick={() => void handleLogout()}
-            >
-              <LogOut className="h-4 w-4" />
-              Cerrar sesión
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    </Panel>
-  )
-
-  const financesSection = (
-    <div className="space-y-8">
-      {hasTenant ? (
-        <>
-          <MpConnectionCard tenantId={tenantId ?? null} token={token} />
-          <CucuruConnectionCard tenantId={tenantId ?? null} token={token} />
-          <WhatsAppConnectionCard tenantId={tenantId ?? null} token={token} />
-        </>
-      ) : null}
-      <Panel>
-        <h2 className="text-xl font-bold tracking-tight text-foreground">Finanzas</h2>
-        {!hasTenant ? (
-          <p className="mt-4 text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-            Configurá tu productora para vincular cobros.
-          </p>
-        ) : (
-          <p className="mt-4 text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
-            Reportes y métricas: en preparación.
-          </p>
-        )}
-      </Panel>
-    </div>
-  )
-
-  const productoraSection = (
-    <div className="mx-auto max-w-lg space-y-8">
-      <div className="space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Productora</h2>
-        <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-          Una organización por administrador.
-        </p>
-      </div>
-
-      {hasTenant ? (
-        <Panel>
-          <p className="text-[15px] text-[#8E8E93] dark:text-[#98989D]">Activa</p>
-          <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">
-            {tenantName?.trim() || "Configurada"}
-          </p>
-        </Panel>
-      ) : isAdmin ? (
-        <ProductoraSetupCard className="w-full max-w-none rounded-2xl border-zinc-200/50 bg-background shadow-none dark:border-zinc-800/50" />
-      ) : (
-        <ProductoraWaitingCard className="w-full max-w-none rounded-2xl shadow-none" />
-      )}
-    </div>
-  )
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
       <Header />
-      <main className="flex-1">
-        <div className="px-6 py-10 lg:px-10 lg:py-12">
-          <div className="mb-2">
-            <Link
-              to="/eventos"
-              className="inline-flex items-center gap-1 text-sm text-[#8E8E93] transition-colors hover:text-foreground dark:text-[#98989D]"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Volver a eventos
-            </Link>
-          </div>
-          <div className="mx-auto max-w-2xl space-y-10">
-            <header className="space-y-1">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-                {restrictedSettingsTabs ? "Mi perfil" : "Ajustes"}
-              </h1>
-              {!restrictedSettingsTabs ? (
-                <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-                  Cuenta y organización.
-                </p>
-              ) : null}
-            </header>
+      <main className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
+        <div className="mx-auto max-w-2xl space-y-8">
+          <header className="space-y-1">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              {restrictedSettings ? "Mi perfil" : "Cuenta"}
+            </h1>
+            {!restrictedSettings ? (
+              <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
+                Administrá los datos y las integraciones de tu productora.
+              </p>
+            ) : null}
+          </header>
 
-            {restrictedSettingsTabs ? (
-              profileSection
-            ) : (
-              <Tabs value={activeTab} onValueChange={setTab} className="w-full gap-8">
-                <TabsList
-                  variant="line"
-                  className="h-auto w-full min-w-0 justify-start gap-6 border-b border-zinc-200/50 bg-transparent p-0 dark:border-zinc-800/50"
-                >
-                  <TabsTrigger
-                    value="profile"
-                    className="rounded-none border-0 border-b-2 border-transparent px-0 pb-3 text-[15px] font-medium text-[#8E8E93] data-[state=active]:border-[#FF9500] data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:text-[#98989D]"
-                  >
-                    Perfil
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="finances"
-                    className="rounded-none border-0 border-b-2 border-transparent px-0 pb-3 text-[15px] font-medium text-[#8E8E93] data-[state=active]:border-[#FF9500] data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:text-[#98989D]"
-                  >
-                    Finanzas
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="productora"
-                    className="rounded-none border-0 border-b-2 border-transparent px-0 pb-3 text-[15px] font-medium text-[#8E8E93] data-[state=active]:border-[#FF9500] data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:text-[#98989D]"
-                  >
-                    Productora
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="profile" className="mt-8">
-                  {profileSection}
-                </TabsContent>
-                <TabsContent value="finances" className="mt-8">
-                  {financesSection}
-                </TabsContent>
-                <TabsContent value="productora" className="mt-8">
-                  {productoraSection}
-                </TabsContent>
-              </Tabs>
-            )}
-          </div>
+          <Panel>
+            <h2 className="text-xl font-bold tracking-tight text-foreground">Perfil</h2>
+            <div className="mt-8 space-y-6">
+              <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Nombre</p><p className="mt-1 text-[17px] text-foreground">{staff?.name ?? "—"}</p></div>
+              <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Correo</p><p className="mt-1 text-[17px] text-foreground">{staff?.email ?? "—"}</p></div>
+              <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Rol</p><p className="mt-1 text-[17px] text-foreground">{staff ? staffRoleLabel(staff.role) : "—"}</p></div>
+            </div>
+          </Panel>
+
+          {!restrictedSettings ? (
+            <>
+              <Panel>
+                <h2 className="text-xl font-bold tracking-tight text-foreground">Productora</h2>
+                {hasTenant ? (
+                  <form onSubmit={saveProductoraName} className="mt-6 flex flex-col gap-3 sm:flex-row">
+                    <Input value={productoraName} onChange={(e) => setProductoraName(e.target.value)} required maxLength={255} autoComplete="organization" className="h-11 rounded-xl" aria-label="Nombre de la productora" />
+                    <Button type="submit" disabled={savingProductora || !isAdmin} className="h-11 rounded-xl bg-[#FF9500] text-white hover:bg-[#FF9500]/90 disabled:opacity-50">{savingProductora ? "Guardando…" : "Guardar"}</Button>
+                  </form>
+                ) : isAdmin ? <div className="mt-6"><ProductoraSetupCard className="max-w-none" /></div> : <div className="mt-6"><ProductoraWaitingCard className="max-w-none" /></div>}
+              </Panel>
+
+              <section className="space-y-4">
+                <div><h2 className="text-xl font-bold tracking-tight text-foreground">Pagos</h2><p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">Conectá las plataformas para cobrar entradas y consumiciones.</p></div>
+                {hasTenant ? <><MpConnectionCard tenantId={tenantId} token={token} /><CucuruConnectionCard tenantId={tenantId} token={token} /></> : null}
+              </section>
+
+              <section className="space-y-4">
+                <div><h2 className="text-xl font-bold tracking-tight text-foreground">WhatsApp</h2><p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">Configurá los mensajes para tus clientes y tu equipo.</p></div>
+                {hasTenant ? <WhatsAppConnectionCard tenantId={tenantId} token={token} /> : null}
+              </section>
+            </>
+          ) : null}
+
+          <Button type="button" variant="outline" className="h-11 w-full gap-2 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30" onClick={() => void handleLogout()}><LogOut className="h-4 w-4" />Cerrar sesión</Button>
         </div>
       </main>
     </div>

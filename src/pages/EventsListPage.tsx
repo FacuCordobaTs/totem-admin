@@ -3,6 +3,15 @@ import { useNavigate } from "react-router"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -20,7 +29,7 @@ import {
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { eventStatusLabel } from "@/lib/event-status"
 import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { Check, ChevronRight, Loader2, Plus } from "lucide-react"
+import { Check, ChevronRight, Loader2, MapPin, Plus, Trash2 } from "lucide-react"
 import type { ApiEvent } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
@@ -72,6 +81,8 @@ export function EventsListPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const hasTenant = tenantId != null && tenantId !== ""
 
@@ -130,6 +141,21 @@ export function EventsListPage() {
   }, [events])
 
   const needsProductora = !hasTenant
+
+  async function deleteEvent() {
+    if (!token || !deleteTarget) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await apiFetch(`/events/${deleteTarget.id}`, { method: "DELETE", token })
+      setEvents((current) => current.filter((event) => event.id !== deleteTarget.id))
+      setDeleteTarget(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo eliminar el evento")
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // ── Loading / onboarding ─────────────────────────────────────────────────────────────
   if (needsProductora) {
@@ -198,6 +224,7 @@ export function EventsListPage() {
                   event={protagonist}
                   token={token}
                   onOpen={() => navigate(`/eventos/${protagonist.id}`)}
+                  onDelete={isAdmin ? () => setDeleteTarget(protagonist) : undefined}
                 />
               ) : (
                 <button
@@ -222,6 +249,7 @@ export function EventsListPage() {
                         key={ev.id}
                         event={ev}
                         onOpen={() => navigate(`/eventos/${ev.id}`)}
+                        onDelete={isAdmin ? () => setDeleteTarget(ev) : undefined}
                       />
                     ))}
                   </div>
@@ -241,6 +269,7 @@ export function EventsListPage() {
                         event={ev}
                         token={token}
                         onOpen={() => navigate(`/eventos/${ev.id}`)}
+                        onDelete={isAdmin ? () => setDeleteTarget(ev) : undefined}
                       />
                     ))}
                   </div>
@@ -258,6 +287,22 @@ export function EventsListPage() {
         navigate={navigate}
         source={duplicateSource}
       />
+      <AlertDialog open={deleteTarget != null} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
+        <AlertDialogContent className="border-zinc-800 bg-zinc-950 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar {deleteTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/60">
+              Se eliminarán permanentemente las entradas, ventas, barras, stock, gastos y demás datos asociados. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} className="border-zinc-700 bg-transparent text-white hover:bg-white/10 hover:text-white">Cancelar</AlertDialogCancel>
+            <Button disabled={deleting} onClick={() => void deleteEvent()} className="bg-red-600 text-white hover:bg-red-500">
+              {deleting ? "Eliminando…" : "Eliminar evento"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -268,10 +313,12 @@ function ProtagonistCard({
   event,
   token,
   onOpen,
+  onDelete,
 }: {
   event: ApiEvent
   token: string | null
   onOpen: () => void
+  onDelete?: () => void
 }) {
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
@@ -293,16 +340,13 @@ function ProtagonistCard({
     }
   }, [token, event.id, event.status])
 
-  const subtitle = [formatEventDateShort(event.date), event.location]
+  const subtitle = [formatEventDateShort(event.date), event.venue ?? event.location]
     .filter(Boolean)
     .join(" · ")
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="block w-full rounded-3xl border border-white/[0.08] bg-white/[0.02] px-7 py-8 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]"
-    >
+    <div className="group relative rounded-3xl border border-white/[0.08] bg-white/[0.02] transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]">
+      <button type="button" onClick={onOpen} className="block w-full px-7 py-8 pr-16 text-left">
       <span className="text-[12px] uppercase tracking-[0.18em] text-white/40">
         {eventStatusLabel(event.status)}
       </span>
@@ -343,19 +387,18 @@ function ProtagonistCard({
           </div>
         ) : null}
       </div>
-    </button>
+      </button>
+      {onDelete ? <DeleteEventButton onClick={onDelete} /> : null}
+    </div>
   )
 }
 
 /* ── Filas menores ──────────────────────────────────────────────────────────────────────── */
 
-function MinorRow({ event, onOpen }: { event: ApiEvent; onOpen: () => void }) {
+function MinorRow({ event, onOpen, onDelete }: { event: ApiEvent; onOpen: () => void; onDelete?: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full items-center gap-4 py-3.5 text-left transition-colors hover:opacity-80"
-    >
+    <div className="group relative">
+      <button type="button" onClick={onOpen} className="flex w-full items-center gap-4 py-3.5 pr-11 text-left transition-colors hover:opacity-80">
       <span className="min-w-0 flex-1 truncate font-semibold text-white/90">{event.name}</span>
       <span className="hidden shrink-0 text-[14px] text-white/40 sm:inline">
         {formatEventDateShort(event.date)}
@@ -364,7 +407,9 @@ function MinorRow({ event, onOpen }: { event: ApiEvent; onOpen: () => void }) {
         {eventStatusLabel(event.status)}
       </span>
       <ChevronRight className="h-4 w-4 shrink-0 text-white/20" />
-    </button>
+      </button>
+      {onDelete ? <DeleteEventButton onClick={onDelete} compact /> : null}
+    </div>
   )
 }
 
@@ -372,10 +417,12 @@ function HistoryRow({
   event,
   token,
   onOpen,
+  onDelete,
 }: {
   event: ApiEvent
   token: string | null
   onOpen: () => void
+  onDelete?: () => void
 }) {
   // Neto: preferí la liquidación congelada (4.4). Para cerrados legacy (sin reporte),
   // caé a /summary.netProfit (puede ser null para roles sin permisos financieros).
@@ -402,11 +449,8 @@ function HistoryRow({
   const netKnown = net != null && Number.isFinite(net)
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full items-center gap-4 py-3.5 text-left transition-colors hover:opacity-80"
-    >
+    <div className="group relative">
+      <button type="button" onClick={onOpen} className="flex w-full items-center gap-4 py-3.5 pr-11 text-left transition-colors hover:opacity-80">
       <span className="min-w-0 flex-1 truncate text-white/70">{event.name}</span>
       <span className="hidden shrink-0 text-[14px] text-white/30 sm:inline">
         {formatEventDateShort(event.date)}
@@ -419,6 +463,22 @@ function HistoryRow({
       >
         {netKnown ? money(net!) : "—"}
       </span>
+      </button>
+      {onDelete ? <DeleteEventButton onClick={onDelete} compact /> : null}
+    </div>
+  )
+}
+
+function DeleteEventButton({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label="Eliminar evento"
+      title="Eliminar evento"
+      onClick={onClick}
+      className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-white/25 transition-colors hover:bg-red-500/15 hover:text-red-400 ${compact ? "" : "opacity-0 group-hover:opacity-100 focus:opacity-100"}`}
+    >
+      <Trash2 className="h-4 w-4" />
     </button>
   )
 }
@@ -439,6 +499,7 @@ function useCreateEvent(
   const [name, setName] = useState("")
   const [date, setDate] = useState("") // YYYY-MM-DD
   const [time, setTime] = useState("") // HH:mm (opcional)
+  const [venue, setVenue] = useState("")
   const [location, setLocation] = useState("")
   const [fromSource, setFromSource] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -470,6 +531,7 @@ function useCreateEvent(
         body: JSON.stringify({
           name: name.trim() || undefined,
           date: iso.toISOString(),
+          venue: venue.trim() || undefined,
           location: location.trim() || undefined,
         }),
       })
@@ -487,6 +549,8 @@ function useCreateEvent(
     setDate,
     time,
     setTime,
+    venue,
+    setVenue,
     location,
     setLocation,
     fromSource,
@@ -499,14 +563,118 @@ function useCreateEvent(
   }
 }
 
+type PlaceSuggestion = { place_id: number; display_name: string }
+
+/** Búsqueda de direcciones sin clave; la dirección elegida es la que se guarda para el mapa. */
+function LocationPicker({
+  id,
+  value,
+  onChange,
+  className,
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  className: string
+}) {
+  const [query, setQuery] = useState(value)
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([])
+  const [searching, setSearching] = useState(false)
+
+  useEffect(() => {
+    if (query.trim().length < 3 || query === value) {
+      setSuggestions([])
+      setSearching(false)
+      return
+    }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(async () => {
+      setSearching(true)
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&q=${encodeURIComponent(query)}`,
+          { signal: controller.signal },
+        )
+        if (!response.ok) throw new Error("No se pudieron buscar ubicaciones")
+        setSuggestions((await response.json()) as PlaceSuggestion[])
+      } catch (error) {
+        if ((error as DOMException).name !== "AbortError") setSuggestions([])
+      } finally {
+        if (!controller.signal.aborted) setSearching(false)
+      }
+    }, 350)
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [query, value])
+
+  const select = (place: PlaceSuggestion) => {
+    setQuery(place.display_name)
+    onChange(place.display_name)
+    setSuggestions([])
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <Input
+          id={id}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            onChange("")
+          }}
+          className={className}
+          placeholder="Buscá una dirección o lugar"
+          autoComplete="off"
+        />
+        {searching ? <Loader2 className="absolute right-3 top-3 size-5 animate-spin text-white/45" /> : null}
+        {suggestions.length > 0 ? (
+          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
+            {suggestions.map((place) => (
+              <button
+                key={place.place_id}
+                type="button"
+                onClick={() => select(place)}
+                className="flex w-full items-start gap-2 px-3 py-3 text-left text-sm text-white/80 transition-colors hover:bg-white/10"
+              >
+                <MapPin className="mt-0.5 size-4 shrink-0 text-[#FF9500]" />
+                <span>{place.display_name}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {value ? (
+        <div className="overflow-hidden rounded-xl border border-zinc-800">
+          <iframe
+            src={`https://maps.google.com/maps?q=${encodeURIComponent(value)}&z=16&output=embed`}
+            title={`Mapa de ${value}`}
+            loading="lazy"
+            className="h-40 w-full"
+          />
+        </div>
+      ) : (
+        <p className="text-xs text-white/40">Elegí una recomendación para confirmar la ubicación y ver el mapa.</p>
+      )}
+    </div>
+  )
+}
+
 function CreateFields({
   form,
   idPrefix,
+  borderless = false,
 }: {
   form: ReturnType<typeof useCreateEvent>
   idPrefix: string
+  borderless?: boolean
 }) {
   const duplicating = form.canDuplicate && form.fromSource
+  const inputClassName = borderless
+    ? "h-11 rounded-xl border-0 bg-white/[0.06] shadow-none focus-visible:border-transparent focus-visible:ring-0"
+    : "h-11 rounded-xl border-zinc-800/50 bg-black"
   return (
     <>
       {form.error ? (
@@ -519,16 +687,26 @@ function CreateFields({
           type="button"
           onClick={() => form.setFromSource(!form.fromSource)}
           className={
-            "flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors " +
-            (form.fromSource
-              ? "border-[#FF9500]/40 bg-[#FF9500]/[0.08]"
-              : "border-zinc-800/50 bg-black hover:border-white/20")
+            "flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors " +
+            (borderless
+              ? form.fromSource
+                ? "bg-[#FF9500]/[0.08]"
+                : "bg-white/[0.04] hover:bg-white/[0.07]"
+              : form.fromSource
+                ? "border border-[#FF9500]/40 bg-[#FF9500]/[0.08]"
+                : "border border-zinc-800/50 bg-black hover:border-white/20")
           }
         >
           <span
             className={
-              "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border " +
-              (form.fromSource ? "border-[#FF9500] bg-[#FF9500]" : "border-white/25")
+              "flex h-5 w-5 shrink-0 items-center justify-center rounded-md " +
+              (borderless
+                ? form.fromSource
+                  ? "bg-[#FF9500]"
+                  : "bg-white/10"
+                : form.fromSource
+                  ? "border border-[#FF9500] bg-[#FF9500]"
+                  : "border border-white/25")
             }
           >
             {form.fromSource ? <Check className="h-3.5 w-3.5 text-black" /> : null}
@@ -555,7 +733,7 @@ function CreateFields({
           value={form.name}
           onChange={(e) => form.setName(e.target.value)}
           required={!duplicating}
-          className="h-11 rounded-xl border-zinc-800/50 bg-black"
+          className={inputClassName}
           placeholder={
             duplicating && form.source ? `${form.source.name} (copia)` : "Ej. Festival Noches Neón"
           }
@@ -575,7 +753,7 @@ function CreateFields({
             value={form.date}
             onChange={(e) => form.setDate(e.target.value)}
             required
-            className="h-11 rounded-xl border-zinc-800/50 bg-black"
+            className={inputClassName}
           />
         </div>
         <div className="w-28 space-y-2">
@@ -590,23 +768,37 @@ function CreateFields({
             type="time"
             value={form.time}
             onChange={(e) => form.setTime(e.target.value)}
-            className="h-11 rounded-xl border-zinc-800/50 bg-black"
+            className={inputClassName}
           />
         </div>
+      </div>
+      <div className="space-y-2">
+        <label
+          htmlFor={`${idPrefix}-venue`}
+          className="text-[13px] font-medium text-white/50"
+        >
+          Dirección textual (opcional)
+        </label>
+        <Input
+          id={`${idPrefix}-venue`}
+          value={form.venue}
+          onChange={(e) => form.setVenue(e.target.value)}
+          className={inputClassName}
+          placeholder="Ej. Salón del Puerto"
+        />
       </div>
       <div className="space-y-2">
         <label
           htmlFor={`${idPrefix}-loc`}
           className="text-[13px] font-medium text-white/50"
         >
-          Lugar (opcional)
+          Ubicación para el mapa (opcional)
         </label>
-        <Input
+        <LocationPicker
           id={`${idPrefix}-loc`}
           value={form.location}
-          onChange={(e) => form.setLocation(e.target.value)}
-          className="h-11 rounded-xl border-zinc-800/50 bg-black"
-          placeholder="Venue o dirección"
+          onChange={form.setLocation}
+          className={inputClassName}
         />
       </div>
     </>
@@ -661,7 +853,7 @@ function CreateDialog({
   const form = useCreateEvent(token, navigate, source)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl border-zinc-800/50">
+      <DialogContent className="max-w-md rounded-2xl border-zinc-800/50 bg-black">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold tracking-tight">Nuevo evento</DialogTitle>
           <DialogDescription className="text-sm text-white/50">
@@ -669,7 +861,7 @@ function CreateDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.submit} className="flex flex-col gap-4">
-          <CreateFields form={form} idPrefix="dialog" />
+          <CreateFields form={form} idPrefix="dialog" borderless />
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               type="button"

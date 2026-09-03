@@ -17,6 +17,7 @@ type ReportPayload = {
     id: string
     name: string
     date: string
+    venue: string | null
     location: string | null
   }
   report: EventClosingReport
@@ -81,7 +82,7 @@ export function ReportPage() {
           report={payload.report}
           eventName={payload.event.name}
           eventDate={payload.event.date}
-          location={payload.event.location}
+          location={payload.event.venue ?? payload.event.location}
           productora={payload.productora.name}
         />
       </div>

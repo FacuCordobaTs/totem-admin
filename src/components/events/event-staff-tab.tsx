@@ -1,504 +1,188 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { Check, Copy, Plus, QrCode, UserPlus, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
+import { Copy, Loader2, Plus, UserPlus, Users } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import type {
-  EventAssignmentStaffRow,
-  EventBarsResponse,
-  EventBarRow,
-  EventStaffListResponse,
-} from "@/types/event-dashboard"
+import type { EventAssignmentStaffRow, EventStaffListResponse } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
-import { StaffInlineCreate } from "@/components/staff/staff-inline-create"
 import { PromotersPanel } from "@/components/events/promoters-panel"
-import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 type StaffRole = EventAssignmentStaffRow["role"]
 
 type Invitation = {
   id: string
+  name: string
   role: StaffRole
-  token: string
   url: string
-  status: string
-  expiresAt: string | null
-  createdAt: string | null
 }
 
 const INVITE_ROLES: StaffRole[] = ["BARTENDER", "SECURITY", "MANAGER"]
+const ROLE_ORDER: StaffRole[] = ["MANAGER", "BARTENDER", "SECURITY", "ADMIN"]
 
-function SectionSkeleton() {
-  return (
-    <div className="space-y-3">
-      <div className="h-10 w-48 animate-pulse rounded-xl bg-white/[0.06]" />
-      <div className="h-40 w-full animate-pulse rounded-2xl bg-white/[0.06]" />
-    </div>
-  )
-}
+type Props = { eventId: string; inviteAccessHint?: string }
 
-type Props = {
-  eventId: string
-  /** Estado derivado del evento; el toggle "trabaja hoy" solo aplica cuando está por venir. */
-  eventStatus?: "draft" | "active" | "finished"
-}
-
-export function EventStaffTab({ eventId, eventStatus }: Props) {
+export function EventStaffTab({ eventId, inviteAccessHint }: Props) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
   const canInvite = role === "ADMIN"
-
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
-  const [bars, setBars] = useState<EventBarRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [teamOpen, setTeamOpen] = useState(false)
+  const [inviteOpen, setInviteOpen] = useState(false)
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (showLoading = false) => {
     if (!token) return
-    setLoading(true)
+    if (showLoading) setLoading(true)
     setError(null)
     try {
-      const [staffRes, barsRes] = await Promise.all([
-        apiFetch<EventStaffListResponse>(`/events/${eventId}/staff`, {
-          method: "GET",
-          token,
-        }),
-        apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, {
-          method: "GET",
-          token,
-        }),
-      ])
-      setRows(staffRes.staff)
-      setBars(barsRes.bars)
+      const data = await apiFetch<EventStaffListResponse>(`/events/${eventId}/staff`, { method: "GET", token })
+      setRows(data.staff)
     } catch (e) {
-      setRows([])
-      setError(
-        e instanceof ApiError ? e.message : "No se pudo cargar el equipo del evento"
-      )
+      setError(e instanceof ApiError ? e.message : "No se pudo cargar el equipo del evento")
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
-  }, [token, eventId])
+  }, [eventId, token])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useEffect(() => { void load(true) }, [load])
 
-  function addPending(id: string) {
-    setPendingIds((prev) => new Set(prev).add(id))
-  }
-  function removePending(id: string) {
-    setPendingIds((prev) => {
-      const next = new Set(prev)
-      next.delete(id)
-      return next
-    })
-  }
+  const groupedAssigned = useMemo(() => {
+    const assigned = rows.filter((member) => member.isAssigned)
+    return ROLE_ORDER.map((staffRole) => ({
+      role: staffRole,
+      members: assigned.filter((member) => member.role === staffRole),
+    })).filter((group) => group.members.length > 0)
+  }, [rows])
 
-  async function postAssign(
-    body: { staffId: string; isAssigned: boolean; barId?: string | null },
-    prevRows: EventAssignmentStaffRow[]
-  ) {
-    if (!token) return
+  async function setAssignment(member: EventAssignmentStaffRow, isAssigned: boolean) {
+    if (!token || pendingIds.has(member.id)) return
+    const previous = rows
+    setPendingIds((ids) => new Set(ids).add(member.id))
+    setRows((current) => current.map((row) => row.id === member.id ? { ...row, isAssigned, barId: isAssigned ? row.barId : null } : row))
     try {
       await apiFetch(`/events/${eventId}/staff/assign`, {
         method: "POST",
         token,
-        body: JSON.stringify(body),
+        body: JSON.stringify({ staffId: member.id, isAssigned }),
       })
     } catch (e) {
-      setRows(prevRows)
-      toast.error(
-        e instanceof ApiError ? e.message : "No se pudo actualizar la asignación"
-      )
+      setRows(previous)
+      toast.error(e instanceof ApiError ? e.message : "No se pudo actualizar el equipo")
     } finally {
-      removePending(body.staffId)
+      setPendingIds((ids) => { const next = new Set(ids); next.delete(member.id); return next })
     }
   }
 
-  // Un solo gesto: prender/apagar "trabaja esta noche" cuando no hay puestos.
-  function toggleWorks(member: EventAssignmentStaffRow, checked: boolean) {
-    if (pendingIds.has(member.id)) return
-    const prevRows = rows
-    addPending(member.id)
-    setRows((r) =>
-      r.map((s) =>
-        s.id === member.id
-          ? { ...s, isAssigned: checked, barId: checked ? s.barId : null }
-          : s
-      )
-    )
-    void postAssign({ staffId: member.id, isAssigned: checked }, prevRows)
-  }
-
-  // Un solo gesto: elegir puesto (asigna + trabaja) o "No" (lo saca).
-  function assignToBar(member: EventAssignmentStaffRow, barId: string | null) {
-    if (pendingIds.has(member.id)) return
-    const prevRows = rows
-    addPending(member.id)
-    if (barId === null) {
-      setRows((r) =>
-        r.map((s) =>
-          s.id === member.id ? { ...s, isAssigned: false, barId: null } : s
-        )
-      )
-      void postAssign({ staffId: member.id, isAssigned: false }, prevRows)
-      return
-    }
-    setRows((r) =>
-      r.map((s) =>
-        s.id === member.id ? { ...s, isAssigned: true, barId } : s
-      )
-    )
-    void postAssign({ staffId: member.id, isAssigned: true, barId }, prevRows)
-  }
-
-  if (loading) return <SectionSkeleton />
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-red-200/60 bg-red-50 px-5 py-4 text-[15px] text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-        {error}
-      </div>
-    )
-  }
-
-  const puestos = bars.filter((b) => !b.isDefault)
-  const hasPuestos = puestos.length > 0
-  const defaultBar = bars.find((b) => b.isDefault) ?? null
-  // Chips de puesto: la barra default se muestra como "General".
-  const barChips = bars.map((b) => ({
-    id: b.id,
-    label: b.isDefault ? "General" : b.name,
-  }))
-  // El toggle "trabaja hoy" solo tiene sentido antes/durante el evento.
-  const showWorkToggle = eventStatus !== "finished"
+  if (loading) return <div className="h-36 animate-pulse rounded-2xl bg-white/[0.06]" />
+  if (error) return <div className="rounded-2xl border border-red-900/50 bg-red-950/40 px-5 py-4 text-[15px] text-red-300">{error}</div>
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h3 className="text-[17px] font-medium text-foreground">Esta noche</h3>
-          <p className="text-[13px] text-white/40">
-            {hasPuestos
-              ? "Quién trabaja y en qué puesto."
-              : "Quién trabaja esta noche."}
-          </p>
+          <p className="text-[17px] font-medium text-foreground">Equipo asignado</p>
+          <p className="mt-1 text-[13px] text-white/40">Las personas que trabajan en este evento.</p>
         </div>
-        {canInvite ? <InvitePanel onInvited={load} /> : null}
+        {canManage ? <Button type="button" onClick={() => setTeamOpen(true)} className="gap-2 rounded-lg bg-[#FF9500] text-white hover:bg-[#FF9500]/90"><Users className="h-4 w-4" />Gestionar equipo</Button> : null}
       </div>
 
-      {rows.length === 0 ? (
+      {groupedAssigned.length === 0 ? (
         <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center text-[15px] text-white/45">
-          Todavía no hay nadie en el equipo.
-          {canInvite ? " Invitá a alguien con el botón de arriba." : null}
+          No hay empleados asignados a este evento.
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {rows.map((member) => {
-            const busy = pendingIds.has(member.id)
-            const selectedBar = member.isAssigned
-              ? member.barId ?? defaultBar?.id ?? null
-              : null
-            return (
-              <div
-                key={member.id}
-                className={cn(
-                  "flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 transition-colors",
-                  member.isAssigned && "border-white/[0.12] bg-white/[0.04]"
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium text-foreground">
-                    {member.name}
-                  </p>
-                  <span className="text-[12px] text-white/40">
-                    {staffRoleLabel(member.role)}
-                  </span>
-                </div>
-
-                {!canManage ? (
-                  <span className="text-[13px] text-white/45">
-                    {member.isAssigned
-                      ? selectedBar && hasPuestos
-                        ? barChips.find((c) => c.id === selectedBar)?.label ??
-                          "Trabaja"
-                        : "Trabaja"
-                      : "—"}
-                  </span>
-                ) : hasPuestos ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    <ChipButton
-                      active={!member.isAssigned}
-                      disabled={busy}
-                      onClick={() => assignToBar(member, null)}
-                      muted
-                    >
-                      No trabaja
-                    </ChipButton>
-                    {barChips.map((chip) => (
-                      <ChipButton
-                        key={chip.id}
-                        active={selectedBar === chip.id}
-                        disabled={busy}
-                        onClick={() => assignToBar(member, chip.id)}
-                      >
-                        {chip.label}
-                      </ChipButton>
-                    ))}
-                  </div>
-                ) : showWorkToggle ? (
-                  <ChipButton
-                    active={member.isAssigned}
-                    disabled={busy}
-                    onClick={() => toggleWorks(member, !member.isAssigned)}
-                  >
-                    {member.isAssigned ? "Trabaja" : "Sumar"}
-                  </ChipButton>
-                ) : (
-                  <span className="text-[13px] text-white/45">
-                    {member.isAssigned ? "Trabajó" : "—"}
-                  </span>
-                )}
+        <div className="space-y-5">
+          {groupedAssigned.map((group) => (
+            <section key={group.role}>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/35">{staffRoleLabel(group.role)} · {group.members.length}</p>
+              <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+                {group.members.map((member, index) => <div key={member.id} className={`px-4 py-3 text-[14px] text-white/80 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}>{member.name}</div>)}
               </div>
-            )
-          })}
+            </section>
+          ))}
         </div>
       )}
 
-      {canInvite ? <StaffInlineCreate onCreated={load} /> : null}
-
-      {/* Tarea 9.1 — Promotores: ABM a nivel productora, atribución en ventas (9.1 + 9.2). */}
-      <div className="border-t border-white/[0.06] pt-5">
-        <PromotersPanel />
-      </div>
-
-      <p className="pt-1 text-[13px] text-white/40">
-        El equipo se hereda de la Productora. Los empleados que agregues acá quedan disponibles
-        en todos tus eventos.
-      </p>
+      <TeamDialog
+        open={teamOpen}
+        onOpenChange={setTeamOpen}
+        rows={rows}
+        pendingIds={pendingIds}
+        canInvite={canInvite}
+        onToggle={setAssignment}
+        onInvite={() => setInviteOpen(true)}
+      />
+      {canInvite ? <InviteEmployeeDialog open={inviteOpen} onOpenChange={setInviteOpen} onCreated={load} accessHint={inviteAccessHint} /> : null}
+      <div className="border-t border-white/[0.06] pt-6"><PromotersPanel /></div>
     </div>
   )
 }
 
-function ChipButton({
-  active,
-  muted,
-  disabled,
-  onClick,
-  children,
-}: {
-  active: boolean
-  muted?: boolean
-  disabled?: boolean
-  onClick: () => void
-  children: React.ReactNode
+function TeamDialog({ open, onOpenChange, rows, pendingIds, canInvite, onToggle, onInvite }: {
+  open: boolean; onOpenChange: (open: boolean) => void; rows: EventAssignmentStaffRow[]; pendingIds: Set<string>; canInvite: boolean
+  onToggle: (member: EventAssignmentStaffRow, isAssigned: boolean) => void; onInvite: () => void
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "h-8 rounded-lg border px-3 text-[13px] font-medium transition-colors disabled:opacity-40",
-        active
-          ? muted
-            ? "border-white/20 bg-white/[0.08] text-white/60"
-            : "border-[#FF9500] bg-[#FF9500] text-white"
-          : "border-white/[0.1] bg-transparent text-white/55 hover:border-white/25 hover:text-white"
-      )}
-    >
-      {children}
-    </button>
-  )
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden rounded-2xl border-white/[0.1] bg-black p-0 text-white">
+      <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left">
+        <div className="flex items-start justify-between gap-8 pr-8"><div><DialogTitle className="text-xl">Equipo de la productora</DialogTitle><DialogDescription className="mt-1 text-white/45">Sumá al evento a las personas disponibles en tu equipo.</DialogDescription></div>{canInvite ? <Button type="button" size="sm" onClick={onInvite} className="shrink-0 gap-1.5 bg-[#FF9500] text-white hover:bg-[#FF9500]/90"><UserPlus className="h-4 w-4" />Invitar empleado</Button> : null}</div>
+      </DialogHeader>
+      <div className="overflow-y-auto p-4">
+        {rows.length === 0 ? <p className="py-10 text-center text-sm text-white/40">Todavía no hay empleados en la productora.</p> : <div className="space-y-1.5">{rows.map((member) => {
+          const assigned = member.isAssigned
+          const busy = pendingIds.has(member.id)
+          return <div key={member.id} className="flex items-center gap-3 rounded-xl border border-white/[0.07] px-4 py-3"><div className="min-w-0 flex-1"><p className="truncate text-[15px] font-medium">{member.name}</p><p className="text-[12px] text-white/40">{staffRoleLabel(member.role)}</p></div><Button type="button" size="sm" variant={assigned ? "outline" : "default"} disabled={busy} onClick={() => onToggle(member, !assigned)} className={assigned ? "border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]" : "bg-[#FF9500] text-white hover:bg-[#FF9500]/90"}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : assigned ? "Quitar" : <><Plus className="mr-1 h-4 w-4" />Sumar</>}</Button></div>
+        })}</div>}
+      </div>
+    </DialogContent>
+  </Dialog>
 }
 
-// -----------------------------------------------------------------------------
-// Invitar desde acá: genera un link nominado a un rol. Al aceptarlo, la persona
-// entra al equipo GLOBAL (spec §4.4). El link vive en /unirse/:token.
-// -----------------------------------------------------------------------------
-function InvitePanel({ onInvited }: { onInvited: () => void }) {
+function InviteEmployeeDialog({ open, onOpenChange, onCreated, accessHint }: { open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void; accessHint?: string }) {
   const token = useAuthStore((s) => s.token)
-  const [open, setOpen] = useState(false)
-  const [invites, setInvites] = useState<Invitation[]>([])
+  const [name, setName] = useState("")
   const [role, setRole] = useState<StaffRole>("BARTENDER")
-  const [creating, setCreating] = useState(false)
+  const [invitation, setInvitation] = useState<Invitation | null>(null)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadInvites = useCallback(async () => {
-    if (!token) return
-    try {
-      const data = await apiFetch<{ invitations: Invitation[] }>(
-        "/staff/invitations",
-        { method: "GET", token }
-      )
-      setInvites(data.invitations)
-    } catch {
-      // silencioso: el panel no bloquea la sección
-    }
-  }, [token])
-
-  useEffect(() => {
-    if (open) void loadInvites()
-  }, [open, loadInvites])
-
+  function close(nextOpen: boolean) { if (!nextOpen) { setInvitation(null); setError(null); setName(""); setRole("BARTENDER") }; onOpenChange(nextOpen) }
   async function create() {
-    if (!token || creating) return
-    setError(null)
-    setCreating(true)
+    if (!token || saving) return
+    if (!name.trim()) return setError("Completá el nombre del empleado.")
+    setSaving(true); setError(null)
     try {
-      await apiFetch<{ invitation: Invitation }>("/staff/invitations", {
-        method: "POST",
-        token,
-        body: JSON.stringify({ role }),
-      })
-      await loadInvites()
-      onInvited()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "No se pudo crear el link")
-    } finally {
-      setCreating(false)
-    }
+      const data = await apiFetch<{ invitation: Invitation }>("/staff/invitations", { method: "POST", token, body: JSON.stringify({ name: name.trim(), role }) })
+      setInvitation(data.invitation); onCreated()
+    } catch (e) { setError(e instanceof ApiError ? e.message : "No se pudo crear la invitación") } finally { setSaving(false) }
   }
-
-  async function revoke(id: string) {
-    if (!token) return
-    const prev = invites
-    setInvites((list) => list.filter((i) => i.id !== id))
-    try {
-      await apiFetch(`/staff/invitations/${id}/revoke`, {
-        method: "POST",
-        token,
-      })
-    } catch {
-      setInvites(prev)
-    }
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.12] px-3 text-[13px] font-medium text-white/70 transition-colors hover:border-white/25 hover:text-white"
-      >
-        <UserPlus className="h-3.5 w-3.5" />
-        Invitar
-      </button>
-
-      {open ? (
-        <div className="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-white/[0.1] bg-zinc-950 p-4 shadow-xl">
-          <div className="flex items-center gap-2">
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as StaffRole)}
-              className="h-10 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none focus:border-white/25"
-            >
-              {INVITE_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {staffRoleLabel(r)}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={create}
-              disabled={creating}
-              className="inline-flex h-10 items-center gap-1 rounded-lg bg-[#FF9500] px-3 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Link
-            </button>
-          </div>
-          {error ? <p className="mt-2 text-[12px] text-red-400">{error}</p> : null}
-
-          <div className="mt-3 space-y-1.5">
-            {invites.length === 0 ? (
-              <p className="py-1 text-[13px] text-white/35">
-                Creá un link y compartilo. Quien lo abra pone su nombre y un PIN, y
-                ya entra al equipo.
-              </p>
-            ) : (
-              invites.map((inv) => (
-                <InviteRow key={inv.id} invite={inv} onRevoke={revoke} />
-              ))
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
+  function copy() { if (!invitation) return; void navigator.clipboard.writeText(invitation.url); toast.success("Link copiado") }
+  return <Dialog open={open} onOpenChange={close}>
+    <DialogContent className="max-w-lg rounded-2xl border-white/[0.1] bg-black p-0 text-white">
+      <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left"><DialogTitle className="text-xl">Invitar empleado</DialogTitle><DialogDescription className="mt-1 text-white/45">La invitación crea el acceso al equipo de tu productora.</DialogDescription></DialogHeader>
+      <div className="space-y-4 px-6 py-5">{invitation ? <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-4"><p className="font-medium text-emerald-300">Link de invitación creado</p><p className="mt-1 text-sm text-white/55">{invitation.name} · {staffRoleLabel(invitation.role)}</p><div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-start"><div className="rounded-xl bg-white p-3"><QRCodeSVG value={invitation.url} size={144} level="M" includeMargin /></div><div className="min-w-0 flex-1 self-stretch"><p className="text-sm text-white/55">{accessHint ?? "Escaneá el QR para abrir la invitación."}</p><div className="mt-3 flex gap-2"><Input readOnly value={invitation.url} className="h-10 min-w-0 border-white/[0.1] bg-black text-xs text-white/65" /><Button type="button" variant="outline" size="icon" onClick={copy} aria-label="Copiar link de invitación" className="shrink-0 border-white/[0.12] bg-transparent"><Copy className="h-4 w-4" /></Button></div></div></div></div> : <><Field label="Nombre del empleado"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre y apellido" className="border-white/[0.1] bg-white/[0.04]" /></Field><Field label="Rol"><Select value={role} onValueChange={(value) => setRole(value as StaffRole)}><SelectTrigger className="border-white/[0.1] bg-white/[0.04]"><SelectValue /></SelectTrigger><SelectContent>{INVITE_ROLES.map((item) => <SelectItem key={item} value={item}>{staffRoleLabel(item)}</SelectItem>)}</SelectContent></Select></Field><Button type="button" onClick={() => void create()} disabled={saving} className="w-full bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving ? "Creando…" : "Crear invitación"}</Button></>}{error ? <p className="text-sm text-red-400">{error}</p> : null}</div>
+    </DialogContent>
+  </Dialog>
 }
 
-function InviteRow({
-  invite,
-  onRevoke,
-}: {
-  invite: Invitation
-  onRevoke: (id: string) => void
-}) {
-  const [copied, setCopied] = useState(false)
-  const [showQr, setShowQr] = useState(false)
-  function copy() {
-    void navigator.clipboard.writeText(invite.url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-  return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
-      <div className="flex items-center gap-2">
-        <span className="flex-1 text-[13px] text-white/70">
-          {staffRoleLabel(invite.role)}
-        </span>
-        <button
-          type="button"
-          onClick={() => setShowQr((v) => !v)}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
-            showQr
-              ? "border-white/25 text-white"
-              : "border-white/[0.1] text-white/60 hover:border-white/25 hover:text-white"
-          )}
-          aria-pressed={showQr}
-        >
-          <QrCode className="h-3.5 w-3.5" />
-          QR
-        </button>
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-emerald-400" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-          {copied ? "Copiado" : "Copiar link"}
-        </button>
-        <button
-          type="button"
-          onClick={() => onRevoke(invite.id)}
-          className="rounded-md p-1 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
-          aria-label="Anular invitación"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {showQr ? (
-        <div className="mt-2.5 flex flex-col items-center gap-2 border-t border-white/[0.06] pt-3">
-          <div className="rounded-lg bg-white p-3">
-            <QRCodeSVG value={invite.url} size={160} level="M" />
-          </div>
-          <p className="text-center text-[12px] text-white/35">
-            Escaneá para unirte al equipo.
-          </p>
-        </div>
-      ) : null}
-    </div>
-  )
-}
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block space-y-1.5"><span className="text-sm font-medium text-white/70">{label}</span>{children}</label> }

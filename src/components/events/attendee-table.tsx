@@ -49,6 +49,9 @@ export type ApiTicketRow = {
   emailSentAt: string | null
   ticketTypeId: string
   ticketTypeName: string
+  customerId: string | null
+  promoterId: string | null
+  promoterName: string | null
 }
 
 type TicketsResponse = { tickets: ApiTicketRow[] }
@@ -137,6 +140,8 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     const [searchQuery, setSearchQuery] = useState("")
     const [filterStatus, setFilterStatus] = useState<"all" | "PENDING" | "USED">("all")
     const [filterTicketTypeId, setFilterTicketTypeId] = useState<"all" | string>("all")
+    const [filterSource, setFilterSource] = useState<"all" | "promoter" | "web" | "direct">("all")
+    const [filterPromoterId, setFilterPromoterId] = useState<"all" | string>("all")
 
     const [detail, setDetail] = useState<ApiTicketRow | null>(null)
     const [qrTicketId, setQrTicketId] = useState<string | null>(null)
@@ -246,15 +251,19 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
 
     const filtered = useMemo(() => {
       const q = searchQuery.toLowerCase().trim()
-      if (q === "") return rows
       return rows.filter((t) => {
+        if (filterSource === "promoter" && !t.promoterId) return false
+        if (filterSource === "web" && !t.customerId) return false
+        if (filterSource === "direct" && (t.promoterId || t.customerId)) return false
+        if (filterPromoterId !== "all" && t.promoterId !== filterPromoterId) return false
+        if (q === "") return true
         return (
           (t.buyerName?.toLowerCase().includes(q) ?? false) ||
           (t.buyerEmail?.toLowerCase().includes(q) ?? false) ||
           t.qrHash.toLowerCase().includes(q)
         )
       })
-    }, [rows, searchQuery])
+    }, [rows, searchQuery, filterSource, filterPromoterId])
 
     const exportCsv = useCallback(() => {
       const header = [
@@ -349,7 +358,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       setSaleError(null)
       setSelling(true)
       try {
-        await apiFetch("/tickets/sell", {
+        const result = await apiFetch<{ ticket: ApiTicketRow }>("/tickets/sell", {
           method: "POST",
           token,
           body: JSON.stringify({
@@ -363,7 +372,19 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           }),
         })
         setSaleOpen(false)
-        toast.success("Venta emitida")
+        setQrTicketId(result.ticket.id)
+        setQrBuyerName(result.ticket.buyerName)
+        setQrOpen(true)
+        if (result.ticket.buyerEmail?.trim()) {
+          try {
+            await apiFetch(`/tickets/${result.ticket.id}/send-email`, { method: "POST", token })
+            toast.success("Venta emitida y QR enviado por email")
+          } catch {
+            toast.success("Venta emitida. No se pudo enviar el email.")
+          }
+        } else {
+          toast.success("Venta emitida")
+        }
         await Promise.all([loadTickets({ silent: true }), loadTicketTypes()])
         onSaleCompleted?.()
       } catch (err) {
@@ -379,9 +400,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       saleSelected.stockLimit != null &&
       saleSelected.sold >= saleSelected.stockLimit
 
-    const hasAttendees = rows.length > 0
-    const filtersActive = filterStatus !== "all" || filterTicketTypeId !== "all"
-    const showFilters = hasAttendees || filtersActive
+    const showFilters = true
 
     return (
       <section className="w-full space-y-5">
@@ -403,13 +422,13 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   Exportar CSV
                 </Button>
               )}
-              <div className="relative">
+              <div className="relative basis-full">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
                 <Input
                   placeholder="Buscar asistente"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-9 w-44 rounded-xl border-white/[0.1] bg-white/[0.05] pl-8 text-[13px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
+                  className="h-9 w-full rounded-xl border-white/[0.1] bg-white/[0.05] pl-8 text-[13px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
                 />
               </div>
               <Select
@@ -441,6 +460,22 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   <SelectItem value="USED">Usadas</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={filterSource} onValueChange={(v) => setFilterSource(v as typeof filterSource)}>
+                <SelectTrigger className={cn(filterTriggerClass, "min-w-[115px]")}><SelectValue placeholder="Origen" /></SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all">Todos los orígenes</SelectItem>
+                  <SelectItem value="promoter">Promotores</SelectItem>
+                  <SelectItem value="web">Web</SelectItem>
+                  <SelectItem value="direct">Directa</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterPromoterId} onValueChange={setFilterPromoterId}>
+                <SelectTrigger className={cn(filterTriggerClass, "min-w-[135px]")}><SelectValue placeholder="Promotor" /></SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all">Todos los promotores</SelectItem>
+                  {promoters.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </>
           )}
         </div>
@@ -449,30 +484,21 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p>
         ) : null}
 
-        {/* Venta embebida en el listado (sin modal) */}
+        {/* Nueva venta */}
         {allowSale ? (
-          <div className="rounded-2xl border border-dashed border-white/[0.12] bg-white/[0.015]">
-            {!saleOpen ? (
-              <button
+          <>
+            <Button
                 type="button"
                 onClick={openSale}
-                className="flex w-full items-center gap-2 px-4 py-3.5 text-left text-[14px] font-medium text-[#FF9500] transition-colors hover:bg-white/[0.02]"
+                className="ml-auto h-10 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="mr-1.5 h-4 w-4" />
                 Nueva venta
-              </button>
-            ) : (
-              <div className="space-y-4 p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-[15px] font-semibold text-white">Nueva venta</p>
-                  <button
-                    type="button"
-                    onClick={() => setSaleOpen(false)}
-                    className="text-[13px] text-white/40 transition-colors hover:text-white/70"
-                  >
-                    Cancelar
-                  </button>
-                </div>
+            </Button>
+            <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
+              <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto rounded-2xl border-white/[0.10] bg-black p-0 text-white">
+              <div className="space-y-4 p-5">
+                <p className="text-[15px] font-semibold text-white">Nueva venta</p>
 
                 {saleError ? (
                   <p className="rounded-xl border border-red-900/50 bg-red-500/10 px-3 py-2 text-[13px] text-red-400">
@@ -566,8 +592,9 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   {selling ? "Emitiendo…" : "Confirmar venta"}
                 </Button>
               </div>
-            )}
-          </div>
+              </DialogContent>
+            </Dialog>
+          </>
         ) : null}
 
         <div className="overflow-hidden rounded-2xl">
@@ -589,13 +616,16 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                 <TableHead className="text-[11px] font-normal lowercase text-white/45">
                   Correo
                 </TableHead>
+                <TableHead className="pr-4 text-[11px] font-normal lowercase text-white/45">
+                  Origen
+                </TableHead>
               </TableRow>
             </TableHeader>
             {loading ? (
               <TableBody>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <TableRow key={i} className="border-0 hover:bg-transparent">
-                    <TableCell className="py-4 pl-4" colSpan={5}>
+                    <TableCell className="py-4 pl-4" colSpan={6}>
                       <div className="h-5 animate-pulse rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60" />
                     </TableCell>
                   </TableRow>
@@ -606,7 +636,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                 {filtered.length === 0 ? (
                   <TableRow className="border-0 hover:bg-transparent">
                     <TableCell
-                      colSpan={5}
+                      colSpan={6}
                       className="py-14 text-center text-[15px] text-white/40"
                     >
                       Sin resultados
@@ -631,6 +661,9 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                       <TableCell className="py-3.5">{statusPill(t.status)}</TableCell>
                       <TableCell className="py-3.5 pr-4 text-[13px] text-white/35">
                         {t.buyerEmail ?? "—"}
+                      </TableCell>
+                      <TableCell className="py-3.5 pr-4 text-[12px] text-white/45">
+                        {t.promoterName ? `Promotor · ${t.promoterName}` : t.customerId ? "Web" : "Directa"}
                       </TableCell>
                     </TableRow>
                   ))

@@ -5,7 +5,13 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 // Tarea 9.1 — Promotores (visión §2.8): personas que venden entradas a comisión por la
 // productora. Viven a nivel TENANT (trabajan en todos los eventos) y cada venta puede
@@ -35,6 +41,7 @@ export function PromotersPanel() {
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [saving, setSaving] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -64,12 +71,14 @@ export function PromotersPanel() {
     setEditingId(null)
     setName("")
     setPhone("")
+    setDialogOpen(true)
   }
 
   function startEdit(p: ApiPromoter) {
     setEditingId(p.id)
     setName(p.name)
     setPhone(p.phone ?? "")
+    setDialogOpen(true)
   }
 
   function addPending(id: string) {
@@ -107,6 +116,7 @@ export function PromotersPanel() {
         toast.success("Promotor actualizado")
       }
       startCreate()
+      setDialogOpen(false)
       await load()
     } catch (e) {
       toast.error(
@@ -235,13 +245,7 @@ export function PromotersPanel() {
                       type="button"
                       disabled={busy}
                       onClick={() => toggleActive(p)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-[12px] font-medium transition-colors",
-                        p.isActive
-                          ? "border-white/[0.12] bg-white/[0.06] text-foreground"
-                          : "border-white/[0.08] text-white/40",
-                        busy && "opacity-50"
-                      )}
+                      className={`rounded-full border px-3 py-1 text-[12px] font-medium transition-colors ${p.isActive ? "border-white/[0.12] bg-white/[0.06] text-foreground" : "border-white/[0.08] text-white/40"} ${busy ? "opacity-50" : ""}`}
                     >
                       {p.isActive ? "Activo" : "Inactivo"}
                     </button>
@@ -277,48 +281,19 @@ export function PromotersPanel() {
         </div>
       )}
 
-      {canManage && editing ? (
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[14px] font-semibold text-foreground">
-              {editingId == null ? "Nuevo promotor" : "Editar promotor"}
-            </p>
-            <button
-              type="button"
-              onClick={startCreate}
-              className="text-[13px] text-white/40 transition-colors hover:text-white/70"
-            >
-              Cancelar
-            </button>
+      {canManage ? <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg rounded-2xl border-white/[0.1] bg-black p-0 text-white">
+          <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left">
+            <DialogTitle className="text-xl">{editing ? "Editar promotor" : "Nuevo promotor"}</DialogTitle>
+            <DialogDescription className="mt-1 text-white/45">Los promotores quedan disponibles para atribuir ventas en todos los eventos.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 px-6 py-5">
+            <label className="block space-y-1.5"><span className="text-sm font-medium text-white/70">Nombre</span><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Carla Fernández" onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) void save() }} className="border-white/[0.1] bg-white/[0.04]" /></label>
+            <label className="block space-y-1.5"><span className="text-sm font-medium text-white/70">Teléfono</span><Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="11 5555 5555" inputMode="tel" className="border-white/[0.1] bg-white/[0.04]" /></label>
+            <Button type="button" onClick={() => void save()} disabled={saving || !name.trim()} className="w-full bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear promotor"}</Button>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_10rem_auto]">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Nombre (ej. Carla Fernández)"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && name.trim() !== "") void save()
-              }}
-              className="h-10 rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
-            />
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="Teléfono (opcional)"
-              inputMode="tel"
-              className="h-10 rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
-            />
-            <Button
-              type="button"
-              onClick={() => void save()}
-              disabled={saving || name.trim() === ""}
-              className="h-10 rounded-xl bg-[#FF9500] text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
-            >
-              {saving ? "Guardando…" : "Guardar"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
+        </DialogContent>
+      </Dialog> : null}
     </div>
   )
 }

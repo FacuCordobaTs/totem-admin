@@ -7,11 +7,11 @@ import {
   AttendeeTable,
   type AttendeeTableHandle,
 } from "@/components/events/attendee-table"
-import { EventOverviewTab } from "@/components/events/event-overview-tab"
 import { EventStaffTab } from "@/components/events/event-staff-tab"
 import { EventBarSection } from "@/components/events/event-bar-section"
 import { EventExpensesTab } from "@/components/events/event-expenses-tab"
-import { EventFinanceProjection } from "@/components/events/event-finance-projection"
+import { EventIncomeSummary } from "@/components/events/event-income-summary"
+import { EventSalesList } from "@/components/events/event-sales-list"
 import { EventSummaryDashboard } from "@/components/events/event-summary-dashboard"
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { EventClosingCeremony } from "@/components/events/event-closing-ceremony"
@@ -24,7 +24,6 @@ import { Switch } from "@/components/ui/switch"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { cn } from "@/lib/utils"
-import { getEventShopUrl } from "@/lib/client-app-url"
 import {
   ExternalLink,
   ChevronLeft,
@@ -59,11 +58,11 @@ type SectionId =
 
 const EVENT_SECTIONS: { id: SectionId; label: string; Icon: LucideIcon }[] = [
   { id: "resumen", label: "Resumen", Icon: LayoutDashboard },
+  { id: "pagina", label: "Página", Icon: Globe },
   { id: "entradas", label: "Entradas", Icon: Ticket },
   { id: "barra", label: "Barra", Icon: Wine },
   { id: "equipo", label: "Equipo", Icon: Users },
   { id: "acceso", label: "Acceso", Icon: Ban },
-  { id: "pagina", label: "Página", Icon: Globe },
   { id: "finanzas", label: "Finanzas", Icon: TrendingUp },
 ]
 
@@ -106,6 +105,7 @@ export function EventDashboardPage() {
   const [loading, setLoading] = useState(true)
 
   const [activeSection, setActiveSection] = useState<SectionId>("resumen")
+  const [financeView, setFinanceView] = useState<"summary" | "sales">("summary")
   const [refreshTick, setRefreshTick] = useState(0)
   // En vivo (spec §5): la app cambia de piel al panel de la noche. "Intervenir" abre el
   // workspace por debajo del panel (única puerta a los formularios de config).
@@ -132,6 +132,10 @@ export function EventDashboardPage() {
 
   const attendeeTableRef = useRef<AttendeeTableHandle>(null)
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
+  const navigateToSection = useCallback((section: SectionId) => {
+    setActiveSection(section)
+    if (section === "finanzas") setFinanceView("summary")
+  }, [])
 
   const status: EventStatus = event?.status ?? "draft"
 
@@ -263,7 +267,7 @@ export function EventDashboardPage() {
   }
 
   const summaryStatus = summaryStatusOf(status)
-  const subtitle = [formatEventDate(event.date), event.location]
+  const subtitle = [formatEventDate(event.date), event.venue ?? event.location]
     .filter(Boolean)
     .join(" · ")
 
@@ -272,13 +276,27 @@ export function EventDashboardPage() {
     switch (activeSection) {
       case "resumen":
         return (
-          <SectionShell title="Resumen">
+          <SectionShell
+            title="Resumen"
+            action={
+              status === "draft" ? (
+                <PrimaryStateAction
+                  status={status}
+                  readiness={readiness}
+                  busy={transitioning}
+                  error={actionError}
+                  onTransition={transition}
+                  onStartClosing={() => setClosing(true)}
+                />
+              ) : undefined
+            }
+          >
             <EventSummaryDashboard
               eventId={id}
               status={summaryStatus}
               refreshTrigger={refreshTick}
               hasUrl={Boolean(event.slug)}
-              onNavigate={setActiveSection}
+              onNavigate={navigateToSection}
             />
           </SectionShell>
         )
@@ -349,7 +367,10 @@ export function EventDashboardPage() {
       case "equipo":
         return (
           <SectionShell title="Equipo">
-            <EventStaffTab eventId={id} eventStatus={summaryStatus} />
+            <EventStaffTab
+              eventId={id}
+              inviteAccessHint="El enlace inicia sesión directamente y sirve para volver a entrar, sin nombre ni PIN."
+            />
           </SectionShell>
         )
       case "acceso":
@@ -364,7 +385,22 @@ export function EventDashboardPage() {
         )
       case "pagina":
         return (
-          <SectionShell title="Página">
+          <SectionShell
+            title="Página"
+            action={
+              event.slug ? (
+                <a
+                  href={`https://crow.ar/${event.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/[0.15] bg-white/[0.05] px-4 py-2 text-[13px] font-medium text-white/70 transition-all hover:bg-white/[0.08] hover:text-white active:opacity-70"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Visitar página
+                </a>
+              ) : undefined
+            }
+          >
             {event.slug ? (
               <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
                 <EventFlyerMailPreview event={event} onUpdated={loadEvent} />
@@ -380,11 +416,24 @@ export function EventDashboardPage() {
       case "finanzas":
         return (
           <SectionShell title="Finanzas">
-            <div className="space-y-10">
-              <EventFinanceProjection eventId={id} refreshTrigger={refreshTick} />
-              <EventOverviewTab eventId={id} refreshTrigger={refreshTick} />
-              <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
-            </div>
+            {financeView === "sales" ? (
+              <EventSalesList eventId={id} onBack={() => setFinanceView("summary")} />
+            ) : (
+              <div className="space-y-10">
+                <EventIncomeSummary eventId={id} refreshTrigger={refreshTick} />
+                <div className="flex items-center justify-between border-y border-white/[0.06] py-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Últimas ventas</h2>
+                    <p className="mt-1 text-sm text-white/45">Consultá el detalle y filtrá entradas o consumos.</p>
+                  </div>
+                  <Button variant="outline" onClick={() => setFinanceView("sales")} className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]">
+                    Ver ventas
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+                <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
+              </div>
+            )}
           </SectionShell>
         )
     }
@@ -409,14 +458,16 @@ export function EventDashboardPage() {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
-            <PrimaryStateAction
-              status={status}
-              readiness={readiness}
-              busy={transitioning}
-              error={actionError}
-              onTransition={transition}
-              onStartClosing={() => setClosing(true)}
-            />
+            {status !== "draft" && (
+              <PrimaryStateAction
+                status={status}
+                readiness={readiness}
+                busy={transitioning}
+                error={actionError}
+                onTransition={transition}
+                onStartClosing={() => setClosing(true)}
+              />
+            )}
             {status === "closed" && event.closingReport && (
               <button
                 type="button"
@@ -438,15 +489,6 @@ export function EventDashboardPage() {
                 {reportCopied ? "Link copiado" : "Compartir reporte"}
               </button>
             )}
-            <a
-              href={getEventShopUrl(event.id)}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.15] bg-white/[0.05] px-4 py-2 text-[13px] font-medium text-white/70 transition-all hover:bg-white/[0.08] active:opacity-70"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Visitar página</span>
-            </a>
           </div>
         </header>
 
@@ -471,7 +513,7 @@ export function EventDashboardPage() {
               report={event.closingReport}
               eventName={event.name}
               eventDate={event.date}
-              location={event.location}
+              location={event.venue ?? event.location}
               showHeader={false}
             />
           </div>
@@ -494,7 +536,7 @@ export function EventDashboardPage() {
                   <button
                     key={sectionId}
                     type="button"
-                    onClick={() => setActiveSection(sectionId)}
+                    onClick={() => navigateToSection(sectionId)}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
                       "flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-[14px] font-semibold transition-colors lg:w-full",

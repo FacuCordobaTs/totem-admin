@@ -29,6 +29,7 @@ type PublicEventPayload = {
     id: string
     name: string
     date: string
+    venue: string | null
     location: string | null
   }
   ticketTypes: PublicTicketType[]
@@ -244,10 +245,10 @@ export function PublicEventPage() {
                   <Calendar className="h-4 w-4 text-amber-400/80" />
                   {formatDate(payload.event.date)}
                 </span>
-                {payload.event.location ? (
+                {payload.event.venue ?? payload.event.location ? (
                   <span className="inline-flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-amber-400/80" />
-                    {payload.event.location}
+                    {payload.event.venue ?? payload.event.location}
                   </span>
                 ) : null}
               </div>

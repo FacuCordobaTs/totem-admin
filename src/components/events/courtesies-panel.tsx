@@ -2,454 +2,156 @@ import { useCallback, useEffect, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { getCourtesyUrl } from "@/lib/client-app-url"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Check, Copy, Gift, Loader2, Plus, Send, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ApiTicketType } from "./ticket-types"
 import type { EventMenuProductRow } from "@/types/event-dashboard"
 
 type DrinkLine = { productId: string; quantity: number }
-
 type Courtesy = {
-  id: string
-  eventId: string
-  ticketTypeId: string
-  guestName: string
-  guestEmail: string | null
-  token: string
-  status: "PENDING" | "REDEEMED" | "REVOKED"
-  ticketId: string | null
-  drinkLines: DrinkLine[]
-  redeemedAt: string | null
-  // Tarea 7.3 — estado del envío de la invitación y quién la creó.
-  inviteSentAt: string | null
-  createdByName: string | null
-  createdAt: string | null
+  id: string; ticketTypeId: string; guestName: string; guestEmail: string | null
+  guestDni: string | null; token: string; status: "PENDING" | "REDEEMED" | "REVOKED"
+  drinkLines: DrinkLine[]; inviteSentAt: string | null; createdAt: string | null
 }
-
 type CourtesiesResponse = { courtesies: Courtesy[] }
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 type MenuResponse = { products: EventMenuProductRow[] }
 
-const fieldClass =
-  "h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:border-white/25"
+const fieldClass = "h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[14px] text-white outline-none transition-colors focus:border-white/25"
 
-const STATUS_LABEL: Record<Courtesy["status"], string> = {
-  PENDING: "Sin canjear",
-  REDEEMED: "Canjeada",
-  REVOKED: "Anulada",
-}
-
-function CourtesyRow({
-  courtesy,
-  typeName,
-  productName,
-  onRevoke,
-  onSendInvite,
-}: {
-  courtesy: Courtesy
-  typeName: string
-  productName: (id: string) => string
-  onRevoke: (id: string) => void
-  onSendInvite: (id: string) => Promise<void>
-}) {
-  const [copied, setCopied] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState<string | null>(null)
-  const [justSent, setJustSent] = useState(false)
-
-  function copy() {
-    void navigator.clipboard.writeText(getCourtesyUrl(courtesy.token))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  // Tarea 7.3 — envío manual de la invitación (o reenvío) desde el panel.
-  async function send() {
-    if (sending || !courtesy.guestEmail) return
-    setSending(true)
-    setSendError(null)
-    try {
-      await onSendInvite(courtesy.id)
-      setJustSent(true)
-      setTimeout(() => setJustSent(false), 2000)
-    } catch (err) {
-      setSendError(
-        err instanceof ApiError ? err.message : "No se pudo enviar la invitación"
-      )
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const revoked = courtesy.status === "REVOKED"
-  const redeemed = courtesy.status === "REDEEMED"
-
-  // Tragos de regalo (tarea 7.1): "· 2× Fernet · 1× Gancia" cuando la invitación trae.
-  const drinksSummary = courtesy.drinkLines
-    .map((l) => `${l.quantity}× ${productName(l.productId)}`)
-    .join(" · ")
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5",
-        revoked && "opacity-45"
-      )}
-    >
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-medium text-white">
-          {courtesy.guestName}
-        </p>
-        <p className="truncate text-[12px] text-white/40">
-          {typeName} · {STATUS_LABEL[courtesy.status]}
-          {courtesy.createdByName ? ` · invitó ${courtesy.createdByName}` : ""}
-          {courtesy.inviteSentAt ? " · invitación enviada" : ""}
-          {drinksSummary ? ` · ${drinksSummary}` : ""}
-        </p>
-        {sendError ? (
-          <p className="mt-0.5 text-[11px] text-red-400">{sendError}</p>
-        ) : null}
-      </div>
-      {!revoked ? (
-        <>
-          {courtesy.guestEmail ? (
-            <button
-              type="button"
-              onClick={send}
-              disabled={sending || justSent}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.1] px-2.5 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white disabled:opacity-50"
-            >
-              {sending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : justSent ? (
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-              ) : (
-                <Send className="h-3.5 w-3.5" />
-              )}
-              {sending
-                ? "Enviando…"
-                : justSent
-                  ? "Enviada"
-                  : courtesy.inviteSentAt
-                    ? "Reenviar"
-                    : "Enviar"}
-            </button>
-          ) : null}
-          {!redeemed ? (
-            <>
-              <button
-                type="button"
-                onClick={copy}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.1] px-2.5 text-[12px] text-white/60 transition-colors hover:border-white/25 hover:text-white"
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-                {copied ? "Copiado" : "Link"}
-              </button>
-              <button
-                type="button"
-                onClick={() => onRevoke(courtesy.id)}
-                className="rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
-                aria-label="Anular invitación"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </>
-          ) : null}
-        </>
-      ) : null}
-    </div>
-  )
-}
-
-export function CourtesiesPanel({
-  eventId,
-  refreshTrigger,
-  onChanged,
-}: {
-  eventId: string
-  refreshTrigger: number
-  onChanged?: () => void
+export function CourtesiesPanel({ eventId, refreshTrigger, onChanged }: {
+  eventId: string; refreshTrigger: number; onChanged?: () => void
 }) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
-
   const [courtesies, setCourtesies] = useState<Courtesy[]>([])
   const [types, setTypes] = useState<ApiTicketType[]>([])
   const [menu, setMenu] = useState<EventMenuProductRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const [open, setOpen] = useState(false)
+  const [listOpen, setListOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [guestName, setGuestName] = useState("")
+  const [guestDni, setGuestDni] = useState("")
   const [guestEmail, setGuestEmail] = useState("")
-  const [ticketTypeId, setTicketTypeId] = useState("")
+  const [selectedTypes, setSelectedTypes] = useState<Record<string, number>>({})
   const [drinks, setDrinks] = useState<Record<string, number>>({})
+  const [giftBalance, setGiftBalance] = useState("")
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!token || !eventId) return
-    setError(null)
-    setLoading(true)
+    setLoading(true); setError(null)
     try {
       const [cRes, tRes, mRes] = await Promise.all([
-        apiFetch<CourtesiesResponse>(`/events/${eventId}/courtesies`, {
-          method: "GET",
-          token,
-        }),
-        apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, {
-          method: "GET",
-          token,
-        }),
-        apiFetch<MenuResponse>(`/events/${eventId}/products`, {
-          method: "GET",
-          token,
-        }),
+        apiFetch<CourtesiesResponse>(`/events/${eventId}/courtesies`, { method: "GET", token }),
+        apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, { method: "GET", token }),
+        apiFetch<MenuResponse>(`/events/${eventId}/products`, { method: "GET", token }),
       ])
-      setCourtesies(cRes.courtesies)
-      setTypes(tRes.ticketTypes)
-      // Tragos de regalo (tarea 7.1): solo los que están activos en el menú del evento.
+      setCourtesies(cRes.courtesies); setTypes(tRes.ticketTypes)
       setMenu(mRes.products.filter((p) => p.isActiveForEvent))
-      if (!ticketTypeId && tRes.ticketTypes.length > 0) {
-        setTicketTypeId(tRes.ticketTypes[0].id)
-      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudieron cargar las cortesías")
-    } finally {
-      setLoading(false)
-    }
-    // ticketTypeId intentionally omitted: only seeds the default once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    } finally { setLoading(false) }
   }, [token, eventId])
 
-  useEffect(() => {
-    void load()
-  }, [load, refreshTrigger])
+  useEffect(() => { void load() }, [load, refreshTrigger])
 
-  const setDrinkQty = (productId: string, quantity: number) => {
-    const next = { ...drinks }
-    if (quantity <= 0) delete next[productId]
-    else next[productId] = quantity
-    setDrinks(next)
+  const closeCreate = () => {
+    setCreateOpen(false); setFormError(null); setGuestName(""); setGuestDni(""); setGuestEmail("")
+    setSelectedTypes({}); setDrinks({}); setGiftBalance("")
   }
+  const addType = (id: string) => setSelectedTypes((current) => ({
+    ...current,
+    [id]: (current[id] ?? 0) + 1,
+  }))
+  const setDrinkQty = (id: string, quantity: number) => setDrinks((current) => {
+    const next = { ...current }; if (quantity <= 0) delete next[id]; else next[id] = quantity; return next
+  })
 
   async function create() {
     if (!token || saving) return
-    if (guestName.trim() === "") {
-      setFormError("Poné el nombre del invitado")
-      return
-    }
-    if (!ticketTypeId) {
-      setFormError("Elegí un tipo de entrada")
-      return
-    }
-    setFormError(null)
-    setSaving(true)
+    const dni = guestDni.replace(/\D/g, "")
+    const balance = giftBalance.trim() === "" ? 0 : Number(giftBalance.replace(",", "."))
+    if (!guestName.trim()) return setFormError("Ingresá el nombre del invitado")
+    if (!dni || dni.length < 6) return setFormError("Ingresá un DNI válido")
+    const ticketLines = Object.entries(selectedTypes).filter(([, quantity]) => quantity > 0)
+    if (ticketLines.length === 0) return setFormError("Elegí al menos un tipo de entrada")
+    if (!Number.isFinite(balance) || balance < 0) return setFormError("El saldo no es válido")
+    setSaving(true); setFormError(null)
     try {
-      const drinkLines = Object.entries(drinks)
-        .filter(([, qty]) => qty > 0)
-        .map(([productId, quantity]) => ({ productId, quantity }))
-      await apiFetch(`/events/${eventId}/courtesies`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          ticketTypeId,
-          guestName: guestName.trim(),
-          guestEmail: guestEmail.trim() || null,
-          drinkLines,
-        }),
+      const drinkLines = Object.entries(drinks).map(([productId, quantity]) => ({ productId, quantity }))
+      await Promise.all(ticketLines.flatMap(([ticketTypeId, quantity]) => Array.from({ length: quantity }, () => apiFetch(`/events/${eventId}/courtesies`, {
+        method: "POST", token, body: JSON.stringify({ ticketTypeId, guestName: guestName.trim(), guestDni: dni, guestEmail: guestEmail.trim() || null, drinkLines }),
+      }))))
+      if (balance > 0) await apiFetch(`/events/${eventId}/balance/gift`, {
+        method: "POST", token, body: JSON.stringify({ dni, amount: balance.toFixed(2), name: guestName.trim(), note: "Cortesía de evento" }),
       })
-      setGuestName("")
-      setGuestEmail("")
-      setDrinks({})
-      await load()
-      onChanged?.()
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "No se pudo crear la invitación")
-    } finally {
-      setSaving(false)
-    }
+      await load(); onChanged?.(); closeCreate()
+    } catch (err) { setFormError(err instanceof ApiError ? err.message : "No se pudo crear la cortesía") }
+    finally { setSaving(false) }
   }
-
   async function revoke(id: string) {
     if (!token) return
-    try {
-      await apiFetch(`/events/${eventId}/courtesies/${id}/revoke`, {
-        method: "POST",
-        token,
-      })
-      await load()
-      onChanged?.()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo anular")
-    }
+    try { await apiFetch(`/events/${eventId}/courtesies/${id}/revoke`, { method: "POST", token }); await load(); onChanged?.() }
+    catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo anular la cortesía") }
   }
-
-  // Tarea 7.3 — envío (o reenvío) de la invitación por email. Lanza para que la fila
-  // muestre el error en línea; el listado se recarga para reflejar `inviteSentAt`.
   async function sendInvite(id: string) {
     if (!token) return
-    await apiFetch(`/events/${eventId}/courtesies/${id}/send-invite`, {
-      method: "POST",
-      token,
-    })
-    await load()
-    onChanged?.()
+    try { await apiFetch(`/events/${eventId}/courtesies/${id}/send-invite`, { method: "POST", token }); await load() }
+    catch (err) { setError(err instanceof ApiError ? err.message : "No se pudo enviar la invitación") }
   }
-
-  const typeName = (id: string) =>
-    types.find((t) => t.id === id)?.name ?? "—"
-  const productName = (id: string) =>
-    menu.find((p) => p.id === id)?.name ?? "—"
-  const active = courtesies.filter((c) => c.status !== "REVOKED")
-  const drinksCount = Object.values(drinks).reduce((a, b) => a + b, 0)
-
   if (!canManage) return null
+  const typeName = (id: string) => types.find((type) => type.id === id)?.name ?? "—"
+  const productName = (id: string) => menu.find((product) => product.id === id)?.name ?? "—"
+  const activeCount = courtesies.filter((item) => item.status !== "REVOKED").length
 
-  return (
-    <section className="w-full">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Gift className="h-4 w-4 text-white/40" />
-          <h3 className="text-[17px] font-medium text-foreground">
-            Cortesías
-          </h3>
-          {active.length > 0 ? (
-            <span className="text-[13px] text-white/35">· {active.length}</span>
-          ) : null}
+  return <section className="mt-7 flex justify-center">
+    <Button type="button" variant="outline" onClick={() => setListOpen(true)} className="h-10 rounded-xl border-white/[0.12] bg-white/[0.03] px-4 text-white/70 hover:bg-white/[0.08] hover:text-white">
+      <Gift className="mr-2 h-4 w-4" /> Cortesías{activeCount ? ` · ${activeCount}` : ""}
+    </Button>
+    <Dialog open={listOpen} onOpenChange={setListOpen}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden rounded-2xl border-white/[0.10] bg-black p-0 text-white">
+        <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left"><DialogTitle className="text-xl">Cortesías</DialogTitle></DialogHeader>
+        <div className="min-h-0 overflow-y-auto px-6 py-4">
+          {error ? <p className="text-sm text-red-400">{error}</p> : loading ? <p className="text-sm text-white/40">Cargando…</p> : courtesies.length === 0 ? <p className="py-8 text-center text-sm text-white/35">Todavía no hay cortesías.</p> :
+            <div className="overflow-hidden rounded-xl border border-white/[0.07]">
+              <div className="grid grid-cols-[minmax(0,1fr)_110px_120px_auto] gap-3 border-b border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-white/35"><span>Invitado</span><span>Entrada</span><span>Estado</span><span /></div>
+              {courtesies.map((courtesy) => <CourtesyLine key={courtesy.id} courtesy={courtesy} typeName={typeName(courtesy.ticketTypeId)} drinks={courtesy.drinkLines.map((line) => `${line.quantity}× ${productName(line.productId)}`).join(" · ")} onRevoke={revoke} onSend={sendInvite} />)}
+            </div>}
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center gap-1 text-[13px] text-white/50 transition-colors hover:text-white/80"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Invitar
-        </button>
-      </div>
-
-      {open ? (
-        <div className="mb-3 space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
-              placeholder="Nombre del invitado"
-              className={cn(fieldClass, "min-w-[160px] flex-1")}
-            />
-            <input
-              value={guestEmail}
-              onChange={(e) => setGuestEmail(e.target.value)}
-              placeholder="Correo (opcional)"
-              type="email"
-              className={cn(fieldClass, "min-w-[160px] flex-1")}
-            />
-            <select
-              value={ticketTypeId}
-              onChange={(e) => setTicketTypeId(e.target.value)}
-              className={cn(fieldClass, "w-auto min-w-[120px]")}
-            >
-              {types.length === 0 ? (
-                <option value="">Sin tipos</option>
-              ) : (
-                types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))
-              )}
-            </select>
-            <button
-              type="button"
-              onClick={create}
-              disabled={saving || types.length === 0}
-              className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-            >
-              {saving ? "…" : "Crear link"}
-            </button>
-          </div>
-
-          {menu.length > 0 ? (
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
-              <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-                <p className="text-[12px] font-medium text-white/50">
-                  Tragos de regalo
-                </p>
-                {drinksCount > 0 ? (
-                  <span className="text-[12px] text-[#FF9500]">
-                    {drinksCount} trago{drinksCount === 1 ? "" : "s"}
-                  </span>
-                ) : null}
-              </div>
-              <div className="max-h-40 overflow-y-auto px-3 pb-2.5">
-                <div className="space-y-1">
-                  {menu.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center gap-2"
-                    >
-                      <p className="min-w-0 flex-1 truncate text-[13px] text-white/70">
-                        {p.name}
-                        <span className="ml-1.5 text-[11px] text-white/35">
-                          ${Number(p.price).toLocaleString("es-AR")}
-                        </span>
-                      </p>
-                      <input
-                        value={drinks[p.id] ?? 0}
-                        onChange={(e) =>
-                          setDrinkQty(p.id, Math.max(0, Math.floor(Number(e.target.value) || 0)))
-                        }
-                        onBlur={() => {
-                          if ((drinks[p.id] ?? 0) === 0) {
-                            const next = { ...drinks }
-                            delete next[p.id]
-                            setDrinks(next)
-                          }
-                        }}
-                        type="number"
-                        min={0}
-                        max={99}
-                        aria-label={`Tragos de ${p.name}`}
-                        className={cn(fieldClass, "h-8 w-16 px-2 text-[13px] text-right")}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {formError ? <p className="text-[12px] text-red-400">{formError}</p> : null}
-        </div>
-      ) : null}
-
-      {error ? (
-        <p className="py-2 text-[14px] text-red-400">{error}</p>
-      ) : loading ? (
-        <p className="py-2 text-[14px] text-white/40">Cargando…</p>
-      ) : courtesies.length === 0 ? (
-        <p className="py-2 text-[14px] text-white/35">
-          Sin cortesías. Las invitaciones se cuentan aparte de las ventas.
-        </p>
-      ) : (
-        <div className="space-y-1.5">
-          {courtesies.map((c) => (
-            <CourtesyRow
-              key={c.id}
-              courtesy={c}
-              typeName={typeName(c.ticketTypeId)}
-              productName={productName}
-              onRevoke={revoke}
-              onSendInvite={sendInvite}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  )
+        <div className="border-t border-white/[0.07] p-5 text-center"><Button onClick={() => setCreateOpen(true)} className="h-10 rounded-xl bg-[#FF9500] px-5 text-white hover:bg-[#ff9500]/90"><Plus className="mr-1.5 h-4 w-4" /> Nueva cortesía</Button></div>
+      </DialogContent>
+    </Dialog>
+    {createOpen ? <CourtesyCreator types={types} menu={menu} guestName={guestName} guestDni={guestDni} guestEmail={guestEmail} selectedTypes={selectedTypes} drinks={drinks} giftBalance={giftBalance} saving={saving} error={formError} onName={setGuestName} onDni={setGuestDni} onEmail={setGuestEmail} onAddType={addType} onAddDrink={(id) => setDrinkQty(id, (drinks[id] ?? 0) + 1)} onBalance={setGiftBalance} onCreate={() => void create()} onClose={closeCreate} /> : null}
+  </section>
 }
+
+function CourtesyLine({ courtesy, typeName, drinks, onRevoke, onSend }: { courtesy: Courtesy; typeName: string; drinks: string; onRevoke: (id: string) => void; onSend: (id: string) => void }) {
+  const [copied, setCopied] = useState(false)
+  const revoked = courtesy.status === "REVOKED"
+  return <div className={cn("grid grid-cols-[minmax(0,1fr)_110px_120px_auto] items-center gap-3 border-b border-white/[0.05] px-3 py-2.5 text-sm last:border-0", revoked && "opacity-45")}>
+    <div className="min-w-0"><p className="truncate font-medium">{courtesy.guestName}</p><p className="truncate text-xs text-white/35">{courtesy.guestDni ?? "Sin DNI"}{drinks ? ` · ${drinks}` : ""}</p></div><span className="truncate text-white/65">{typeName}</span><span className="text-xs text-white/45">{courtesy.status === "PENDING" ? "Sin canjear" : courtesy.status === "REDEEMED" ? "Canjeada" : "Anulada"}</span>
+    <div className="flex gap-1">{!revoked && courtesy.guestEmail ? <button onClick={() => onSend(courtesy.id)} className="rounded p-1.5 text-white/40 hover:bg-white/[0.07] hover:text-white" title="Enviar invitación"><Send className="h-3.5 w-3.5" /></button> : null}{!revoked && courtesy.status !== "REDEEMED" ? <><button onClick={() => { void navigator.clipboard.writeText(getCourtesyUrl(courtesy.token)); setCopied(true); setTimeout(() => setCopied(false), 1200) }} className="rounded p-1.5 text-white/40 hover:bg-white/[0.07] hover:text-white" title="Copiar link">{copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}</button><button onClick={() => onRevoke(courtesy.id)} className="rounded p-1.5 text-white/35 hover:bg-white/[0.07] hover:text-red-400" title="Anular"><X className="h-3.5 w-3.5" /></button></> : null}</div>
+  </div>
+}
+
+function CourtesyCreator(props: { types: ApiTicketType[]; menu: EventMenuProductRow[]; guestName: string; guestDni: string; guestEmail: string; selectedTypes: Record<string, number>; drinks: Record<string, number>; giftBalance: string; saving: boolean; error: string | null; onName: (v: string) => void; onDni: (v: string) => void; onEmail: (v: string) => void; onAddType: (id: string) => void; onAddDrink: (id: string) => void; onBalance: (v: string) => void; onCreate: () => void; onClose: () => void }) {
+  return <div className="fixed inset-x-3 bottom-4 z-[60] mx-auto max-w-2xl rounded-2xl border border-white/[0.12] bg-black p-4 shadow-2xl shadow-black/70 animate-in slide-in-from-bottom-4">
+    <div className="mb-3 flex items-center justify-between"><h3 className="text-base font-semibold">Nueva cortesía</h3><button onClick={props.onClose} className="rounded p-1 text-white/40 hover:text-white"><X className="h-4 w-4" /></button></div>
+    <div className="grid gap-2 sm:grid-cols-3"><input className={fieldClass} placeholder="Nombre completo" value={props.guestName} onChange={(e) => props.onName(e.target.value)} autoFocus /><input className={fieldClass} placeholder="DNI" inputMode="numeric" value={props.guestDni} onChange={(e) => props.onDni(e.target.value)} /><input className={fieldClass} placeholder="Correo" type="email" value={props.guestEmail} onChange={(e) => props.onEmail(e.target.value)} /></div>
+    <div className="mt-3 grid gap-3 sm:grid-cols-3"><ChoiceList title="Entradas" empty="No hay tipos de entrada" className="sm:col-span-1">{props.types.map((type) => <button type="button" key={type.id} onClick={() => props.onAddType(type.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"><span>{type.name}</span>{props.selectedTypes[type.id] ? <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-xs font-semibold text-[#FF9500]">×{props.selectedTypes[type.id]}</span> : <Plus className="h-3.5 w-3.5 text-white/35" />}</button>)}</ChoiceList><ChoiceList title="Tragos" empty="No hay tragos activos" className="sm:col-span-1">{props.menu.map((product) => <button type="button" key={product.id} onClick={() => props.onAddDrink(product.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"><span className="truncate">{product.name}</span>{props.drinks[product.id] ? <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-xs font-semibold text-[#FF9500]">×{props.drinks[product.id]}</span> : <Plus className="h-3.5 w-3.5 text-white/35" />}</button>)}</ChoiceList><div className="rounded-xl border border-white/[0.07] p-3"><label className="text-xs font-medium uppercase tracking-wide text-white/40">Saldo de regalo</label><input className={cn(fieldClass, "mt-2")} placeholder="$ 0" inputMode="decimal" value={props.giftBalance} onChange={(e) => props.onBalance(e.target.value)} /><p className="mt-2 text-xs leading-snug text-white/35">Se acredita al DNI del invitado.</p></div></div>
+    {props.error ? <p className="mt-2 text-xs text-red-400">{props.error}</p> : null}
+    <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" onClick={props.onClose} className="text-white/60">Cancelar</Button><Button onClick={props.onCreate} disabled={props.saving} className="bg-[#FF9500] text-white hover:bg-[#ff9500]/90">{props.saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Crear cortesía"}</Button></div>
+  </div>
+}
+function ChoiceList({ title, empty, className, children }: { title: string; empty: string; className?: string; children: React.ReactNode }) { return <div className={cn("max-h-36 overflow-y-auto rounded-xl border border-white/[0.07] p-3", className)}><p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">{title}</p>{children || <p className="text-xs text-white/35">{empty}</p>}</div> }

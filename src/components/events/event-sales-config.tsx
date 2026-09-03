@@ -134,7 +134,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
   const [slug, setSlug] = useState("")
-  const [designType, setDesignType] = useState<"GLASS" | "MINIMAL">("GLASS")
+  const [designType, setDesignType] = useState<"GLASS" | "MINIMAL">("MINIMAL")
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -148,7 +148,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
     const tickets = toDatetimeLocalValue(event.ticketsAvailableFrom)
     const consumptions = toDatetimeLocalValue(event.consumptionsAvailableFrom)
     const s = event.slug ?? ""
-    const design = event.designType ?? "GLASS"
+    const design = event.designType ?? "MINIMAL"
     setTicketsLocal(tickets)
     setConsumptionsLocal(consumptions)
     setSlug(s)
@@ -265,6 +265,13 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
             autoFocus={onlySlug}
             onChange={(e) => setSlug(e.target.value.toLowerCase())}
             onBlur={() => {
+              const cleaned = slugify(slug)
+              setSlug(cleaned)
+              void persist({ slug: cleaned })
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return
+              e.preventDefault()
               const cleaned = slugify(slug)
               setSlug(cleaned)
               void persist({ slug: cleaned })
