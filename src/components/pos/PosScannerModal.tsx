@@ -314,6 +314,12 @@ export function PosScannerModal({
     setPhase("scanning")
   }
 
+  // Alterna entre ticket (linterna) y celular sin volver al selector. Al cambiar
+  // `torchDesired` se reinicia la cámara con las restricciones correspondientes.
+  const toggleScanMode = () => {
+    setTorchDesired((current) => !current)
+  }
+
   const orderDelivered = order?.status !== "PENDING"
 
   return (
@@ -501,9 +507,11 @@ export function PosScannerModal({
                     type="button"
                     variant="secondary"
                     className="h-14 w-full rounded-2xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 transition-all duration-300 hover:bg-zinc-800 active:scale-[0.98]"
-                    onClick={resetToChoose}
+                    onClick={toggleScanMode}
                   >
-                    Cambiar modo (ticket / celular)
+                    {torchDesired
+                      ? "Cambiar a app / celular"
+                      : "Cambiar a ticket / papel"}
                   </Button>
                 </div>
               </>
