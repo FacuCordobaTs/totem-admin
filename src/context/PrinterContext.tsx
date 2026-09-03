@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { invoke } from '@tauri-apps/api/core';
 
 const STORAGE_KEY = 'crow_printer_name';
+const DEBUG_PRINTER_NAME = 'DEBUG - guardar HTML y ESC-POS';
+const LEGACY_DEBUG_PRINTER_NAME = 'GUARDAR EN ARCHIVO (DEBUG)';
 
 interface PrinterContextType {
     printers: string[];
@@ -16,7 +18,14 @@ const PrinterContext = createContext<PrinterContextType | undefined>(undefined);
 export const PrinterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [printers, setPrinters] = useState<string[]>([]);
     const [selectedPrinter, setSelectedPrinterState] = useState<string | null>(() => {
-        return localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(STORAGE_KEY);
+        // La opción anterior generaba un único .bin. Migrarla evita que los
+        // equipos que ya la tenían seleccionada pierdan la nueva vista previa.
+        if (saved === LEGACY_DEBUG_PRINTER_NAME) {
+            localStorage.setItem(STORAGE_KEY, DEBUG_PRINTER_NAME);
+            return DEBUG_PRINTER_NAME;
+        }
+        return saved;
     });
     const setSelectedPrinter = useCallback((name: string) => {
         setSelectedPrinterState(name);

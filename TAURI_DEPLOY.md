@@ -124,9 +124,16 @@ curl -I https://api.crow.ar/public/updates/crow_0.1.1_x64-setup.exe   # -> 200 O
 El backend Rust (`src-tauri/src/lib.rs`) expone dos comandos Tauri:
 
 - `get_printers()` → lista puertos serie (`COMx`), impresoras de Windows y la
-  opción `GUARDAR EN ARCHIVO (DEBUG)` (escribe `ticket_debug.bin`).
+  opción `DEBUG - guardar HTML y ESC-POS`.
 - `send_print_job(printerName, content)` → manda bytes RAW: por puerto serie si
   el nombre empieza con `COM`, o vía el spooler de Windows (RAW) en otro caso.
+
+Al elegir la opción de **DEBUG**, cada trabajo se guarda sin sobrescribir los
+anteriores en `Documentos/Crow Debug Prints` (o en los datos locales de la app
+si Windows no tiene carpeta Documentos). Se crean dos archivos con el mismo
+nombre: `.html`, que se abre directamente en el navegador para previsualizar la
+comanda, y `.escpos`, con los bytes RAW exactos para abrirlos en un visor ESC/POS
+o enviarlos luego a una térmica.
 
 Desde el frontend se usa el hook `usePrinter()` (`src/context/PrinterContext.tsx`)
 y los formatters ESC/POS de `src/lib/printerUtils.ts`
@@ -138,8 +145,8 @@ y los formatters ESC/POS de `src/lib/printerUtils.ts`
 
 ```bash
 bun install
-bunx tauri dev      # levanta Vite (bun run dev) + la ventana nativa
-bunx tauri build    # build local del instalador (sin firmar si no hay secrets)
+bun run tauri:dev      # levanta Vite (bun run dev) + la ventana nativa
+bun run tauri:build    # build local del instalador (sin firmar si no hay secrets)
 ```
 
 > Requiere toolchain de Rust instalada. Los comandos de impresión real solo

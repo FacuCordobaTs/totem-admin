@@ -1004,7 +1004,7 @@ export function ScannerPage() {
                     className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-[#1C1C1E] px-4 py-3"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-white">
+                      <p className="break-words font-semibold text-white">
                         {ticket.buyerName?.trim() || "Asistente"}
                       </p>
                       <p className="mt-0.5 truncate text-sm text-[#98989D]">
@@ -1081,7 +1081,7 @@ export function ScannerPage() {
             {overlay.reentry ? "¡Reingreso!" : "¡Ticket válido!"}
           </p>
           {/* Tarea 3.2 — Nombre grande: se lee desde la fila (visión §2.4). */}
-          <p className="mt-4 w-full max-w-3xl truncate text-5xl font-black leading-tight sm:text-7xl">
+          <p className="mt-4 w-full max-w-3xl break-words text-5xl font-black leading-tight sm:text-7xl">
             {overlay.buyerName}
           </p>
           <p className="mt-7 text-lg font-medium opacity-90 sm:text-xl">

@@ -267,7 +267,7 @@ export function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<UiPayment>("cash")
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false)
 
-  // Pestaña activa en la columna derecha
+  // Pestaña activa en la tercera columna
   const [activeTab, setActiveTab] = useState<"pedido" | "historial">("pedido")
 
   const [customerDni, setCustomerDni] = useState("")
@@ -1155,8 +1155,8 @@ export function PosPage() {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-3 lg:grid-cols-12 lg:gap-5 lg:p-5">
         
-        {/* Catálogo (Ahora ocupa más espacio: lg:col-span-7) */}
-        <section className={cn(panelClass, "lg:col-span-7")}>
+        {/* Columna 1: Catálogo (lg:col-span-5) */}
+        <section className={cn(panelClass, "lg:col-span-5")}>
           <div className="shrink-0 space-y-3 border-b border-zinc-200/50 p-4 dark:border-zinc-800/50 md:p-5">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
@@ -1209,7 +1209,7 @@ export function PosPage() {
                         {group.name}
                       </p>
                     ) : null}
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
                       {group.products.map((product) => {
                         const avail = eventProductAvailabilityUnits(product, eventStock)
                         const baseline = productBaselines[product.id]
@@ -1273,15 +1273,312 @@ export function PosPage() {
           </div>
         </section>
 
-        {/* Panel Derecho Unificado (Pedido y Historial: lg:col-span-5) */}
-        <section className={cn(panelClass, "lg:col-span-5")}>
-          {/* Navegación por pestañas */}
-          <div className="shrink-0 flex items-center border-b border-zinc-100 px-2 dark:border-zinc-800">
+        {/* Columna 2: Checkout (lg:col-span-4) */}
+        <section className={cn(panelClass, "lg:col-span-4")}>
+          <div className="shrink-0 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+              Resumen
+            </p>
+            <h2 className="mt-1 text-xl font-black tracking-tighter text-zinc-950 dark:text-white">
+              Checkout
+            </h2>
+          </div>
+          
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-6">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Total
+              </span>
+              <span className="text-4xl font-black tabular-nums tracking-tighter text-zinc-950 dark:text-white">
+                ${cartTotal.toFixed(2)}
+              </span>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Cliente (opcional)
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[7.5rem_1fr]">
+                <Input
+                  inputMode="numeric"
+                  placeholder="DNI"
+                  value={customerDni}
+                  onChange={(e) =>
+                    setCustomerDni(e.target.value.replace(/\D/g, "").slice(0, 11))
+                  }
+                  className={cn(searchInputClass, "py-0")}
+                  aria-label="DNI del cliente"
+                />
+                <Input
+                  placeholder="Nombre (si no está registrado)"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className={cn(searchInputClass, "py-0")}
+                  aria-label="Nombre del cliente"
+                />
+              </div>
+              {customerDni.trim().length >= 6 ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                      Saldo disponible
+                    </p>
+                    <p className="text-[15px] font-black tabular-nums text-zinc-950 dark:text-white">
+                      {balanceLoading && balanceAmount == null
+                        ? "…"
+                        : `$${(balanceAmount ?? 0).toFixed(2)}`}
+                    </p>
+                    {knownCustomerName ? (
+                      <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                        {knownCustomerName}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setChargeOpen(true)}
+                    className="h-9 shrink-0 gap-1 rounded-xl text-xs font-semibold"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Cargar saldo
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  Promotor
+                </p>
+                {promoterId !== "" ? (
+                  <button
+                    type="button"
+                    onClick={() => setPromoterId("")}
+                    className="flex h-6 items-center gap-1 text-xs text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Quitar
+                  </button>
+                ) : null}
+              </div>
+              <Select
+                value={promoterId === "" ? "none" : promoterId}
+                onValueChange={(v) => setPromoterId(v === "none" ? "" : v)}
+              >
+                <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
+                  <SelectValue placeholder="Sin promotor" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                  <SelectItem value="none" className="rounded-lg py-2.5">
+                    Sin promotor
+                  </SelectItem>
+                  {promoters.map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  Impresora
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void refreshPrinters()}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+                  aria-label="Actualizar impresoras"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <Select
+                value={selectedPrinter ?? ""}
+                onValueChange={setSelectedPrinter}
+              >
+                <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
+                  <SelectValue placeholder="Elegí impresora" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                  {printers.map((p) => (
+                    <SelectItem key={p} value={p} className="rounded-lg py-2.5">
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Pago
+              </p>
+              <div className="flex flex-wrap gap-2 rounded-[28px] border border-zinc-100 bg-background p-2 dark:border-zinc-800 ">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("cash")}
+                  className={cn(
+                    "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
+                    paymentMethod === "cash"
+                      ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                      paymentMethod === "cash"
+                        ? "bg-white/20"
+                        : "bg-zinc-100 dark:bg-zinc-800"
+                    )}
+                  >
+                    <Banknote
+                      className={cn(
+                        "h-5 w-5",
+                        paymentMethod === "cash"
+                          ? "text-white"
+                          : "text-zinc-600 dark:text-zinc-300"
+                      )}
+                    />
+                  </span>
+                  Efectivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("card")}
+                  className={cn(
+                    "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
+                    paymentMethod === "card"
+                      ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                      paymentMethod === "card"
+                        ? "bg-white/20"
+                        : "bg-zinc-100 dark:bg-zinc-800"
+                    )}
+                  >
+                    <CreditCard
+                      className={cn(
+                        "h-5 w-5",
+                        paymentMethod === "card"
+                          ? "text-white"
+                          : "text-zinc-600 dark:text-zinc-300"
+                      )}
+                    />
+                  </span>
+                  Tarjeta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("mercadopago")}
+                  className={cn(
+                    "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-3 text-[0.65rem] font-bold leading-tight transition-all duration-300 active:scale-[0.98] sm:px-2 sm:text-xs",
+                    paymentMethod === "mercadopago"
+                      ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                      paymentMethod === "mercadopago"
+                        ? "bg-white/20"
+                        : "bg-zinc-100 dark:bg-zinc-800"
+                    )}
+                  >
+                    <QrCode
+                      className={cn(
+                        "h-5 w-5 shrink-0",
+                        paymentMethod === "mercadopago"
+                          ? "text-white"
+                          : "text-zinc-600 dark:text-zinc-300"
+                      )}
+                    />
+                  </span>
+                  Mercado Pago
+                </button>
+                <button
+                  type="button"
+                  disabled={customerDni.trim() === ""}
+                  onClick={() => setPaymentMethod("saldo")}
+                  className={cn(
+                    "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
+                    paymentMethod === "saldo"
+                      ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80",
+                    customerDni.trim() === "" &&
+                      "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                      paymentMethod === "saldo"
+                        ? "bg-white/20"
+                        : "bg-zinc-100 dark:bg-zinc-800"
+                    )}
+                  >
+                    <Wallet
+                      className={cn(
+                        "h-5 w-5",
+                        paymentMethod === "saldo"
+                          ? "text-white"
+                          : "text-zinc-600 dark:text-zinc-300"
+                      )}
+                    />
+                  </span>
+                  Saldo
+                </button>
+              </div>
+              {paymentMethod === "saldo" &&
+              customerDni.trim() !== "" &&
+              balanceAmount != null &&
+              cartTotal > 0 &&
+              balanceAmount < cartTotal ? (
+                <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-400">
+                  Saldo insuficiente — disponible ${balanceAmount.toFixed(2)}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/95 p-5 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
+            <Button
+              type="button"
+              disabled={!canCharge}
+              onClick={() => void handleCobrar()}
+              className="h-14 w-full gap-2 rounded-2xl bg-[#FF9500] text-[17px] font-bold tracking-tight text-white transition-all duration-200 hover:bg-[#FF9500]/90 active:opacity-90 disabled:opacity-50"
+            >
+              {checkoutSubmitting ? (
+                <span className="animate-pulse">Cobrando…</span>
+              ) : (
+                <>
+                  <CircleDollarSign className="h-5 w-5 text-white" />
+                  Cobrar ${cartTotal.toFixed(2)}
+                </>
+              )}
+            </Button>
+          </div>
+        </section>
+
+        {/* Columna 3: Listados y Tabs (lg:col-span-3) */}
+        <section className={cn(panelClass, "lg:col-span-3")}>
+          <div className="shrink-0 flex items-center border-b border-zinc-100 px-2 pt-2 bg-zinc-50/50 dark:border-zinc-800 dark:bg-zinc-900/50">
             <button
               type="button"
               onClick={() => setActiveTab("pedido")}
               className={cn(
-                "relative px-4 py-4 text-[15px] font-bold transition-colors",
+                "relative px-4 py-3 text-[14px] font-bold transition-colors",
                 activeTab === "pedido"
                   ? "text-zinc-950 dark:text-white"
                   : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
@@ -1296,7 +1593,7 @@ export function PosPage() {
               type="button"
               onClick={() => setActiveTab("historial")}
               className={cn(
-                "relative px-4 py-4 text-[15px] font-bold transition-colors",
+                "relative px-4 py-3 text-[14px] font-bold transition-colors",
                 activeTab === "historial"
                   ? "text-zinc-950 dark:text-white"
                   : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
@@ -1309,403 +1606,108 @@ export function PosPage() {
             </button>
           </div>
 
-          {activeTab === "pedido" ? (
-            <>
-              {/* Contenido de Este Pedido (Carrito) */}
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-                {cart.length === 0 ? (
-                  <p className="py-12 text-center text-base text-zinc-500 dark:text-zinc-400">
-                    Tocá un producto para agregarlo
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-3">
-                    {cart.map((item) => {
-                      if (item.kind === "balance-charge") {
-                        return (
-                          <li
-                            key="balance-charge"
-                            className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/30"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="font-bold text-zinc-950 dark:text-white">Carga de saldo</p>
-                              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                                Se acredita al DNI al cobrar
-                              </p>
-                              <p className="mt-1 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                ${item.amount.toFixed(2)}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              aria-label="Quitar carga de saldo"
-                              onClick={removeBalanceCharge}
-                              className="flex h-12 w-12 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-700 transition-all hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </li>
-                        )
-                      }
-                      const avail = eventProductAvailabilityUnits(item.product, eventStock)
-                      const stockGone =
-                        Number.isFinite(avail) &&
-                        (avail <= 0 || item.quantity > avail)
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+            {activeTab === "pedido" ? (
+              /* TAB: Este pedido (Carrito) */
+              cart.length === 0 ? (
+                <p className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                  Tocá un producto para agregarlo
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {cart.map((item) => {
+                    if (item.kind === "balance-charge") {
                       return (
+                        <li
+                          key="balance-charge"
+                          className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/30"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-sm text-zinc-950 dark:text-white">Carga de saldo</p>
+                            <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                              Se acredita al cobrar
+                            </p>
+                            <p className="mt-1 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                              ${item.amount.toFixed(2)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="Quitar carga de saldo"
+                            onClick={removeBalanceCharge}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 transition-all hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </li>
+                      )
+                    }
+                    const avail = eventProductAvailabilityUnits(item.product, eventStock)
+                    const stockGone =
+                      Number.isFinite(avail) &&
+                      (avail <= 0 || item.quantity > avail)
+                    return (
                       <li
                         key={item.product.id}
                         className={cn(
-                          "flex items-stretch gap-3 rounded-2xl border p-3 transition-all duration-300",
+                          "flex items-stretch gap-2 rounded-2xl border p-3 transition-all duration-300",
                           stockGone
                             ? "border-red-200 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/30"
                             : "border-zinc-100 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-950/40"
                         )}
                       >
                         <div className="min-w-0 flex-1 self-center">
-                          <p className="truncate font-bold text-zinc-950 dark:text-white">
+                          <p className="truncate font-bold text-sm text-zinc-950 dark:text-white">
                             {item.product.name}
                           </p>
                           {stockGone ? (
-                            <p className="text-sm font-semibold text-red-600 dark:text-red-400">
-                              Agotado en evento
+                            <p className="text-xs font-semibold text-red-600 dark:text-red-400">
+                              Agotado
                             </p>
                           ) : null}
-                          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                            ${item.product.price.toFixed(2)} c/u ·{" "}
+                          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                             <span className="font-bold text-zinc-900 dark:text-zinc-100">
                               ${(item.product.price * item.quantity).toFixed(2)}
                             </span>
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex shrink-0 items-center gap-1">
                           <button
                             type="button"
                             aria-label="Menos"
                             onClick={() => updateQuantity(item.product.id, -1)}
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-200 bg-background text-zinc-900 transition-all duration-300 hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-background text-zinc-900 transition-all duration-300 hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
                           >
-                            <Minus className="h-5 w-5" />
+                            <Minus className="h-3.5 w-3.5" />
                           </button>
-                          <span className="w-9 text-center text-lg font-black tabular-nums text-zinc-950 dark:text-white">
+                          <span className="w-6 text-center text-sm font-black tabular-nums text-zinc-950 dark:text-white">
                             {item.quantity}
                           </span>
                           <button
                             type="button"
                             aria-label="Más"
                             onClick={() => updateQuantity(item.product.id, 1)}
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-200 bg-background text-zinc-900 transition-all duration-300 hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-background text-zinc-900 transition-all duration-300 hover:bg-zinc-100 active:scale-[0.98] dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
                           >
-                            <Plus className="h-5 w-5" />
+                            <Plus className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
                             aria-label="Quitar"
                             onClick={() => removeFromCart(item.product.id)}
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-700 transition-all duration-300 hover:bg-red-100 active:scale-[0.98] dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+                            className="ml-0.5 flex h-9 w-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 transition-all duration-300 hover:bg-red-100 active:scale-[0.98] dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
                           >
-                            <Trash2 className="h-5 w-5" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-
-              {/* Checkout Footer */}
-              <div
-                className={cn(
-                  "shrink-0 space-y-4 border-t border-zinc-100 bg-zinc-50/95 p-5 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90",
-                  "max-lg:sticky max-lg:bottom-0 max-lg:z-20"
-                )}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-sm font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                    Total
-                  </span>
-                  <span className="text-3xl font-black tabular-nums tracking-tighter text-zinc-950 dark:text-white">
-                    ${cartTotal.toFixed(2)}
-                  </span>
-                </div>
-
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                    Cliente (opcional)
-                  </p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[7.5rem_1fr]">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="DNI"
-                      value={customerDni}
-                      onChange={(e) =>
-                        setCustomerDni(e.target.value.replace(/\D/g, "").slice(0, 11))
-                      }
-                      className={cn(searchInputClass, "py-0")}
-                      aria-label="DNI del cliente"
-                    />
-                    <Input
-                      placeholder="Nombre (si no está registrado)"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      className={cn(searchInputClass, "py-0")}
-                      aria-label="Nombre del cliente"
-                    />
-                  </div>
-                  {customerDni.trim().length >= 6 ? (
-                    <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                          Saldo disponible
-                        </p>
-                        <p className="text-[15px] font-black tabular-nums text-zinc-950 dark:text-white">
-                          {balanceLoading && balanceAmount == null
-                            ? "…"
-                            : `$${(balanceAmount ?? 0).toFixed(2)}`}
-                        </p>
-                        {knownCustomerName ? (
-                          <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                            {knownCustomerName}
-                          </p>
-                        ) : null}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setChargeOpen(true)}
-                        className="h-9 shrink-0 gap-1 rounded-xl text-xs font-semibold"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Cargar saldo
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                      Promotor
-                    </p>
-                    {promoterId !== "" ? (
-                      <button
-                        type="button"
-                        onClick={() => setPromoterId("")}
-                        className="flex h-6 items-center gap-1 text-xs text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        Quitar
-                      </button>
-                    ) : null}
-                  </div>
-                  <Select
-                    value={promoterId === "" ? "none" : promoterId}
-                    onValueChange={(v) => setPromoterId(v === "none" ? "" : v)}
-                  >
-                    <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
-                      <SelectValue placeholder="Sin promotor" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                      <SelectItem value="none" className="rounded-lg py-2.5">
-                        Sin promotor
-                      </SelectItem>
-                      {promoters.map((p) => (
-                        <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                      Impresora
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => void refreshPrinters()}
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
-                      aria-label="Actualizar impresoras"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <Select
-                    value={selectedPrinter ?? ""}
-                    onValueChange={setSelectedPrinter}
-                  >
-                    <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
-                      <SelectValue placeholder="Elegí impresora" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                      {printers.map((p) => (
-                        <SelectItem key={p} value={p} className="rounded-lg py-2.5">
-                          {p}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                    Pago
-                  </p>
-                  <div className="flex flex-wrap gap-2 rounded-[28px] border border-zinc-100 bg-backgound p-2 dark:border-zinc-800 ">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("cash")}
-                      className={cn(
-                        "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
-                        paymentMethod === "cash"
-                          ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
-                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
-                          paymentMethod === "cash"
-                            ? "bg-white/20"
-                            : "bg-zinc-100 dark:bg-zinc-800"
-                        )}
-                      >
-                        <Banknote
-                          className={cn(
-                            "h-5 w-5",
-                            paymentMethod === "cash"
-                              ? "text-white"
-                              : "text-zinc-600 dark:text-zinc-300"
-                          )}
-                        />
-                      </span>
-                      Efectivo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("card")}
-                      className={cn(
-                        "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
-                        paymentMethod === "card"
-                          ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
-                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
-                          paymentMethod === "card"
-                            ? "bg-white/20"
-                            : "bg-zinc-100 dark:bg-zinc-800"
-                        )}
-                      >
-                        <CreditCard
-                          className={cn(
-                            "h-5 w-5",
-                            paymentMethod === "card"
-                              ? "text-white"
-                              : "text-zinc-600 dark:text-zinc-300"
-                          )}
-                        />
-                      </span>
-                      Tarjeta
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("mercadopago")}
-                      className={cn(
-                        "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-3 text-[0.65rem] font-bold leading-tight transition-all duration-300 active:scale-[0.98] sm:px-2 sm:text-xs",
-                        paymentMethod === "mercadopago"
-                          ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
-                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
-                          paymentMethod === "mercadopago"
-                            ? "bg-white/20"
-                            : "bg-zinc-100 dark:bg-zinc-800"
-                        )}
-                      >
-                        <QrCode
-                          className={cn(
-                            "h-5 w-5 shrink-0",
-                            paymentMethod === "mercadopago"
-                              ? "text-white"
-                              : "text-zinc-600 dark:text-zinc-300"
-                          )}
-                        />
-                      </span>
-                      Mercado Pago
-                    </button>
-                    <button
-                      type="button"
-                      disabled={customerDni.trim() === ""}
-                      onClick={() => setPaymentMethod("saldo")}
-                      className={cn(
-                        "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
-                        paymentMethod === "saldo"
-                          ? "bg-[#FF9500] text-white dark:bg-[#FF9500]"
-                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80",
-                        customerDni.trim() === "" &&
-                          "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
-                          paymentMethod === "saldo"
-                            ? "bg-white/20"
-                            : "bg-zinc-100 dark:bg-zinc-800"
-                        )}
-                      >
-                        <Wallet
-                          className={cn(
-                            "h-5 w-5",
-                            paymentMethod === "saldo"
-                              ? "text-white"
-                              : "text-zinc-600 dark:text-zinc-300"
-                          )}
-                        />
-                      </span>
-                      Saldo
-                    </button>
-                  </div>
-                  {paymentMethod === "saldo" &&
-                  customerDni.trim() !== "" &&
-                  balanceAmount != null &&
-                  cartTotal > 0 &&
-                  balanceAmount < cartTotal ? (
-                    <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-400">
-                      Saldo insuficiente — disponible ${balanceAmount.toFixed(2)}
-                    </p>
-                  ) : null}
-                </div>
-
-                <Button
-                  type="button"
-                  disabled={!canCharge}
-                  onClick={() => void handleCobrar()}
-                  className="h-14 w-full gap-2 rounded-2xl bg-[#FF9500] text-[17px] font-bold tracking-tight text-white transition-all duration-200 hover:bg-[#FF9500]/90 active:opacity-90 disabled:opacity-50"
-                >
-                  {checkoutSubmitting ? (
-                    <span className="animate-pulse">Cobrando…</span>
-                  ) : (
-                    <>
-                      <CircleDollarSign className="h-5 w-5 text-white" />
-                      Cobrar ${cartTotal.toFixed(2)}
-                    </>
-                  )}
-                </Button>
-              </div>
-            </>
-          ) : (
-            /* Contenido de Historial */
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-              {!posReady ? (
+                    )
+                  })}
+                </ul>
+              )
+            ) : (
+              /* TAB: Historial */
+              !posReady ? (
                 <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">—</p>
               ) : historyLoading ? (
                 <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
@@ -1742,10 +1744,11 @@ export function PosPage() {
                     </li>
                   ))}
                 </ul>
-              )}
-            </div>
-          )}
+              )
+            )}
+          </div>
         </section>
+
       </div>
     </div>
   )
