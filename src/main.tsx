@@ -85,6 +85,7 @@ const router = createBrowserRouter([
       { path: "metrics", element: <GlobalMetricsPage /> },
       { path: "pos", element: <MobileOperationsPage /> },
       { path: "pos/venta", element: <PosPage /> },
+      { path: "pos/escaner", element: <PosPage /> },
       { path: "scanner", element: <ScannerPage /> },
       // Legacy redirects
       { path: "events", element: <Navigate to="/eventos" replace /> },

@@ -30,9 +30,7 @@ export function MobileOperationsPage() {
   const role = useAuthStore((s) => s.staff?.role)
   const isMobile = useIsMobile()
 
-  // Los roles operativos tienen un único módulo autorizado. Evita ofrecer una
-  // opción que el control de permisos redirigiría inmediatamente.
-  if (role === "BARTENDER" || !isMobile) {
+  if (!isMobile) {
     return <Navigate to="/pos/venta" replace />
   }
 
@@ -58,7 +56,7 @@ export function MobileOperationsPage() {
         <div className="flex flex-col gap-4">
           <button
             type="button"
-            onClick={() => navigate("/pos/venta")}
+            onClick={() => navigate("/pos/venta", { replace: true })}
             className="flex min-h-32 w-full items-center gap-5 rounded-3xl bg-white p-6 text-left shadow-sm transition-transform active:scale-[0.98] dark:bg-[#1C1C1E]"
           >
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#FF9500]/15 text-[#FF9500]">
@@ -74,16 +72,16 @@ export function MobileOperationsPage() {
 
           <button
             type="button"
-            onClick={() => navigate("/scanner")}
+            onClick={() => navigate("/pos/escaner", { replace: true })}
             className="flex min-h-32 w-full items-center gap-5 rounded-3xl bg-white p-6 text-left shadow-sm transition-transform active:scale-[0.98] dark:bg-[#1C1C1E]"
           >
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-500">
               <ScanLine className="h-7 w-7" />
             </span>
             <span>
-              <span className="block text-xl font-bold">Escáner</span>
+              <span className="block text-xl font-bold">Escáner de barra</span>
               <span className="mt-1 block text-[14px] leading-snug text-[#6D6D72] dark:text-[#98989D]">
-                Validar entradas y controlar el acceso.
+                Canjear consumiciones y entregar pedidos.
               </span>
             </span>
           </button>

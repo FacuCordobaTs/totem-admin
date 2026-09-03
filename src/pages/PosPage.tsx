@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -178,6 +178,7 @@ const searchInputClass =
 
 export function PosPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const token = useAuthStore((s) => s.token)
   const staffName = useAuthStore((s) => s.staff?.name)
   const role = useAuthStore((s) => s.staff?.role)
@@ -259,8 +260,26 @@ export function PosPage() {
   const [historyNonce, setHistoryNonce] = useState(0)
 
   const [isOnline, setIsOnline] = useState(true)
-  const [scannerOpen, setScannerOpen] = useState(false)
+  const isScannerRoute = location.pathname === "/pos/escaner"
+  const [scannerOpen, setScannerOpen] = useState(isScannerRoute)
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isScannerRoute) setScannerOpen(true)
+  }, [isScannerRoute])
+
+  const handleScannerOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && isScannerRoute) {
+        // El escáner es un módulo separado en móvil: al cerrarlo se vuelve al
+        // selector, no a la caja que quedó detrás.
+        navigate("/pos", { replace: true })
+        return
+      }
+      setScannerOpen(open)
+    },
+    [isScannerRoute, navigate]
+  )
 
   // Tarea 5.2 — Impresión conectada: tras cobrar se imprime el recibo (y, en modo caja
   // con DNI, el ticket canjeable con los QRs de las consumiciones).
@@ -957,7 +976,7 @@ export function PosPage() {
           <button
             type="button"
             disabled={!posReady}
-            onClick={() => setScannerOpen(true)}
+            onClick={() => navigate("/pos/escaner", { replace: true })}
             className={cn(
               "flex h-11 w-11 items-center justify-center rounded-xl transition-opacity active:opacity-70",
               posReady
@@ -985,7 +1004,7 @@ export function PosPage() {
 
       <PosScannerModal
         open={scannerOpen}
-        onOpenChange={setScannerOpen}
+        onOpenChange={handleScannerOpenChange}
         barId={posReady ? activeBarId : null}
         token={token}
         eventName={posEventName}
