@@ -9,6 +9,7 @@ function redirectForRestrictedRole(
   if (role === "BARTENDER") {
     if (
       pathname === "/pos" ||
+      pathname.startsWith("/pos/") ||
       pathname === "/configuracion" ||
       pathname.startsWith("/configuracion/")
     ) {

@@ -11,6 +11,7 @@ import { StaffPage } from "@/pages/StaffPage"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { GlobalMetricsPage } from "@/pages/GlobalMetricsPage"
 import { PosPage } from "@/pages/PosPage"
+import { MobileOperationsPage } from "@/pages/MobileOperationsPage"
 import { ScannerPage } from "@/pages/ScannerPage"
 import { LoginPage } from "@/pages/LoginPage"
 import { RegisterPage } from "@/pages/RegisterPage"
@@ -82,7 +83,8 @@ const router = createBrowserRouter([
       { path: "staff", element: <StaffPage /> },
       { path: "configuracion", element: <SettingsPage /> },
       { path: "metrics", element: <GlobalMetricsPage /> },
-      { path: "pos", element: <PosPage /> },
+      { path: "pos", element: <MobileOperationsPage /> },
+      { path: "pos/venta", element: <PosPage /> },
       { path: "scanner", element: <ScannerPage /> },
       // Legacy redirects
       { path: "events", element: <Navigate to="/eventos" replace /> },

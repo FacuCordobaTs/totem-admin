@@ -80,7 +80,7 @@ export function PosSessionPage() {
           label: info.label,
         })
         setAuth(data.token, data.staff)
-        navigate("/pos", { replace: true })
+        navigate("/pos/venta", { replace: true })
       } catch (err) {
         setPin("")
         setError(err instanceof ApiError ? err.message : "No se pudo entrar")

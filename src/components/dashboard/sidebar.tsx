@@ -6,7 +6,7 @@ import { globalNav } from "@/components/dashboard/global-nav"
 
 const adminNavigation = globalNav
 
-const bartenderNavigation = [{ name: "Punto de Venta", href: "/pos", icon: CreditCard }]
+const bartenderNavigation = [{ name: "Punto de Venta", href: "/pos/venta", icon: CreditCard }]
 
 const securityNavigation = [
   { name: "Escáner / Control de Acceso", href: "/scanner", icon: ScanLine },
@@ -14,7 +14,7 @@ const securityNavigation = [
 
 const mobileApps = [
   { name: "Control de acceso", href: "/scanner", icon: ScanLine },
-  { name: "POS barra", href: "/pos", icon: CreditCard },
+  { name: "POS barra", href: "/pos/venta", icon: CreditCard },
 ]
 
 type SidebarProps = {
@@ -43,7 +43,7 @@ export function Sidebar({
         ? securityNavigation
         : adminNavigation
   const homeHref =
-    role === "BARTENDER" ? "/pos" : role === "SECURITY" ? "/scanner" : "/eventos"
+    role === "BARTENDER" ? "/pos/venta" : role === "SECURITY" ? "/scanner" : "/eventos"
 
   if (layout === "sheet") {
     return (
