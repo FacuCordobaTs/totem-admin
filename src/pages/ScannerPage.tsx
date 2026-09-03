@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Link } from "react-router"
 import { Scanner } from "@yudiel/react-qr-scanner"
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { apiFetch, ApiError } from "@/lib/api"
 import { parseQrHash } from "@/lib/parse-qr-hash"
 import { parseDniBarcode } from "@/lib/dni-barcode"
 import { playScannerSound } from "@/lib/scanner-sound"
 import { useAuthStore } from "@/stores/auth-store"
-import { Sidebar } from "@/components/dashboard/sidebar"
-import { Header } from "@/components/dashboard/header"
 import type { ApiEvent } from "@/types/events"
 import {
   Camera,
@@ -111,10 +101,6 @@ type ExtendedMediaTrackConstraintSet = MediaTrackConstraintSet & {
   zoom?: number
 }
 
-/** Tarea 3.2 — El evento elegido en puerta persiste entre sesiones (localStorage): el guardia
- * no tiene que volver a elegirlo cada vez que abre la pantalla. */
-const SCANNER_EVENT_STORAGE_KEY = "crow:scanner:selectedEventId"
-
 /** Tarea 3.2 — Color por tipo de entrada (visión §2.4: "VIP o General, bien diferenciado por
  * color"). Los nombres conocidos mapean a colores de marca — VIP = dorado, General = blanco —
  * y los tipos custom del evento caen en una paleta determinística por hash del `ticketTypeId`
@@ -198,9 +184,6 @@ function ageFromBirthDate(iso: string): number {
 
 export function ScannerPage() {
   const token = useAuthStore((s) => s.token)
-  const role = useAuthStore((s) => s.staff?.role)
-  const isSecurity = role === "SECURITY"
-  const scannerBackHref = isSecurity ? "/settings" : "/"
 
   const [events, setEvents] = useState<ApiEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(true)
@@ -240,12 +223,6 @@ export function ScannerPage() {
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null
 
-  /** Tarea 3.2 — Cambio de evento en puerta: se persiste para la próxima sesión. */
-  const handleEventChange = (id: string) => {
-    setSelectedEventId(id)
-    localStorage.setItem(SCANNER_EVENT_STORAGE_KEY, id)
-  }
-
   const loadEvents = useCallback(async () => {
     if (!token) return
     setEventsError(null)
@@ -258,14 +235,9 @@ export function ScannerPage() {
       // Tarea 11.3 — `isActive` retirado del modelo: la puerta ofrece eventos no cerrados.
       const list = data.events.filter((e) => e.status !== "closed")
       setEvents(list)
-      setSelectedEventId((prev) => {
-        if (prev && list.some((e) => e.id === prev)) return prev
-        // Tarea 3.2 — Si el guardia ya eligió un evento antes (localStorage), se respeta;
-        // la puerta arranca lista sin volver a elegir.
-        const saved = localStorage.getItem(SCANNER_EVENT_STORAGE_KEY)
-        if (saved && list.some((e) => e.id === saved)) return saved
-        return list[0]?.id ?? ""
-      })
+      setSelectedEventId((prev) =>
+        prev && list.some((e) => e.id === prev) ? prev : ""
+      )
     } catch (err) {
       setEvents([])
       setEventsError(
@@ -731,97 +703,91 @@ export function ScannerPage() {
       ? ticketTypeColor(overlay.ticketTypeId, overlay.ticketTypeName)
       : null
 
-  const scannerMain = (
-    <div
-      className={cn(
-        "flex flex-col bg-black text-white",
-        isSecurity ? "min-h-0 flex-1" : "min-h-svh"
-      )}
-    >
-      <header className="flex items-center justify-between border-b border-zinc-800/50 px-4 py-3 backdrop-blur-xl bg-black/70 sm:px-5">
-        <Link
-          to={scannerBackHref}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#98989D] transition-colors active:opacity-70"
-          aria-label="Volver"
-        >
-          <ChevronLeft className="h-6 w-6" />
-        </Link>
-        <div className="min-w-0 flex-1 px-2 text-center">
-          <h1 className="truncate text-[17px] font-bold tracking-tight">
-            Control de acceso
-          </h1>
-          <p className="truncate text-[13px] text-[#98989D]">
-            {selectedEvent ? selectedEvent.name : "Elegí un evento"}
-          </p>
-        </div>
-        <div className="w-10 shrink-0" />
-      </header>
+  const eventSelection = (
+    <main className="flex min-h-svh items-center bg-black px-5 py-8 text-white">
+      <section className="mx-auto w-full max-w-lg">
+        <h1 className="text-2xl font-bold tracking-tight">Elegí un evento</h1>
+        <p className="mt-2 text-[15px] text-[#98989D]">
+          Seleccioná el evento en el que vas a controlar los accesos.
+        </p>
 
-      <div className="border-b border-zinc-800/50 bg-black/50 px-4 py-4 sm:px-5">
-        <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93]">
-          Evento
-        </label>
-        {eventsLoading ? (
-          <p className="text-sm text-neutral-500">Cargando eventos…</p>
-        ) : eventsError ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <p className="text-sm text-red-400">{eventsError}</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-[#FF9500] hover:text-[#FF9500]/90"
-              onClick={() => void loadEvents()}
-            >
-              Reintentar
-            </Button>
-          </div>
-        ) : events.length === 0 ? (
-          <p className="text-sm text-neutral-500">
-            No hay eventos activos. Creá uno en el panel de eventos.
-          </p>
-        ) : (
-          <Select value={selectedEventId} onValueChange={handleEventChange}>
-            <SelectTrigger className="h-12 w-full rounded-xl border-zinc-700 bg-[#1C1C1E] text-[15px] text-white">
-              <SelectValue placeholder="Seleccionar evento" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl border-zinc-700 bg-[#1C1C1E] text-white">
-              {events.map((ev) => (
-                <SelectItem key={ev.id} value={ev.id} className="text-base">
-                  {formatEventLabel(ev)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="mt-8 space-y-3">
+          {eventsLoading ? (
+            <p className="text-sm text-neutral-500">Cargando eventos…</p>
+          ) : eventsError ? (
+            <div className="space-y-3">
+              <p className="text-sm text-red-400">{eventsError}</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-zinc-700 bg-transparent text-white hover:bg-white/5"
+                onClick={() => void loadEvents()}
+              >
+                Reintentar
+              </Button>
+            </div>
+          ) : events.length === 0 ? (
+            <p className="text-sm text-neutral-500">No tenés eventos activos asignados.</p>
+          ) : (
+            events.map((event) => (
+              <button
+                key={event.id}
+                type="button"
+                className="w-full rounded-2xl border border-zinc-800 bg-[#1C1C1E] px-5 py-4 text-left transition-colors hover:border-[#FF9500]/60 hover:bg-zinc-900 active:opacity-70"
+                onClick={() => {
+                  setSelectedEventId(event.id)
+                  setSessionOk(0)
+                }}
+              >
+                <span className="block text-[17px] font-semibold text-white">{event.name}</span>
+                <span className="mt-1 block text-sm text-[#98989D]">{formatEventLabel(event).replace(`${event.name} · `, "")}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+    </main>
+  )
+
+  const scannerMain = (
+    <div className="flex min-h-svh flex-col bg-black text-white">
+      <div className="mx-auto flex w-full max-w-lg px-3 pt-4 sm:px-4">
+        <button
+          type="button"
+          onClick={() => setSelectedEventId("")}
+          className="flex h-10 items-center gap-1 rounded-xl px-2 text-sm font-medium text-[#98989D] transition-colors hover:text-white active:opacity-70"
+        >
+          <ChevronLeft className="h-5 w-5" />
+          Cambiar evento
+        </button>
       </div>
 
       {/* Tarea 3.1 — Alternar QR de entrada / DNI físico. */}
-      <div className="mx-auto mt-4 flex w-full max-w-lg gap-1 rounded-xl border border-zinc-800 bg-[#1C1C1E] p-1">
+      <div className="mx-auto mt-4 flex w-full max-w-lg gap-2 rounded-2xl border border-zinc-800 bg-[#1C1C1E] p-2">
         <button
           type="button"
           onClick={() => switchMode("qr")}
           className={cn(
-            "flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-[14px] font-semibold transition-colors",
+            "flex h-14 flex-1 items-center justify-center gap-2 rounded-xl text-base font-semibold transition-colors",
             mode === "qr"
               ? "bg-[#FF9500] text-white"
               : "text-[#98989D] hover:text-white"
           )}
         >
-          <QrCode className="h-4 w-4" />
+          <QrCode className="h-5 w-5" />
           Código QR
         </button>
         <button
           type="button"
           onClick={() => switchMode("dni")}
           className={cn(
-            "flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-[14px] font-semibold transition-colors",
+            "flex h-14 flex-1 items-center justify-center gap-2 rounded-xl text-base font-semibold transition-colors",
             mode === "dni"
               ? "bg-[#FF9500] text-white"
               : "text-[#98989D] hover:text-white"
           )}
         >
-          <IdCard className="h-4 w-4" />
+          <IdCard className="h-5 w-5" />
           DNI físico
         </button>
       </div>
@@ -1214,15 +1180,5 @@ export function ScannerPage() {
     </div>
   )
 
-  if (!isSecurity) return scannerMain
-
-  return (
-    <div className="flex min-h-screen bg-[#F2F2F7] dark:bg-black">
-      <Sidebar />
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-[4.25rem]">
-        <Header />
-        <div className="flex min-h-0 flex-1 flex-col">{scannerMain}</div>
-      </div>
-    </div>
-  )
+  return selectedEventId ? scannerMain : eventSelection
 }
