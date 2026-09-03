@@ -25,6 +25,8 @@ import {
   RefreshCw,
   Wallet,
   X,
+  AlertTriangle,
+  Package,
 } from "lucide-react"
 import {
   Dialog,
@@ -46,10 +48,7 @@ import { Input } from "@/components/ui/input"
 import { PosScannerModal } from "@/components/pos/PosScannerModal"
 import { SaleDetailsDialog } from "@/components/pos/SaleDetailsDialog"
 import { useEventStock } from "@/hooks/useEventStock"
-import {
-  productAvailabilityUnits,
-  type RecipeLine,
-} from "@/lib/product-availability"
+import type { RecipeLine } from "@/lib/product-availability"
 import { usePrinter } from "@/context/PrinterContext"
 import {
   commandsToBytes,
@@ -65,6 +64,8 @@ interface CatalogProduct {
   categoryName: string | null
   categorySortOrder: number | null
   recipes: RecipeLine[]
+  /** Productos sin receta: null significa que no tienen límite de unidades. */
+  directStock: string | null
 }
 
 interface CartItem {
@@ -111,6 +112,7 @@ type BarCatalogRowApi = {
   categoryName?: string | null
   categorySortOrder?: number | null
   recipes: RecipeLine[]
+  directStock?: string | null
 }
 
 type UiPayment = "cash" | "card" | "mercadopago" | "saldo"
@@ -163,6 +165,30 @@ function stockVisualForProduct(
   if (avail < 10 || avail < 0.05 * b) return "low"
   if (avail >= 0.2 * b) return "ok"
   return "low"
+}
+
+/**
+ * La caja vende contra el inventario general del evento. La barra identifica quién
+ * cobró, pero no limita qué producto se puede cobrar ni su disponibilidad.
+ */
+function eventProductAvailabilityUnits(
+  product: CatalogProduct,
+  eventStock: Record<string, number>
+): number {
+  if (product.recipes.length === 0) {
+    if (product.directStock == null) return Number.POSITIVE_INFINITY
+    const directStock = Number.parseFloat(product.directStock)
+    return Number.isFinite(directStock) ? Math.max(0, Math.floor(directStock)) : 0
+  }
+
+  let available = Number.POSITIVE_INFINITY
+  for (const recipe of product.recipes) {
+    const quantity = Number.parseFloat(recipe.quantityUsed)
+    if (!Number.isFinite(quantity) || quantity <= 0) continue
+    const stock = eventStock[recipe.inventoryItemId] ?? 0
+    available = Math.min(available, Math.floor(stock / quantity))
+  }
+  return Number.isFinite(available) ? Math.max(0, available) : 0
 }
 
 const shell = "bg-[#F2F2F7] text-black dark:bg-black dark:text-white"
@@ -227,6 +253,7 @@ export function PosPage() {
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [productSearch, setProductSearch] = useState("")
+  const [eventStockOpen, setEventStockOpen] = useState(false)
 
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<UiPayment>("cash")
@@ -500,9 +527,9 @@ export function PosPage() {
           { method: "GET", token }
         )
         if (cancelled) return
-        const rows = res.products
-          .filter((p) => p.isActiveForBar === true)
-          .map((p) => ({
+        // La caja comparte el menú del evento: la asignación a una barra no
+        // debe esconder productos ni impedir una venta.
+        const rows = res.products.map((p) => ({
             id: p.id,
             name: p.name,
             price: Number.parseFloat(p.price),
@@ -510,6 +537,7 @@ export function PosPage() {
             categoryName: p.categoryName ?? null,
             categorySortOrder: p.categorySortOrder ?? null,
             recipes: p.recipes ?? [],
+            directStock: p.directStock ?? null,
           }))
         setCatalogProducts(rows)
       } catch {
@@ -608,7 +636,7 @@ export function PosPage() {
     !!activeBarId &&
     (!shiftBound || hasBoundShift)
 
-  const { eventStock, barStock, connectionStatus, refreshSnapshot } =
+  const { eventStock, connectionStatus, refreshSnapshot } =
     useEventStock(activeEventId || null, activeBarId || null, token, posReady)
 
   const [productBaselines, setProductBaselines] = useState<
@@ -617,7 +645,7 @@ export function PosPage() {
 
   useEffect(() => {
     setProductBaselines({})
-  }, [activeEventId, activeBarId])
+  }, [activeEventId])
 
   useEffect(() => {
     if (!posReady) return
@@ -626,19 +654,14 @@ export function PosPage() {
       const next = { ...prev }
       for (const p of catalogProducts) {
         if (next[p.id] != null) continue
-        const a = productAvailabilityUnits(
-          p.recipes,
-          eventStock,
-          barStock,
-          activeBarId
-        )
+        const a = eventProductAvailabilityUnits(p, eventStock)
         if (!Number.isFinite(a)) continue
         next[p.id] = Math.max(a, 1)
         changed = true
       }
       return changed ? next : prev
     })
-  }, [catalogProducts, eventStock, barStock, activeBarId, posReady])
+  }, [catalogProducts, eventStock, posReady])
 
   const filteredCatalog = useMemo(() => {
     const q = productSearch.trim().toLowerCase()
@@ -673,6 +696,19 @@ export function PosPage() {
       )
   }, [filteredCatalog])
 
+  const eventStockProducts = useMemo(
+    () =>
+      catalogProducts.map((product) => {
+        const available = eventProductAvailabilityUnits(product, eventStock)
+        return {
+          product,
+          available,
+          visual: stockVisualForProduct(available, productBaselines[product.id]),
+        }
+      }),
+    [catalogProducts, eventStock, productBaselines]
+  )
+
   const cartTotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
     [cart]
@@ -681,20 +717,7 @@ export function PosPage() {
   const addToCart = useCallback(
     (product: CatalogProduct) => {
       setCart((prev) => {
-        const avail = productAvailabilityUnits(
-          product.recipes,
-          eventStock,
-          barStock,
-          activeBarId
-        )
         const existing = prev.find((item) => item.product.id === product.id)
-        if (Number.isFinite(avail)) {
-          const nextQty = existing ? existing.quantity + 1 : 1
-          if (nextQty > avail) {
-            toast.error("Stock insuficiente")
-            return prev
-          }
-        }
         if (existing) {
           return prev.map((item) =>
             item.product.id === product.id
@@ -705,7 +728,7 @@ export function PosPage() {
         return [...prev, { product, quantity: 1 }]
       })
     },
-    [eventStock, barStock, activeBarId]
+    []
   )
 
   const updateQuantity = useCallback(
@@ -713,21 +736,6 @@ export function PosPage() {
       setCart((prev) => {
         const item = prev.find((i) => i.product.id === productId)
         if (!item) return prev
-        if (delta > 0) {
-          const avail = productAvailabilityUnits(
-            item.product.recipes,
-            eventStock,
-            barStock,
-            activeBarId
-          )
-          if (
-            Number.isFinite(avail) &&
-            item.quantity + delta > avail
-          ) {
-            toast.error("Stock insuficiente")
-            return prev
-          }
-        }
         return prev
           .map((it) =>
             it.product.id === productId
@@ -737,7 +745,7 @@ export function PosPage() {
           .filter((it) => it.quantity > 0)
       })
     },
-    [eventStock, barStock, activeBarId]
+    []
   )
 
   const removeFromCart = useCallback((productId: string) => {
@@ -756,6 +764,7 @@ export function PosPage() {
         body: JSON.stringify({
           eventId: activeEventId,
           barId: activeBarId,
+          allowNegativeStock: true,
           paymentMethod: mapPayment(paymentMethod),
           items: cart.map((c) => ({
             productId: c.product.id,
@@ -1016,6 +1025,60 @@ export function PosPage() {
         onClose={() => setSelectedSaleId(null)}
       />
       {/* Tarea 6.3 — Carga de saldo en caja: efectivo o tarjeta acreditan el DNI. */}
+      <Dialog open={eventStockOpen} onOpenChange={setEventStockOpen}>
+        <DialogContent className="max-h-[80svh] max-w-lg overflow-hidden rounded-2xl p-0">
+          <DialogHeader className="border-b border-zinc-100 px-6 py-5 dark:border-zinc-800">
+            <div className="flex items-start justify-between gap-4 pr-6">
+              <div>
+                <DialogTitle>Stock del evento</DialogTitle>
+                <DialogDescription className="mt-1.5">
+                  Disponible para toda la caja, sin separar por barras.
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => void refreshSnapshot()}
+                className="h-9 w-9 shrink-0 rounded-xl"
+                aria-label="Actualizar stock del evento"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="max-h-[58svh] overflow-y-auto p-4">
+            {eventStockProducts.length === 0 ? (
+              <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                No hay productos activos en este evento.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {eventStockProducts.map(({ product, available, visual }) => (
+                  <li
+                    key={product.id}
+                    className={cn(
+                      "flex items-center justify-between gap-4 rounded-xl border px-4 py-3",
+                      visual === "out" && "border-red-200 bg-red-50/70 dark:border-red-900/50 dark:bg-red-950/20",
+                      visual === "low" && "border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20",
+                      (visual === "ok" || visual === "unlimited") && "border-zinc-100 dark:border-zinc-800"
+                    )}
+                  >
+                    <span className="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      {product.name}
+                    </span>
+                    <span className="shrink-0 text-sm font-black tabular-nums text-zinc-700 dark:text-zinc-200">
+                      {Number.isFinite(available)
+                        ? `${Math.floor(available)} disp.`
+                        : "Sin límite"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={chargeOpen} onOpenChange={setChargeOpen}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
@@ -1145,14 +1208,30 @@ export function PosPage() {
 
       {posReady && connectionStatus === "closed" && (
         <div className="shrink-0 border-b border-amber-200/80 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-          Stock en vivo desconectado — actualizando cada 25s. Revisá límites antes de cobrar.
+          Stock en vivo desconectado — el stock del evento se actualiza cada 25s.
         </div>
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-3 lg:grid-cols-12 lg:gap-5 lg:p-5">
         {/* Catálogo */}
         <section className={cn(panelClass, "lg:col-span-5")}>
-          <div className="shrink-0 border-b border-zinc-200/50 p-4 dark:border-zinc-800/50 md:p-5">
+          <div className="shrink-0 space-y-3 border-b border-zinc-200/50 p-4 dark:border-zinc-800/50 md:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Productos del evento
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!posReady}
+                onClick={() => setEventStockOpen(true)}
+                className="h-9 shrink-0 gap-1.5 rounded-xl text-xs font-semibold"
+              >
+                <Package className="h-3.5 w-3.5" />
+                Stock del evento
+              </Button>
+            </div>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8E8E93]" />
               <Input
@@ -1176,7 +1255,7 @@ export function PosPage() {
             ) : filteredCatalog.length === 0 ? (
               <p className="py-10 text-center text-base text-zinc-500 dark:text-zinc-400">
                 {catalogProducts.length === 0
-                  ? "No hay productos activos en esta barra."
+                  ? "No hay productos activos en este evento."
                   : "Nada coincide con la búsqueda."}
               </p>
             ) : (
@@ -1190,32 +1269,18 @@ export function PosPage() {
                     ) : null}
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
                       {group.products.map((product) => {
-                        const avail = productAvailabilityUnits(
-                          product.recipes,
-                          eventStock,
-                          barStock,
-                          activeBarId
-                        )
+                        const avail = eventProductAvailabilityUnits(product, eventStock)
                         const baseline = productBaselines[product.id]
                         const vis = stockVisualForProduct(avail, baseline)
-                        const disabled =
-                          Number.isFinite(avail) && avail <= 0
-                        const badge =
-                          vis === "unlimited"
-                            ? null
-                            : `${Math.floor(avail)} disp.`
+                        const hasStockWarning = vis === "low" || vis === "out"
                         return (
                           <Card
                             key={product.id}
                             size="sm"
                             role="button"
-                            tabIndex={disabled ? -1 : 0}
-                            aria-disabled={disabled}
-                            onClick={() => {
-                              if (!disabled) addToCart(product)
-                            }}
+                            tabIndex={0}
+                            onClick={() => addToCart(product)}
                             onKeyDown={(e) => {
-                              if (disabled) return
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault()
                                 addToCart(product)
@@ -1223,45 +1288,34 @@ export function PosPage() {
                             }}
                             className={cn(
                               "relative gap-3 rounded-2xl border py-4 shadow-none ring-0 transition-all duration-300 dark:bg-zinc-950/30",
-                              disabled
-                                ? "cursor-not-allowed border-zinc-100 opacity-45 grayscale dark:border-zinc-800"
-                                : "cursor-pointer border-zinc-100 bg-zinc-50/50 hover:bg-zinc-100/80 active:scale-[0.98] dark:border-zinc-800 dark:hover:bg-zinc-800/50",
-                              !disabled &&
-                                vis === "ok" &&
-                                "border-zinc-200 dark:border-zinc-700",
-                              !disabled &&
-                                vis === "low" &&
-                                "border-amber-200 dark:border-amber-900/50"
+                              "cursor-pointer border-zinc-100 bg-zinc-50/50 hover:bg-zinc-100/80 active:scale-[0.98] dark:border-zinc-800 dark:hover:bg-zinc-800/50",
+                              vis === "ok" && "border-zinc-200 dark:border-zinc-700",
+                              vis === "low" && "border-amber-200 dark:border-amber-900/50",
+                              vis === "out" && "border-red-200 dark:border-red-900/50"
                             )}
                           >
-                            {badge ? (
+                            {hasStockWarning ? (
                               <span
                                 className={cn(
-                                  "absolute right-3 top-3 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider tabular-nums",
+                                  "absolute right-3 top-3 flex items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wider",
                                   vis === "out" &&
                                     "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
                                   vis === "low" &&
-                                    "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
-                                  vis === "ok" &&
-                                    "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100"
+                                    "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
                                 )}
                               >
-                                {badge}
+                                <AlertTriangle className="h-3 w-3" />
+                                {vis === "out" ? "Sin stock" : "Stock bajo"}
                               </span>
                             ) : null}
-                            <CardHeader className="px-4 py-0 pr-16">
+                            <CardHeader className="px-4 py-0 pr-20">
                               <CardTitle className="text-base font-bold leading-tight tracking-tight text-zinc-950 dark:text-white">
                                 {product.name}
                               </CardTitle>
                             </CardHeader>
                             <CardContent className="px-4 pb-0 pt-0">
                               <p
-                                className={cn(
-                                  "text-lg font-black tabular-nums tracking-tight",
-                                  disabled
-                                    ? "text-zinc-400"
-                                    : "text-[#FF9500]"
-                                )}
+                                className="text-lg font-black tabular-nums tracking-tight text-[#FF9500]"
                               >
                                 ${product.price.toFixed(2)}
                               </p>
@@ -1295,12 +1349,7 @@ export function PosPage() {
             ) : (
               <ul className="flex flex-col gap-3">
                 {cart.map((item) => {
-                  const avail = productAvailabilityUnits(
-                    item.product.recipes,
-                    eventStock,
-                    barStock,
-                    activeBarId
-                  )
+                  const avail = eventProductAvailabilityUnits(item.product, eventStock)
                   const stockGone =
                     Number.isFinite(avail) &&
                     (avail <= 0 || item.quantity > avail)
