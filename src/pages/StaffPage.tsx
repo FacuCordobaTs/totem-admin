@@ -24,7 +24,7 @@ import { useAuthStore, type StaffProfile, type StaffRole } from "@/stores/auth-s
 import { staffRoleLabel } from "@/lib/role-labels"
 import { StaffInlineCreate } from "@/components/staff/staff-inline-create"
 
-const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "BARTENDER", "SECURITY"]
+const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "PROMOTER", "BARTENDER", "SECURITY"]
 
 type TeamResponse = { staff: StaffProfile[] }
 
@@ -373,8 +373,8 @@ export function StaffPage() {
             </DialogDescription>
           </DialogHeader>
           <StaffInlineCreate
-            onCreated={() => {
-              setCreateOpen(false)
+            onCreated={(keepOpen) => {
+              if (!keepOpen) setCreateOpen(false)
               void loadTeam()
             }}
           />

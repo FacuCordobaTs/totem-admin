@@ -99,6 +99,8 @@ export function LoginPage() {
           ? "/pos"
           : loginData.staff.role === "SECURITY"
             ? "/scanner"
+            : loginData.staff.role === "PROMOTER"
+              ? "/promotor"
             : "/"
       navigate(home, { replace: true })
     } catch (err) {

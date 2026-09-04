@@ -24,8 +24,8 @@ type Invitation = {
 
 type InvitationsResponse = { invitations: Invitation[] }
 
-const INVITE_ROLES: StaffRole[] = ["BARTENDER", "SECURITY", "MANAGER"]
-const ROLE_ORDER: StaffRole[] = ["MANAGER", "BARTENDER", "SECURITY", "ADMIN"]
+const INVITE_ROLES: StaffRole[] = ["PROMOTER", "BARTENDER", "SECURITY", "MANAGER"]
+const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "BARTENDER", "SECURITY", "ADMIN"]
 
 type Props = {
   eventId: string

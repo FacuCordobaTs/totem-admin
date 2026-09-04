@@ -30,7 +30,7 @@ import { EventLivePanel } from "@/components/events/event-live-panel"
 import { eventStatusLabel } from "@/lib/event-status"
 import { EVENT_OPERATION_MODE_OPTIONS } from "@/lib/event-operation-mode"
 import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { Boxes, Check, ChevronRight, Loader2, MapPin, Plus, Ticket, Trash2, Wine } from "lucide-react"
+import { ArrowLeft, Boxes, Check, ChevronRight, Loader2, MapPin, Plus, Ticket, Trash2, Wine } from "lucide-react"
 import type { ApiEvent, EventOperationMode } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
@@ -510,8 +510,8 @@ function useCreateEvent(
 
   const canDuplicate = source != null
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault()
     if (!token) return
     setError(null)
     if (!operationMode) {
@@ -573,6 +573,7 @@ function useCreateEvent(
     source: source ?? null,
     loading,
     error,
+    setError,
     submit,
   }
 }
@@ -680,10 +681,12 @@ function CreateFields({
   form,
   idPrefix,
   borderless = false,
+  step,
 }: {
   form: ReturnType<typeof useCreateEvent>
   idPrefix: string
   borderless?: boolean
+  step: number
 }) {
   const duplicating = form.canDuplicate && form.fromSource
   const inputClassName = borderless
@@ -691,16 +694,18 @@ function CreateFields({
     : "h-11 rounded-xl border-zinc-800/50 bg-black"
   return (
     <>
-      <EventOperationModePicker
-        value={form.operationMode}
-        onChange={form.setOperationMode}
-      />
+      {step === 0 ? (
+        <EventOperationModePicker
+          value={form.operationMode}
+          onChange={form.setOperationMode}
+        />
+      ) : null}
       {form.error ? (
         <p className="text-sm text-red-400" role="alert">
           {form.error}
         </p>
       ) : null}
-      {form.canDuplicate && form.source ? (
+      {step === 1 && form.canDuplicate && form.source ? (
         <button
           type="button"
           onClick={() => form.setFromSource(!form.fromSource)}
@@ -739,6 +744,7 @@ function CreateFields({
           </span>
         </button>
       ) : null}
+      {step === 1 ? (
       <div className="space-y-2">
         <label
           htmlFor={`${idPrefix}-name`}
@@ -757,6 +763,8 @@ function CreateFields({
           }
         />
       </div>
+      ) : null}
+      {step === 2 ? (
       <div className="flex gap-3">
         <div className="flex-1 space-y-2">
           <label
@@ -790,6 +798,9 @@ function CreateFields({
           />
         </div>
       </div>
+      ) : null}
+      {step === 3 ? (
+      <>
       <div className="space-y-2">
         <label
           htmlFor={`${idPrefix}-venue`}
@@ -819,6 +830,8 @@ function CreateFields({
           className={inputClassName}
         />
       </div>
+      </>
+      ) : null}
     </>
   )
 }
@@ -876,6 +889,122 @@ function EventOperationModePicker({
   )
 }
 
+const CREATE_EVENT_STEPS = [
+  {
+    title: "¿Qué vas a gestionar?",
+    description: "Elegí el tipo de evento para adaptar las herramientas de Crow.",
+  },
+  {
+    title: "¿Cómo se llama tu evento?",
+    description: "Podés cambiarlo más adelante si lo necesitás.",
+  },
+  {
+    title: "¿Cuándo es?",
+    description: "La hora es opcional.",
+  },
+  {
+    title: "¿Dónde se realiza?",
+    description: "Agregá el nombre del lugar y su ubicación en el mapa si la tenés.",
+  },
+] as const
+
+function EventCreationWizard({
+  form,
+  idPrefix,
+  borderless = false,
+  onCancel,
+}: {
+  form: ReturnType<typeof useCreateEvent>
+  idPrefix: string
+  borderless?: boolean
+  onCancel?: () => void
+}) {
+  const [step, setStep] = useState(0)
+  const currentStep = CREATE_EVENT_STEPS[step]
+  const isLastStep = step === CREATE_EVENT_STEPS.length - 1
+
+  function goNext() {
+    if (step === 0 && !form.operationMode) {
+      form.setError("Elegí cómo vas a operar este evento")
+      return
+    }
+    if (step === 1 && !form.name.trim() && !(form.canDuplicate && form.fromSource)) {
+      form.setError("Escribí el nombre del evento")
+      return
+    }
+    if (step === 2 && !form.date) {
+      form.setError("Elegí una fecha")
+      return
+    }
+    form.setError(null)
+    setStep((current) => Math.min(current + 1, CREATE_EVENT_STEPS.length - 1))
+  }
+
+  function goBack() {
+    form.setError(null)
+    setStep((current) => Math.max(current - 1, 0))
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex gap-1.5" aria-label={`Paso ${step + 1} de ${CREATE_EVENT_STEPS.length}`}>
+        {CREATE_EVENT_STEPS.map((item, index) => (
+          <span
+            key={item.title}
+            className={`h-1 flex-1 rounded-full ${index <= step ? "bg-[#FF9500]" : "bg-white/[0.10]"}`}
+          />
+        ))}
+      </div>
+
+      <div>
+        <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#FF9500]">
+          Paso {step + 1} de {CREATE_EVENT_STEPS.length}
+        </p>
+        <h2 className="mt-2 text-2xl font-bold tracking-tight text-white">{currentStep.title}</h2>
+        <p className="mt-1.5 text-sm text-white/45">{currentStep.description}</p>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <CreateFields form={form} idPrefix={idPrefix} borderless={borderless} step={step} />
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          {step > 0 ? (
+            <Button type="button" variant="ghost" className="gap-1.5 rounded-xl" onClick={goBack}>
+              <ArrowLeft className="h-4 w-4" />
+              Atrás
+            </Button>
+          ) : onCancel ? (
+            <Button type="button" variant="ghost" className="rounded-xl" onClick={onCancel}>
+              Cancelar
+            </Button>
+          ) : null}
+        </div>
+        {isLastStep ? (
+          <Button
+            type="button"
+            onClick={() => void form.submit()}
+            disabled={form.loading}
+            className="h-11 rounded-xl bg-[#FF9500] px-6 font-semibold text-white hover:bg-[#FF9500]/90"
+          >
+            {form.loading ? "Creando…" : "Crear evento"}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            onClick={goNext}
+            className="h-11 rounded-xl bg-[#FF9500] px-6 font-semibold text-white hover:bg-[#FF9500]/90"
+          >
+            Continuar
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function CreateHero({
   navigate,
   token,
@@ -894,16 +1023,16 @@ function CreateHero({
           Elegí cómo vas a operarlo. Crow adapta la configuración a esa modalidad.
         </p>
       </div>
-      <form onSubmit={form.submit} className="flex w-full max-w-3xl flex-col gap-4">
-        <CreateFields form={form} idPrefix="hero" />
+      <div className="flex w-full max-w-3xl flex-col gap-4">
+        <EventCreationWizard form={form} idPrefix="hero" />
         <Button
-          type="submit"
+          type="button"
           disabled={form.loading}
-          className="mt-2 h-11 rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90"
+          className="hidden"
         >
           {form.loading ? "Creando…" : "Crear evento"}
         </Button>
-      </form>
+      </div>
     </div>
   )
 }
@@ -931,9 +1060,15 @@ function CreateDialog({
             Elegí una modalidad y cargá los datos básicos.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.submit} className="flex flex-col gap-4">
-          <CreateFields form={form} idPrefix="dialog" borderless />
-          <DialogFooter className="gap-2 sm:gap-2">
+        <div className="flex flex-col gap-4">
+          <EventCreationWizard
+            key={open ? "open" : "closed"}
+            form={form}
+            idPrefix="dialog"
+            borderless
+            onCancel={() => onOpenChange(false)}
+          />
+          <DialogFooter className="hidden">
             <Button
               type="button"
               variant="ghost"
@@ -943,14 +1078,14 @@ function CreateDialog({
               Cancelar
             </Button>
             <Button
-              type="submit"
+              type="button"
               disabled={form.loading}
               className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90"
             >
               {form.loading ? "Creando…" : "Crear"}
             </Button>
           </DialogFooter>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   )

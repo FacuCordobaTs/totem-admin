@@ -27,6 +27,9 @@ function redirectForRestrictedRole(
     }
     return "/scanner"
   }
+  if (role === "PROMOTER") {
+    return pathname === "/promotor" ? null : "/promotor"
+  }
   return null
 }
 

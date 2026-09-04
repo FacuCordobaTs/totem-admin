@@ -69,7 +69,7 @@ export type StaffTeamMember = {
   tenantId: string | null
   name: string
   email: string
-  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY"
+  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "PROMOTER"
   isActive: boolean
   createdAt: Date | string | null
 }
@@ -122,7 +122,7 @@ export type EventAssignmentStaffRow = {
   id: string
   name: string
   email: string
-  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY"
+  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "PROMOTER"
   isAssigned: boolean
   barId: string | null
 }

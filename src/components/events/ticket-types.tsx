@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { ChevronDown, Plus, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 export type ApiTier = {
   id: string
@@ -35,6 +43,8 @@ type TicketTypesProps = {
   eventId: string
   refreshTrigger: number
   onChanged?: () => void
+  /** Abre el diálogo de alta alojado por la página del evento. */
+  onCreateTicketType?: () => void
   /** Reporta cuántos tipos hay cargados (para ocultar el resto de Entradas hasta tener ≥1). */
   onCountChange?: (count: number) => void
 }
@@ -453,20 +463,22 @@ function TypeRow({
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Crear inline (spec §4.2): el formulario se despliega sobre su propio disparador.
+// Alta de tipo de entrada: el formulario vive en un diálogo para no desplazar el listado.
 // ───────────────────────────────────────────────────────────────────────────
 
-function InlineCreate({
+export function TicketTypeCreateDialog({
   eventId,
+  open,
+  onOpenChange,
   onCreated,
 }: {
   eventId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onCreated: () => void
 }) {
   const token = useAuthStore((s) => s.token)
-  const createRef = useRef<HTMLDivElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
   const [stock, setStock] = useState("")
@@ -479,22 +491,14 @@ function InlineCreate({
     return () => window.clearTimeout(focusInput)
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!createRef.current?.contains(event.target as Node)) close()
-    }
-    document.addEventListener("mousedown", closeOnOutsideClick)
-    return () => document.removeEventListener("mousedown", closeOnOutsideClick)
-  }, [open, saving])
-
   function close() {
     if (saving) return
-    setOpen(false)
+    onOpenChange(false)
     setError(null)
   }
 
-  async function create() {
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     if (!token || saving) return
     if (name.trim() === "") return
     const parsedPrice = parsePrice(price)
@@ -522,7 +526,7 @@ function InlineCreate({
       setName("")
       setPrice("")
       setStock("")
-      setOpen(false)
+      onOpenChange(false)
       onCreated()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo crear")
@@ -532,72 +536,41 @@ function InlineCreate({
   }
 
   return (
-    <div ref={createRef} className="relative h-15">
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex h-15 w-full items-center gap-2 rounded-xl border border-dashed border-white/[0.12] px-4 text-[15px] text-white/50 transition-colors hover:border-white/25 hover:text-white/80"
-      >
-        <Plus className="h-4 w-4 shrink-0" />
-        Nuevo tipo
-      </button>
-
-      {open ? (
-        <div
-          className="absolute inset-x-0 bottom-0 z-10 origin-bottom-left animate-in fade-in-0 zoom-in-95 duration-200"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") close()
-          }}
-        >
-          <div className="flex min-h-20 items-center gap-2 rounded-xl border border-white/[0.12] bg-black px-4 py-2.5 shadow-2xl shadow-black/80 sm:min-w-[560px]">
-            <Plus className="h-4 w-4 shrink-0 text-white/30" />
-            <input
-              ref={nameInputRef}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void create()
-              }}
-              placeholder="+ Nuevo tipo"
-              className={cn(fieldClass, "flex-1 border-transparent bg-transparent px-0")}
-            />
-            <input
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void create()
-              }}
-              inputMode="decimal"
-              placeholder="Precio"
-              className="h-10 w-24 rounded-lg bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:bg-white/[0.08]"
-            />
-            <input
-              value={stock}
-              onChange={(e) => setStock(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void create()
-              }}
-              inputMode="numeric"
-              placeholder="Cupo"
-              className="h-10 w-20 rounded-lg bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:bg-white/[0.08]"
-            />
-            <button
-              type="button"
-              onClick={create}
-              disabled={saving || name.trim() === ""}
-              className="h-10 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-40"
-            >
-              {saving ? "…" : "Crear"}
-            </button>
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
+      <DialogContent className="max-w-md rounded-2xl border border-white/[0.12] bg-black text-white">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-bold tracking-tight">Nuevo tipo de entrada</DialogTitle>
+          <DialogDescription className="text-white/45">
+            Definí el nombre, precio y cupo inicial de la entrada.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={create} className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="ticket-type-name" className="text-[13px] text-white/60">Nombre</label>
+            <input ref={nameInputRef} id="ticket-type-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. General" className={fieldClass} />
           </div>
-          {error ? <p className="mt-1.5 text-[12px] text-red-400">{error}</p> : null}
-        </div>
-      ) : null}
-    </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label htmlFor="ticket-type-price" className="text-[13px] text-white/60">Precio</label>
+              <input id="ticket-type-price" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0" className={fieldClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ticket-type-stock" className="text-[13px] text-white/60">Cupo</label>
+              <input id="ticket-type-stock" value={stock} onChange={(e) => setStock(e.target.value)} inputMode="numeric" placeholder="Sin límite" className={fieldClass} />
+            </div>
+          </div>
+          {error ? <p className="text-[13px] text-red-400">{error}</p> : null}
+          <DialogFooter className="gap-2">
+            <button type="button" onClick={close} disabled={saving} className="h-10 rounded-lg px-4 text-[14px] text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40">Cancelar</button>
+            <button type="submit" disabled={saving || name.trim() === ""} className="h-10 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity hover:bg-[#FF9500]/90 disabled:opacity-40">{saving ? "Creando…" : "Crear tipo"}</button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange }: TicketTypesProps) {
+export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange, onCreateTicketType }: TicketTypesProps) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
@@ -648,8 +621,15 @@ export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange 
         <p className="py-3 text-[15px] text-white/40">Cargando tipos…</p>
       ) : (
         <div className="space-y-2">
-          {canManage ? (
-            <InlineCreate eventId={eventId} onCreated={handleChanged} />
+          {canManage && onCreateTicketType ? (
+            <button
+              type="button"
+              onClick={onCreateTicketType}
+              className="flex h-15 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.12] px-4 text-[15px] text-white/50 transition-colors hover:border-white/25 hover:text-white/80"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              Nuevo tipo
+            </button>
           ) : null}
           {types.map((t) => (
             <TypeRow

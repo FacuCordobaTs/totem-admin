@@ -32,6 +32,8 @@ export function JoinPage() {
             ? "/pos"
             : data.staff.role === "SECURITY"
               ? "/scanner"
+              : data.staff.role === "PROMOTER"
+                ? "/promotor"
               : "/"
         navigate(home, { replace: true })
       } catch (err) {

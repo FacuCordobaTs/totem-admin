@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { Link } from "react-router"
 import { toast } from "sonner"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
@@ -30,6 +31,7 @@ export function PromotersPanel() {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
+  const canCreateStaff = role === "ADMIN"
 
   const [rows, setRows] = useState<ApiPromoter[]>([])
   const [loading, setLoading] = useState(true)
@@ -66,13 +68,6 @@ export function PromotersPanel() {
   useEffect(() => {
     void load()
   }, [load])
-
-  function startCreate() {
-    setEditingId(null)
-    setName("")
-    setPhone("")
-    setDialogOpen(true)
-  }
 
   function startEdit(p: ApiPromoter) {
     setEditingId(p.id)
@@ -115,7 +110,9 @@ export function PromotersPanel() {
         })
         toast.success("Promotor actualizado")
       }
-      startCreate()
+      setEditingId(null)
+      setName("")
+      setPhone("")
       setDialogOpen(false)
       await load()
     } catch (e) {
@@ -187,16 +184,12 @@ export function PromotersPanel() {
             Quién vende entradas a comisión. Cada venta puede atribuírseles.
           </p>
         </div>
-        {canManage ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={startCreate}
-            className="h-9 gap-1.5 rounded-xl text-[13px] font-medium"
-          >
+        {canCreateStaff ? (
+          <Button asChild type="button" variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl text-[13px] font-medium">
+            <Link to="/staff">
             <Plus className="h-3.5 w-3.5" />
-            Nuevo promotor
+            Crear desde Personal
+            </Link>
           </Button>
         ) : null}
       </div>
@@ -217,7 +210,7 @@ export function PromotersPanel() {
       ) : activeRows.length === 0 && !editing ? (
         <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-6 text-center text-[14px] text-white/45">
           Todavía no hay promotores.
-          {canManage ? " Cargá el primero con el botón de arriba." : null}
+          {canCreateStaff ? " Crealo desde Personal para darle su acceso propio." : null}
         </div>
       ) : (
         <div className="space-y-1.5">

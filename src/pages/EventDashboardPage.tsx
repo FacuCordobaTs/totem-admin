@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useParams } from "react-router"
 import { EventLayout } from "@/components/events/event-layout"
-import { TicketTypes } from "@/components/events/ticket-types"
+import {
+  TicketTypeCreateDialog,
+  TicketTypes,
+} from "@/components/events/ticket-types"
 import { CourtesiesPanel } from "@/components/events/courtesies-panel"
 import {
   AttendeeTable,
@@ -125,6 +128,7 @@ export function EventDashboardPage() {
   // (cortesías, tabla de asistentes) se oculta. null = todavía no sabemos (cargando).
   const [ticketTypeCount, setTicketTypeCount] = useState<number | null>(null)
   const hasTicketTypes = (ticketTypeCount ?? 0) > 0
+  const [ticketTypeDialogOpen, setTicketTypeDialogOpen] = useState(false)
 
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [transitioning, setTransitioning] = useState(false)
@@ -335,11 +339,18 @@ export function EventDashboardPage() {
               </div>
             }
           >
+            <TicketTypeCreateDialog
+              eventId={id}
+              open={ticketTypeDialogOpen}
+              onOpenChange={setTicketTypeDialogOpen}
+              onCreated={bump}
+            />
             <TicketTypes
               eventId={id}
               refreshTrigger={refreshTick}
               onChanged={bump}
               onCountChange={setTicketTypeCount}
+              onCreateTicketType={() => setTicketTypeDialogOpen(true)}
             />
             {hasTicketTypes && (
               <>
@@ -386,7 +397,6 @@ export function EventDashboardPage() {
           <SectionShell title="Equipo">
             <EventStaffTab
               eventId={id}
-              promotersOnly={!supportsConsumptions}
               inviteAccessHint="El enlace inicia sesión directamente y sirve para volver a entrar, sin nombre ni PIN."
             />
           </SectionShell>

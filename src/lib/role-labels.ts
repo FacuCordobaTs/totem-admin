@@ -5,6 +5,7 @@ const labels: Record<StaffRole, string> = {
   MANAGER: "Gerente",
   BARTENDER: "Barra",
   SECURITY: "Seguridad",
+  PROMOTER: "Promotor",
 }
 
 export function staffRoleLabel(role: StaffRole): string {

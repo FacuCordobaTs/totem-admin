@@ -19,6 +19,7 @@ type TenantSelectionResponse = {
 function homeForRole(role: StaffProfile["role"]): string {
   if (role === "BARTENDER") return "/pos"
   if (role === "SECURITY") return "/scanner"
+  if (role === "PROMOTER") return "/promotor"
   return "/"
 }
 
