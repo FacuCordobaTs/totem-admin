@@ -632,7 +632,7 @@ function PrimaryStateAction({
   onStartClosing: () => void
 }) {
   const token = useAuthStore((s) => s.token)
-  const tenantId = useAuthStore((s) => s.staff?.tenantId)
+  const tenantId = useAuthStore((s) => s.staff?.tenantId ?? null)
 
   if (status === "draft") {
     const blocked = readiness != null && !readiness.canOpenSale
