@@ -27,9 +27,14 @@ type InvitationsResponse = { invitations: Invitation[] }
 const INVITE_ROLES: StaffRole[] = ["BARTENDER", "SECURITY", "MANAGER"]
 const ROLE_ORDER: StaffRole[] = ["MANAGER", "BARTENDER", "SECURITY", "ADMIN"]
 
-type Props = { eventId: string; inviteAccessHint?: string }
+type Props = {
+  eventId: string
+  inviteAccessHint?: string
+  /** En eventos de solo entradas, Equipo se reduce a la gestión de promotores. */
+  promotersOnly?: boolean
+}
 
-export function EventStaffTab({ eventId, inviteAccessHint }: Props) {
+export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
@@ -46,6 +51,10 @@ export function EventStaffTab({ eventId, inviteAccessHint }: Props) {
 
   const load = useCallback(async (showLoading = false) => {
     if (!token) return
+    if (promotersOnly) {
+      setLoading(false)
+      return
+    }
     if (showLoading) setLoading(true)
     setError(null)
     try {
@@ -64,7 +73,7 @@ export function EventStaffTab({ eventId, inviteAccessHint }: Props) {
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [canInvite, eventId, token])
+  }, [canInvite, eventId, promotersOnly, token])
 
   useEffect(() => { void load(true) }, [load])
 
@@ -106,6 +115,10 @@ export function EventStaffTab({ eventId, inviteAccessHint }: Props) {
         return next
       })
     }
+  }
+
+  if (promotersOnly) {
+    return <PromotersPanel />
   }
 
   if (loading) return <div className="h-36 animate-pulse rounded-2xl bg-white/[0.06]" />

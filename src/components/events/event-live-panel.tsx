@@ -5,6 +5,11 @@ import type { EventSummaryResponse, EventMenuProductsResponse } from "@/types/ev
 import type { ApiProduct } from "@/components/inventory/recipe-config"
 import { Button } from "@/components/ui/button"
 import { Loader2, SlidersHorizontal } from "lucide-react"
+import {
+  eventSupportsConsumptions,
+  eventTracksStock,
+} from "@/lib/event-operation-mode"
+import type { EventOperationMode } from "@/types/events"
 
 /**
  * Spec §5 "En vivo" — la app cambia de piel entera. El workspace se repliega y el evento se
@@ -96,16 +101,19 @@ type CriticalStock = { name: string; servings: number }
 type Props = {
   eventId: string
   eventName: string
+  operationMode: EventOperationMode
   onIntervene: () => void
 }
 
-export function EventLivePanel({ eventId, eventName, onIntervene }: Props) {
+export function EventLivePanel({ eventId, eventName, operationMode, onIntervene }: Props) {
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
   const [sales, setSales] = useState<SaleRow[]>([])
   const [critical, setCritical] = useState<CriticalStock[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const supportsConsumptions = eventSupportsConsumptions(operationMode)
+  const tracksStock = eventTracksStock(operationMode)
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -115,9 +123,15 @@ export function EventLivePanel({ eventId, eventName, onIntervene }: Props) {
         const [sum, salesRes, invRes, prodRes, menuRes] = await Promise.all([
           apiFetch<EventSummaryResponse>(`/events/${eventId}/summary`, { method: "GET", token }),
           apiFetch<SalesResponse>(`/events/${eventId}/sales?limit=30`, { method: "GET", token }),
-          apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token }),
-          apiFetch<ProductsApi>("/inventory/products", { method: "GET", token }),
-          apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token }),
+          tracksStock
+            ? apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token })
+            : Promise.resolve({ items: [] } as EventInventoryListResponse),
+          tracksStock
+            ? apiFetch<ProductsApi>("/inventory/products", { method: "GET", token })
+            : Promise.resolve({ products: [] } as ProductsApi),
+          tracksStock
+            ? apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token })
+            : Promise.resolve({ products: [] } as EventMenuProductsResponse),
         ])
         setSummary(sum)
         setSales(salesRes.sales)
@@ -145,7 +159,7 @@ export function EventLivePanel({ eventId, eventName, onIntervene }: Props) {
         if (!opts?.silent) setLoading(false)
       }
     },
-    [token, eventId]
+    [token, eventId, tracksStock]
   )
 
   useEffect(() => {
@@ -193,18 +207,18 @@ export function EventLivePanel({ eventId, eventName, onIntervene }: Props) {
       </div>
 
       {/* 3-4 números grandes en calma */}
-      <div className="grid gap-px overflow-hidden rounded-3xl border border-white/[0.07] bg-white/[0.02] sm:grid-cols-3">
+      <div className={`grid gap-px overflow-hidden rounded-3xl border border-white/[0.07] bg-white/[0.02] ${supportsConsumptions ? "sm:grid-cols-3" : ""}`}>
         <BigStat label="gente adentro">
           <span className="tabular-nums text-white">{int(inside)}</span>
           <span className="text-2xl font-medium text-white/25"> / {int(sold)}</span>
         </BigStat>
-        <BigStat label="barra · última hora">
+        {supportsConsumptions ? <BigStat label="barra · última hora">
           <span className="tabular-nums text-white">{int(lastHourSales.length)}</span>
           <span className="text-2xl font-medium text-white/25"> ventas</span>
-        </BigStat>
-        <BigStat label="barra · total">
+        </BigStat> : null}
+        {supportsConsumptions ? <BigStat label="barra · total">
           <span className="tabular-nums text-white">{money(summary.barSalesRevenue)}</span>
-        </BigStat>
+        </BigStat> : null}
       </div>
 
       {/* Stock crítico — solo si existe */}

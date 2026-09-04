@@ -1,6 +1,11 @@
 import type { EventStatus } from "@/lib/event-status"
 import type { EventPromoterSalesRow } from "./event-dashboard"
 
+export type EventOperationMode =
+  | "TICKETS_ONLY"
+  | "TICKETS_AND_CONSUMPTIONS"
+  | "FULL_OPERATION"
+
 /**
  * Tarea 10.1 — Cierre de caja POR PUESTO (visión §2.8). Espejo del tipo del backend
  * (`CashClosingEntry` en `schema.ts`). `expected` = efectivo (CASH) que debería haber en el
@@ -104,6 +109,8 @@ export type ApiEvent = {
   /** Nombre visible del lugar, independiente de la dirección del mapa. */
   venue: string | null
   location: string | null
+  /** Funcionalidades habilitadas para este evento. */
+  operationMode: EventOperationMode
   /** URL pública (R2 u otro CDN) */
   imageUrl?: string | null
   /** Diseño de la página pública: MINIMAL = clásico (default), GLASS = glassmorphism. */

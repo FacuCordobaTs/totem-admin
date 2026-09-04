@@ -26,8 +26,8 @@ type MenuResponse = { products: EventMenuProductRow[] }
 
 const fieldClass = "h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[14px] text-white outline-none transition-colors focus:border-white/25"
 
-export function CourtesiesPanel({ eventId, refreshTrigger, onChanged }: {
-  eventId: string; refreshTrigger: number; onChanged?: () => void
+export function CourtesiesPanel({ eventId, refreshTrigger, onChanged, supportsConsumptions = true }: {
+  eventId: string; refreshTrigger: number; onChanged?: () => void; supportsConsumptions?: boolean
 }) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
@@ -55,14 +55,16 @@ export function CourtesiesPanel({ eventId, refreshTrigger, onChanged }: {
       const [cRes, tRes, mRes] = await Promise.all([
         apiFetch<CourtesiesResponse>(`/events/${eventId}/courtesies`, { method: "GET", token }),
         apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, { method: "GET", token }),
-        apiFetch<MenuResponse>(`/events/${eventId}/products`, { method: "GET", token }),
+        supportsConsumptions
+          ? apiFetch<MenuResponse>(`/events/${eventId}/products`, { method: "GET", token })
+          : Promise.resolve({ products: [] } as MenuResponse),
       ])
       setCourtesies(cRes.courtesies); setTypes(tRes.ticketTypes)
       setMenu(mRes.products.filter((p) => p.isActiveForEvent))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudieron cargar las cortesías")
     } finally { setLoading(false) }
-  }, [token, eventId])
+  }, [token, eventId, supportsConsumptions])
 
   useEffect(() => { void load() }, [load, refreshTrigger])
 
@@ -132,7 +134,7 @@ export function CourtesiesPanel({ eventId, refreshTrigger, onChanged }: {
         <div className="border-t border-white/[0.07] p-5 text-center"><Button onClick={() => setCreateOpen(true)} className="h-10 rounded-xl bg-[#FF9500] px-5 text-white hover:bg-[#ff9500]/90"><Plus className="mr-1.5 h-4 w-4" /> Nueva cortesía</Button></div>
       </DialogContent>
     </Dialog>
-    {createOpen ? <CourtesyCreator types={types} menu={menu} guestName={guestName} guestDni={guestDni} guestEmail={guestEmail} selectedTypes={selectedTypes} drinks={drinks} giftBalance={giftBalance} saving={saving} error={formError} onName={setGuestName} onDni={setGuestDni} onEmail={setGuestEmail} onAddType={addType} onAddDrink={(id) => setDrinkQty(id, (drinks[id] ?? 0) + 1)} onBalance={setGiftBalance} onCreate={() => void create()} onClose={closeCreate} /> : null}
+    {createOpen ? <CourtesyCreator supportsConsumptions={supportsConsumptions !== false} types={types} menu={menu} guestName={guestName} guestDni={guestDni} guestEmail={guestEmail} selectedTypes={selectedTypes} drinks={drinks} giftBalance={giftBalance} saving={saving} error={formError} onName={setGuestName} onDni={setGuestDni} onEmail={setGuestEmail} onAddType={addType} onAddDrink={(id) => setDrinkQty(id, (drinks[id] ?? 0) + 1)} onBalance={setGiftBalance} onCreate={() => void create()} onClose={closeCreate} /> : null}
   </section>
 }
 
@@ -145,11 +147,11 @@ function CourtesyLine({ courtesy, typeName, drinks, onRevoke, onSend }: { courte
   </div>
 }
 
-function CourtesyCreator(props: { types: ApiTicketType[]; menu: EventMenuProductRow[]; guestName: string; guestDni: string; guestEmail: string; selectedTypes: Record<string, number>; drinks: Record<string, number>; giftBalance: string; saving: boolean; error: string | null; onName: (v: string) => void; onDni: (v: string) => void; onEmail: (v: string) => void; onAddType: (id: string) => void; onAddDrink: (id: string) => void; onBalance: (v: string) => void; onCreate: () => void; onClose: () => void }) {
+function CourtesyCreator(props: { supportsConsumptions: boolean; types: ApiTicketType[]; menu: EventMenuProductRow[]; guestName: string; guestDni: string; guestEmail: string; selectedTypes: Record<string, number>; drinks: Record<string, number>; giftBalance: string; saving: boolean; error: string | null; onName: (v: string) => void; onDni: (v: string) => void; onEmail: (v: string) => void; onAddType: (id: string) => void; onAddDrink: (id: string) => void; onBalance: (v: string) => void; onCreate: () => void; onClose: () => void }) {
   return <div className="fixed inset-x-3 bottom-4 z-[60] mx-auto max-w-2xl rounded-2xl border border-white/[0.12] bg-black p-4 shadow-2xl shadow-black/70 animate-in slide-in-from-bottom-4">
     <div className="mb-3 flex items-center justify-between"><h3 className="text-base font-semibold">Nueva cortesía</h3><button onClick={props.onClose} className="rounded p-1 text-white/40 hover:text-white"><X className="h-4 w-4" /></button></div>
     <div className="grid gap-2 sm:grid-cols-3"><input className={fieldClass} placeholder="Nombre completo" value={props.guestName} onChange={(e) => props.onName(e.target.value)} autoFocus /><input className={fieldClass} placeholder="DNI" inputMode="numeric" value={props.guestDni} onChange={(e) => props.onDni(e.target.value)} /><input className={fieldClass} placeholder="Correo" type="email" value={props.guestEmail} onChange={(e) => props.onEmail(e.target.value)} /></div>
-    <div className="mt-3 grid gap-3 sm:grid-cols-3"><ChoiceList title="Entradas" empty="No hay tipos de entrada" className="sm:col-span-1">{props.types.map((type) => <button type="button" key={type.id} onClick={() => props.onAddType(type.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"><span>{type.name}</span>{props.selectedTypes[type.id] ? <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-xs font-semibold text-[#FF9500]">×{props.selectedTypes[type.id]}</span> : <Plus className="h-3.5 w-3.5 text-white/35" />}</button>)}</ChoiceList><ChoiceList title="Tragos" empty="No hay tragos activos" className="sm:col-span-1">{props.menu.map((product) => <button type="button" key={product.id} onClick={() => props.onAddDrink(product.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"><span className="truncate">{product.name}</span>{props.drinks[product.id] ? <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-xs font-semibold text-[#FF9500]">×{props.drinks[product.id]}</span> : <Plus className="h-3.5 w-3.5 text-white/35" />}</button>)}</ChoiceList><div className="rounded-xl border border-white/[0.07] p-3"><label className="text-xs font-medium uppercase tracking-wide text-white/40">Saldo de regalo</label><input className={cn(fieldClass, "mt-2")} placeholder="$ 0" inputMode="decimal" value={props.giftBalance} onChange={(e) => props.onBalance(e.target.value)} /><p className="mt-2 text-xs leading-snug text-white/35">Se acredita al DNI del invitado.</p></div></div>
+    <div className={`mt-3 grid gap-3 ${props.supportsConsumptions ? "sm:grid-cols-3" : ""}`}><ChoiceList title="Entradas" empty="No hay tipos de entrada" className="sm:col-span-1">{props.types.map((type) => <button type="button" key={type.id} onClick={() => props.onAddType(type.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"><span>{type.name}</span>{props.selectedTypes[type.id] ? <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-xs font-semibold text-[#FF9500]">×{props.selectedTypes[type.id]}</span> : <Plus className="h-3.5 w-3.5 text-white/35" />}</button>)}</ChoiceList>{props.supportsConsumptions ? <><ChoiceList title="Tragos" empty="No hay tragos activos" className="sm:col-span-1">{props.menu.map((product) => <button type="button" key={product.id} onClick={() => props.onAddDrink(product.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"><span className="truncate">{product.name}</span>{props.drinks[product.id] ? <span className="rounded-md bg-[#FF9500]/15 px-1.5 py-0.5 text-xs font-semibold text-[#FF9500]">×{props.drinks[product.id]}</span> : <Plus className="h-3.5 w-3.5 text-white/35" />}</button>)}</ChoiceList><div className="rounded-xl border border-white/[0.07] p-3"><label className="text-xs font-medium uppercase tracking-wide text-white/40">Saldo de regalo</label><input className={cn(fieldClass, "mt-2")} placeholder="$ 0" inputMode="decimal" value={props.giftBalance} onChange={(e) => props.onBalance(e.target.value)} /><p className="mt-2 text-xs leading-snug text-white/35">Se acredita al DNI del invitado.</p></div></> : null}</div>
     {props.error ? <p className="mt-2 text-xs text-red-400">{props.error}</p> : null}
     <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" onClick={props.onClose} className="text-white/60">Cancelar</Button><Button onClick={props.onCreate} disabled={props.saving} className="bg-[#FF9500] text-white hover:bg-[#ff9500]/90">{props.saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Crear cortesía"}</Button></div>
   </div>

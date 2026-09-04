@@ -28,9 +28,10 @@ import {
 } from "@/components/onboarding/productora-setup-card"
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { eventStatusLabel } from "@/lib/event-status"
+import { EVENT_OPERATION_MODE_OPTIONS } from "@/lib/event-operation-mode"
 import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { Check, ChevronRight, Loader2, MapPin, Plus, Trash2 } from "lucide-react"
-import type { ApiEvent } from "@/types/events"
+import { Boxes, Check, ChevronRight, Loader2, MapPin, Plus, Ticket, Trash2, Wine } from "lucide-react"
+import type { ApiEvent, EventOperationMode } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
 type Readiness = { canOpenSale: boolean; missing: string[] }
@@ -178,6 +179,7 @@ export function EventsListPage() {
           <EventLivePanel
             eventId={liveEvent.id}
             eventName={liveEvent.name}
+            operationMode={liveEvent.operationMode}
             onIntervene={() => navigate(`/eventos/${liveEvent.id}`)}
           />
         </main>
@@ -501,6 +503,7 @@ function useCreateEvent(
   const [time, setTime] = useState("") // HH:mm (opcional)
   const [venue, setVenue] = useState("")
   const [location, setLocation] = useState("")
+  const [operationMode, setOperationMode] = useState<EventOperationMode | null>(null)
   const [fromSource, setFromSource] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -511,6 +514,14 @@ function useCreateEvent(
     e.preventDefault()
     if (!token) return
     setError(null)
+    if (!operationMode) {
+      setError("Elegí cómo vas a operar este evento")
+      return
+    }
+    if (!name.trim() && !(canDuplicate && fromSource)) {
+      setError("Escribí el nombre del evento")
+      return
+    }
     if (!date) {
       setError("Elegí una fecha")
       return
@@ -533,6 +544,7 @@ function useCreateEvent(
           date: iso.toISOString(),
           venue: venue.trim() || undefined,
           location: location.trim() || undefined,
+          operationMode,
         }),
       })
       navigate(`/eventos/${res.event.id}`)
@@ -553,6 +565,8 @@ function useCreateEvent(
     setVenue,
     location,
     setLocation,
+    operationMode,
+    setOperationMode,
     fromSource,
     setFromSource,
     canDuplicate,
@@ -677,6 +691,10 @@ function CreateFields({
     : "h-11 rounded-xl border-zinc-800/50 bg-black"
   return (
     <>
+      <EventOperationModePicker
+        value={form.operationMode}
+        onChange={form.setOperationMode}
+      />
       {form.error ? (
         <p className="text-sm text-red-400" role="alert">
           {form.error}
@@ -716,7 +734,7 @@ function CreateFields({
               Partir de: {form.source.name}
             </span>
             <span className="block text-[12px] text-white/40">
-              Copia entradas, menú, precios y equipo. Solo cambiás la fecha.
+              Copia toda la configuración compatible con la modalidad elegida.
             </span>
           </span>
         </button>
@@ -805,6 +823,59 @@ function CreateFields({
   )
 }
 
+function EventOperationModePicker({
+  value,
+  onChange,
+}: {
+  value: EventOperationMode | null
+  onChange: (value: EventOperationMode) => void
+}) {
+  const icons = {
+    TICKETS_ONLY: Ticket,
+    TICKETS_AND_CONSUMPTIONS: Wine,
+    FULL_OPERATION: Boxes,
+  } satisfies Record<EventOperationMode, typeof Ticket>
+
+  return (
+    <div className="space-y-2.5">
+      <div>
+        <p className="text-[13px] font-medium text-white/70">¿Qué vas a gestionar?</p>
+        <p className="mt-0.5 text-[12px] text-white/35">
+          Vas a ver solamente las herramientas que necesites.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {EVENT_OPERATION_MODE_OPTIONS.map((option) => {
+          const Icon = icons[option.value]
+          const selected = value === option.value
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              aria-pressed={selected}
+              className={
+                "rounded-xl border px-3.5 py-3 text-left transition-colors " +
+                (selected
+                  ? "border-[#FF9500]/60 bg-[#FF9500]/[0.10]"
+                  : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.16] hover:bg-white/[0.06]")
+              }
+            >
+              <Icon className={"mb-2 h-4 w-4 " + (selected ? "text-[#FF9500]" : "text-white/40")} />
+              <span className="block text-[13px] font-semibold text-white/90">
+                {option.label}
+              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-white/40">
+                {option.description}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function CreateHero({
   navigate,
   token,
@@ -815,15 +886,15 @@ function CreateHero({
   const form = useCreateEvent(token, navigate)
   return (
     <div className="flex min-h-[55vh] flex-col items-center justify-center">
-      <div className="mb-8 w-full max-w-sm text-center">
+      <div className="mb-8 w-full max-w-3xl text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
           Tu primer evento
         </h1>
         <p className="mt-3 text-[15px] text-white/40">
-          Ponele nombre y fecha. El resto lo configurás después.
+          Elegí cómo vas a operarlo. Crow adapta la configuración a esa modalidad.
         </p>
       </div>
-      <form onSubmit={form.submit} className="flex w-full max-w-sm flex-col gap-4">
+      <form onSubmit={form.submit} className="flex w-full max-w-3xl flex-col gap-4">
         <CreateFields form={form} idPrefix="hero" />
         <Button
           type="submit"
@@ -853,11 +924,11 @@ function CreateDialog({
   const form = useCreateEvent(token, navigate, source)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl border-zinc-800/50 bg-black">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-2xl border-zinc-800/50 bg-black">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold tracking-tight">Nuevo evento</DialogTitle>
           <DialogDescription className="text-sm text-white/50">
-            Nombre y fecha de inicio.
+            Elegí una modalidad y cargá los datos básicos.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.submit} className="flex flex-col gap-4">

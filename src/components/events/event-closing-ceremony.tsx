@@ -97,6 +97,8 @@ type Preview = {
 type Props = {
   eventId: string
   eventName: string
+  supportsConsumptions?: boolean
+  trackStock?: boolean
   onClosed: () => void
   onCancel: () => void
 }
@@ -104,6 +106,8 @@ type Props = {
 export function EventClosingCeremony({
   eventId,
   eventName,
+  supportsConsumptions = true,
+  trackStock = true,
   onClosed,
   onCancel,
 }: Props) {
@@ -149,11 +153,11 @@ export function EventClosingCeremony({
   // Los pasos son dinámicos: la caja solo aparece si hay puestos con efectivo esperado
   // (tarea 10.1 — cada puesto con caja física tiene su conteo).
   const steps = useMemo<("conteo" | "caja" | "resultado")[]>(() => {
-    const s: ("conteo" | "caja" | "resultado")[] = ["conteo"]
+    const s: ("conteo" | "caja" | "resultado")[] = trackStock ? ["conteo"] : []
     if ((prep?.cashes.length ?? 0) > 0) s.push("caja")
     s.push("resultado")
     return s
-  }, [prep?.cashes.length])
+  }, [prep?.cashes.length, trackStock])
 
   const step = steps[Math.min(stepIdx, steps.length - 1)]
 
@@ -329,6 +333,8 @@ export function EventClosingCeremony({
           cashes={prep.cashes}
           cashCounts={cashCounts}
           pending={prep.pendingDelivery}
+          supportsConsumptions={supportsConsumptions}
+          trackStock={trackStock}
         />
       )}
 
@@ -516,12 +522,16 @@ function StepResultado({
   cashes,
   cashCounts,
   pending,
+  supportsConsumptions,
+  trackStock,
 }: {
   preview: Preview
   cashes: CashBarPrep[]
   cashCounts: Record<string, string>
   /** Tarea 10.2 — Pendiente de entrega: tragos vendidos y no retirados. */
   pending?: { quantity: number; amount: string }
+  supportsConsumptions: boolean
+  trackStock: boolean
 }) {
   // Tarea 10.1 — Diferencia contado − esperado POR PUESTO ("si falta, se ve dónde").
   const cashRows = cashes.map((bar) => {
@@ -573,20 +583,20 @@ function StepResultado({
       </div>
 
       <dl className="mt-8 space-y-2.5 text-[15px]">
-        <Row label="Entradas + barra (ingresos)" value={money(preview.gross)} />
+        <Row label={supportsConsumptions ? "Entradas + barra (ingresos)" : "Entradas (ingresos)"} value={money(preview.gross)} />
         <Row label="Gastos operativos" value={`− ${money(preview.operational)}`} muted />
-        <Row
+        {trackStock ? <Row
           label="Mercadería consumida"
           value={`− ${money(preview.consumed)}`}
           muted
-        />
+        /> : null}
         <div className="border-t border-white/[0.08] pt-2.5">
           <Row label="Resultado neto" value={money(preview.netReal)} strong />
         </div>
       </dl>
 
       {/* Sobrante valuado + merma */}
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+      {trackStock ? <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
           <p className="text-[12px] uppercase tracking-[0.1em] text-white/30">
             sobrante en stock
@@ -603,11 +613,11 @@ function StepResultado({
           </p>
           <p className="text-[12px] text-white/35">diferencia estimado − contado</p>
         </div>
-      </div>
+      </div> : null}
 
       {/* Tarea 10.2 — Pendiente de entrega: "Vendiste $X en tragos que nadie retiró (N)". Es
           plata cobrada que todavía se debe; se congela en el reporte al confirmar. */}
-      {pending != null && pending.quantity > 0 && (
+      {supportsConsumptions && pending != null && pending.quantity > 0 && (
         <div className="mt-3 rounded-xl border border-amber-200/25 bg-amber-200/[0.05] px-4 py-3">
           <p className="text-[12px] uppercase tracking-[0.1em] text-amber-200/60">
             pendiente de entrega

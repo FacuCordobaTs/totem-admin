@@ -7,6 +7,7 @@ import type { EventSummaryResponse } from "@/types/event-dashboard"
 type Props = {
   eventId: string
   refreshTrigger?: number
+  supportsConsumptions?: boolean
 }
 
 function formatMoney(value: string): string {
@@ -16,7 +17,7 @@ function formatMoney(value: string): string {
     : "—"
 }
 
-export function EventIncomeSummary({ eventId, refreshTrigger = 0 }: Props) {
+export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsumptions = true }: Props) {
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
 
@@ -38,13 +39,15 @@ export function EventIncomeSummary({ eventId, refreshTrigger = 0 }: Props) {
   const items = [
     { label: "Ingresos totales", value: summary?.grossRevenue ?? "0", Icon: ReceiptText },
     { label: "Entradas", value: summary?.ticketRevenue ?? "0", Icon: Ticket },
-    { label: "Consumos", value: summary?.barSalesRevenue ?? "0", Icon: Wine },
+    ...(supportsConsumptions
+      ? [{ label: "Consumos", value: summary?.barSalesRevenue ?? "0", Icon: Wine }]
+      : []),
   ]
 
   return (
     <section aria-labelledby="income-summary-title">
       <h2 id="income-summary-title" className="mb-4 text-lg font-semibold text-white">Resumen de ingresos</h2>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${supportsConsumptions ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         {items.map(({ label, value, Icon }) => (
           <div key={label} className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5">
             <div className="flex items-center gap-2 text-[13px] text-white/45"><Icon className="h-4 w-4" />{label}</div>

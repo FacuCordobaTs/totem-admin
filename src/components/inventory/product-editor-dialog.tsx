@@ -80,6 +80,8 @@ export type ProductEditorDialogProps = {
   priceOverride?: string | null
   /** If set, shows event-specific fields and actions */
   eventId?: string
+  /** False para eventos que venden consumos sin recetas ni control de inventario. */
+  trackStock?: boolean
   materials: ApiInventoryItem[]
   token: string | null
   onSaved: () => void
@@ -97,6 +99,7 @@ export function ProductEditorDialog({
   product,
   priceOverride,
   eventId,
+  trackStock = true,
   materials,
   token,
   onSaved,
@@ -352,6 +355,7 @@ export function ProductEditorDialog({
 
   if (isCreate) {
     const step1Valid = name.trim().length > 0 && basePrice.trim().length > 0
+    const wizardSteps = trackStock ? WIZARD_STEPS : ["Información"]
 
     const wizardBody = (
       <>
@@ -360,7 +364,7 @@ export function ProductEditorDialog({
             <div className="flex flex-col gap-3">
               {/* Step indicator */}
               <div className="flex items-center gap-0">
-                {WIZARD_STEPS.map((label, i) => {
+                {wizardSteps.map((label, i) => {
                   const stepNum = (i + 1) as 1 | 2 | 3
                   const isActive = wizardStep === stepNum
                   const isDone = wizardStep > stepNum
@@ -388,7 +392,7 @@ export function ProductEditorDialog({
                           {label}
                         </span>
                       </div>
-                      {i < WIZARD_STEPS.length - 1 && (
+                      {i < wizardSteps.length - 1 && (
                         <div
                           className={cn(
                             "mb-5 mx-2 h-px w-10 transition-colors",
@@ -423,7 +427,7 @@ export function ProductEditorDialog({
                       placeholder="Ej. Fernet con Coca"
                       autoFocus
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && step1Valid) setWizardStep(2)
+                        if (e.key === "Enter" && step1Valid && trackStock) setWizardStep(2)
                       }}
                     />
                   </div>
@@ -439,7 +443,7 @@ export function ProductEditorDialog({
                         inputMode="decimal"
                         placeholder="0"
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && step1Valid) setWizardStep(2)
+                          if (e.key === "Enter" && step1Valid && trackStock) setWizardStep(2)
                         }}
                       />
                     </div>
@@ -463,7 +467,7 @@ export function ProductEditorDialog({
                           inputMode="decimal"
                           placeholder="Usa precio base"
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && step1Valid) setWizardStep(2)
+                            if (e.key === "Enter" && step1Valid && trackStock) setWizardStep(2)
                           }}
                         />
                       </div>
@@ -476,7 +480,7 @@ export function ProductEditorDialog({
               )}
 
               {/* ── PASO 2: TIPO DE VENTA ── */}
-              {wizardStep === 2 && (
+              {trackStock && wizardStep === 2 && (
                 <>
                   <div className="space-y-1.5">
                     <p className="text-[22px] font-bold text-white">¿Cómo se vende?</p>
@@ -514,7 +518,7 @@ export function ProductEditorDialog({
               )}
 
               {/* ── PASO 3: INSUMOS / RECETA ── */}
-              {wizardStep === 3 && (
+              {trackStock && wizardStep === 3 && (
                 <>
                   <div className="space-y-1.5">
                     <p className="text-[22px] font-bold text-white">Receta de insumos</p>
@@ -698,7 +702,16 @@ export function ProductEditorDialog({
               )}
 
               {/* Right: next or create */}
-              {wizardStep < 3 ? (
+              {!trackStock ? (
+                <Button
+                  type="button"
+                  disabled={saving || !step1Valid}
+                  onClick={() => void handleSave()}
+                  className="h-11 rounded-xl bg-[#FF9500] px-6 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
+                >
+                  {saving ? "Creando…" : "Crear producto"}
+                </Button>
+              ) : wizardStep < 3 ? (
                 <Button
                   type="button"
                   disabled={wizardStep === 1 && !step1Valid}
@@ -761,7 +774,7 @@ export function ProductEditorDialog({
         <div className="flex gap-1 border-b border-white/[0.06] px-6 pt-3">
           {[
             ["info", "Información"],
-            ["recipe", "Receta"],
+            ...(trackStock ? [["recipe", "Receta"]] : []),
             ["image", "Imagen"],
           ].map(([id, label]) => (
             <button
@@ -841,7 +854,7 @@ export function ProductEditorDialog({
             ) : null}
 
             {/* Tipo de venta */}
-            <div className="space-y-3">
+            {trackStock ? <div className="space-y-3">
               <label className="text-[13px] text-white/45">Tipo de venta</label>
               <div className="space-y-2">
                 {SALE_TYPE_OPTIONS.map((opt) => (
@@ -868,11 +881,11 @@ export function ProductEditorDialog({
                   </button>
                 ))}
               </div>
-            </div>
+            </div> : null}
             </> : null}
 
             {/* Receta */}
-            {editTab === "recipe" ? <div className="space-y-4">
+            {trackStock && editTab === "recipe" ? <div className="space-y-4">
               <div>
                 <p className="text-[15px] font-semibold text-white">Receta</p>
                 <p className="mt-0.5 text-[13px] text-white/40">

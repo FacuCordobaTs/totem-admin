@@ -25,6 +25,11 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { cn } from "@/lib/utils"
 import {
+  eventOperationModeLabel,
+  eventSupportsConsumptions,
+  eventTracksStock,
+} from "@/lib/event-operation-mode"
+import {
   ExternalLink,
   ChevronLeft,
   Loader2,
@@ -267,6 +272,12 @@ export function EventDashboardPage() {
   }
 
   const summaryStatus = summaryStatusOf(status)
+  const operationMode = event.operationMode ?? "FULL_OPERATION"
+  const supportsConsumptions = eventSupportsConsumptions(operationMode)
+  const tracksStock = eventTracksStock(operationMode)
+  const visibleSections = EVENT_SECTIONS.filter(
+    (section) => supportsConsumptions || section.id !== "barra"
+  )
   const subtitle = [formatEventDate(event.date), event.venue ?? event.location]
     .filter(Boolean)
     .join(" · ")
@@ -294,6 +305,7 @@ export function EventDashboardPage() {
             <EventSummaryDashboard
               eventId={id}
               status={summaryStatus}
+              operationMode={operationMode}
               refreshTrigger={refreshTick}
               hasUrl={Boolean(event.slug)}
               onNavigate={navigateToSection}
@@ -334,6 +346,7 @@ export function EventDashboardPage() {
                 <CourtesiesPanel
                   eventId={id}
                   refreshTrigger={refreshTick}
+                  supportsConsumptions={supportsConsumptions}
                   onChanged={bump}
                 />
                 <AttendeeTable
@@ -361,7 +374,11 @@ export function EventDashboardPage() {
               </Button>
             }
           >
-            <EventBarSection eventId={id} onLogisticsChange={bump} />
+            <EventBarSection
+              eventId={id}
+              trackStock={tracksStock}
+              onLogisticsChange={bump}
+            />
           </SectionShell>
         )
       case "equipo":
@@ -369,6 +386,7 @@ export function EventDashboardPage() {
           <SectionShell title="Equipo">
             <EventStaffTab
               eventId={id}
+              promotersOnly={!supportsConsumptions}
               inviteAccessHint="El enlace inicia sesión directamente y sirve para volver a entrar, sin nombre ni PIN."
             />
           </SectionShell>
@@ -417,14 +435,14 @@ export function EventDashboardPage() {
         return (
           <SectionShell title="Finanzas">
             {financeView === "sales" ? (
-              <EventSalesList eventId={id} onBack={() => setFinanceView("summary")} />
+              <EventSalesList eventId={id} supportsConsumptions={supportsConsumptions} onBack={() => setFinanceView("summary")} />
             ) : (
               <div className="space-y-10">
-                <EventIncomeSummary eventId={id} refreshTrigger={refreshTick} />
+                <EventIncomeSummary eventId={id} refreshTrigger={refreshTick} supportsConsumptions={supportsConsumptions} />
                 <div className="flex items-center justify-between border-y border-white/[0.06] py-5">
                   <div>
                     <h2 className="text-lg font-semibold text-white">Últimas ventas</h2>
-                    <p className="mt-1 text-sm text-white/45">Consultá el detalle y filtrá entradas o consumos.</p>
+                    <p className="mt-1 text-sm text-white/45">{supportsConsumptions ? "Consultá el detalle y filtrá entradas o consumos." : "Consultá el detalle de las entradas vendidas."}</p>
                   </div>
                   <Button variant="outline" onClick={() => setFinanceView("sales")} className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]">
                     Ver ventas
@@ -451,6 +469,9 @@ export function EventDashboardPage() {
               </h1>
               <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[12px] font-semibold text-white/60">
                 {eventStatusLabel(status)}
+              </span>
+              <span className="rounded-full border border-[#FF9500]/20 bg-[#FF9500]/[0.06] px-3 py-1 text-[12px] font-semibold text-[#FFB340]">
+                {eventOperationModeLabel(operationMode)}
               </span>
             </div>
             {subtitle && (
@@ -497,6 +518,8 @@ export function EventDashboardPage() {
           <EventClosingCeremony
             eventId={id}
             eventName={event.name}
+            supportsConsumptions={supportsConsumptions}
+            trackStock={tracksStock}
             onClosed={() => {
               setClosing(false)
               void loadEvent()
@@ -523,6 +546,7 @@ export function EventDashboardPage() {
           <EventLivePanel
             eventId={id}
             eventName={event.name}
+            operationMode={operationMode}
             onIntervene={() => setIntervening(true)}
           />
         ) : (
@@ -530,7 +554,7 @@ export function EventDashboardPage() {
           {/* Nav lateral fija (spec §3.2 / §4): siempre visible, no colapsable */}
           <nav className="lg:sticky lg:top-20 lg:h-fit lg:w-44 lg:shrink-0">
             <div className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
-              {EVENT_SECTIONS.map(({ id: sectionId, label, Icon }) => {
+              {visibleSections.map(({ id: sectionId, label, Icon }) => {
                 const isActive = activeSection === sectionId
                 return (
                   <button

@@ -3,6 +3,7 @@ import { Check, Copy, Loader2 } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiEvent } from "@/types/events"
+import { eventSupportsConsumptions } from "@/lib/event-operation-mode"
 
 /** Converts an ISO instant from the API to `datetime-local` value in the browser timezone. */
 function toDatetimeLocalValue(iso: string | null | undefined): string {
@@ -139,6 +140,9 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const [savedAt, setSavedAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const supportsConsumptions = eventSupportsConsumptions(
+    event.operationMode ?? "FULL_OPERATION"
+  )
 
   /** Firma de lo último persistido, para saltear PATCH sin cambios reales. */
   const lastSavedRef = useRef<string>("")
@@ -198,7 +202,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setError("La fecha de entradas no es válida.")
         return
       }
-      if (consumptions.trim() !== "" && consumptionsPayload === null) {
+      if (supportsConsumptions && consumptions.trim() !== "" && consumptionsPayload === null) {
         setError("La fecha de consumos no es válida.")
         return
       }
@@ -211,7 +215,9 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
           token,
           body: JSON.stringify({
             ticketsAvailableFrom: ticketsPayload,
-            consumptionsAvailableFrom: consumptionsPayload,
+            ...(supportsConsumptions
+              ? { consumptionsAvailableFrom: consumptionsPayload }
+              : {}),
             slug: trimmed === "" ? null : trimmed,
             designType: design,
           }),
@@ -229,7 +235,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setSaving(false)
       }
     },
-    [token, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated]
+    [token, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
   )
 
   return (
@@ -317,7 +323,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
 
       {!onlySlug ? (
         <>
-          <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          <div className={`mt-6 grid gap-6 ${supportsConsumptions ? "sm:grid-cols-2" : ""}`}>
             <DateTimeField
               id={`sales-tickets-${event.id}`}
               label="Inicio de venta de entradas"
@@ -326,14 +332,14 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
               onChange={setTicketsLocal}
               onCommit={() => void persist()}
             />
-            <DateTimeField
+            {supportsConsumptions ? <DateTimeField
               id={`sales-consumptions-${event.id}`}
               label="Inicio de venta de consumiciones"
               hint="Cuándo se abre la compra anticipada de barra."
               value={consumptionsLocal}
               onChange={setConsumptionsLocal}
               onCommit={() => void persist()}
-            />
+            /> : null}
           </div>
 
           <div className="mt-6 space-y-2">

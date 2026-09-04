@@ -107,10 +107,11 @@ function countableStock(insumo: EventInvRow): string {
 
 type Props = {
   eventId: string
+  trackStock?: boolean
   onLogisticsChange?: () => void
 }
 
-export function EventBarSection({ eventId, onLogisticsChange }: Props) {
+export function EventBarSection({ eventId, trackStock = true, onLogisticsChange }: Props) {
   const token = useAuthStore((s) => s.token)
 
   const [menuRows, setMenuRows] = useState<EventMenuProductRow[]>([])
@@ -134,8 +135,12 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
         const [menuRes, productsRes, materialsRes, invRes] = await Promise.all([
           apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token }),
           apiFetch<ProductsApi>("/inventory/products", { method: "GET", token }),
-          apiFetch<MaterialsApi>("/inventory/items", { method: "GET", token }),
-          apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token }),
+          trackStock
+            ? apiFetch<MaterialsApi>("/inventory/items", { method: "GET", token })
+            : Promise.resolve({ items: [] } as MaterialsApi),
+          trackStock
+            ? apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token })
+            : Promise.resolve({ items: [] } as EventInventoryListResponse),
         ])
         setMenuRows(menuRes.products)
         setCatalogProducts(productsRes.products)
@@ -147,7 +152,7 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
         if (!opts?.silent) setLoading(false)
       }
     },
-    [token, eventId]
+    [token, eventId, trackStock]
   )
 
   useEffect(() => {
@@ -226,8 +231,9 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
     const nextNorm = nextValue === null ? null : String(Number.parseFloat(nextValue))
     if (currentNorm === nextNorm) {
       setPriceDraft((d) => {
-        const { [row.id]: _, ...rest } = d
-        return rest
+        const next = { ...d }
+        delete next[row.id]
+        return next
       })
       return
     }
@@ -241,8 +247,9 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
         rows.map((r) => (r.id === row.id ? { ...r, priceOverride: nextValue } : r))
       )
       setPriceDraft((d) => {
-        const { [row.id]: _, ...rest } = d
-        return rest
+        const next = { ...d }
+        delete next[row.id]
+        return next
       })
       onLogisticsChange?.()
     } catch (e) {
@@ -266,7 +273,7 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
   return (
     <div className="space-y-12">
       {/* ── Bloque A: Barras ──────────────────────────────────────── */}
-      <EventBarsTab eventId={eventId} embedded />
+      <EventBarsTab eventId={eventId} embedded trackStock={trackStock} />
 
       {/* ── Bloque A: Menú del evento ─────────────────────────────── */}
       <section className="space-y-4">
@@ -294,6 +301,7 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
             onOpenChange={() => {}}
             product={null}
             eventId={eventId}
+            trackStock={trackStock}
             materials={materials}
             token={token}
             onSaved={() => void loadAll({ silent: true })}
@@ -303,7 +311,7 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
             {activeMenuRows.map((row) => {
               const full = catalogById.get(row.id) ?? null
               const availability =
-                full && full.recipes.length > 0
+                trackStock && full && full.recipes.length > 0
                   ? calcProductAvailability(full, eventStockMap)
                   : null
               return (
@@ -344,17 +352,26 @@ export function EventBarSection({ eventId, onLogisticsChange }: Props) {
       </section>
 
       {/* ── Bloque C: Stock ───────────────────────────────────────── */}
-      <StockBlock
-        eventId={eventId}
-        insumos={insumos}
-        activeGlassProducts={activeGlassProducts}
-        catalogProducts={catalogProducts}
-        materials={materials}
-        onChanged={() => {
-          onLogisticsChange?.()
-          void loadAll({ silent: true })
-        }}
-      />
+      {trackStock ? (
+        <StockBlock
+          eventId={eventId}
+          insumos={insumos}
+          activeGlassProducts={activeGlassProducts}
+          catalogProducts={catalogProducts}
+          materials={materials}
+          onChanged={() => {
+            onLogisticsChange?.()
+            void loadAll({ silent: true })
+          }}
+        />
+      ) : (
+        <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
+          <p className="text-[14px] font-medium text-white/70">Inventario desactivado</p>
+          <p className="mt-1 text-[13px] text-white/35">
+            Los consumos se venden y canjean sin pedir recetas ni descontar stock.
+          </p>
+        </section>
+      )}
 
     </div>
   )

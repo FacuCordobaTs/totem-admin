@@ -41,6 +41,7 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { usePosSessionStore } from "@/stores/pos-session-store"
 import type { ApiEvent } from "@/types/events"
+import { eventSupportsConsumptions } from "@/lib/event-operation-mode"
 import type { EventBarsResponse, EventSalesPageResponse } from "@/types/event-dashboard"
 import type { ApiPromoter } from "@/components/events/promoters-panel"
 import { toast } from "sonner"
@@ -260,6 +261,7 @@ export function PosPage() {
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
+  const [tracksStock, setTracksStock] = useState(true)
   const [productSearch, setProductSearch] = useState("")
   const [eventStockOpen, setEventStockOpen] = useState(false)
 
@@ -409,7 +411,9 @@ export function PosPage() {
           token,
         })
         if (cancelled) return
-        const evs = evRes.events.filter((e) => e.status !== "closed")
+        const evs = evRes.events.filter(
+          (e) => e.status !== "closed" && eventSupportsConsumptions(e.operationMode)
+        )
         setEvents(evs)
         setEventId((prev) => {
           if (prev && evs.some((e) => e.id === prev)) return prev
@@ -512,11 +516,12 @@ export function PosPage() {
     setCatalogLoading(true)
     void (async () => {
       try {
-        const res = await apiFetch<{ products: BarCatalogRowApi[] }>(
+        const res = await apiFetch<{ products: BarCatalogRowApi[]; tracksStock?: boolean }>(
           `/bars/${activeBarId}/products?eventId=${encodeURIComponent(activeEventId)}`,
           { method: "GET", token }
         )
         if (cancelled) return
+        setTracksStock(res.tracksStock !== false)
         const rows = res.products.map((p) => ({
             id: p.id,
             name: p.name,
@@ -623,7 +628,7 @@ export function PosPage() {
     (!shiftBound || hasBoundShift)
 
   const { eventStock, connectionStatus, refreshSnapshot } =
-    useEventStock(activeEventId || null, activeBarId || null, token, posReady)
+    useEventStock(activeEventId || null, activeBarId || null, token, posReady && tracksStock)
 
   const [productBaselines, setProductBaselines] = useState<
     Record<string, number>
@@ -1004,7 +1009,7 @@ export function PosPage() {
         token={token}
         onClose={() => setSelectedSaleId(null)}
       />
-      <Dialog open={eventStockOpen} onOpenChange={setEventStockOpen}>
+      <Dialog open={tracksStock && eventStockOpen} onOpenChange={setEventStockOpen}>
         <DialogContent className="max-h-[80svh] max-w-lg overflow-hidden rounded-2xl p-0">
           <DialogHeader className="border-b border-zinc-100 px-6 py-5 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-4 pr-6">
@@ -1014,7 +1019,7 @@ export function PosPage() {
                   Disponible para toda la caja, sin separar por barras.
                 </DialogDescription>
               </div>
-              <Button
+              {tracksStock ? <Button
                 type="button"
                 variant="outline"
                 size="icon"
@@ -1023,7 +1028,7 @@ export function PosPage() {
                 aria-label="Actualizar stock del evento"
               >
                 <RefreshCw className="h-4 w-4" />
-              </Button>
+              </Button> : null}
             </div>
           </DialogHeader>
           <div className="max-h-[58svh] overflow-y-auto p-4">

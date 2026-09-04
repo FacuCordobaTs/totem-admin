@@ -54,6 +54,7 @@ type Props = {
   eventId: string
   /** Oculta el encabezado de página cuando el tab está embebido en otra vista */
   embedded?: boolean
+  trackStock?: boolean
   /**
    * Modo "puestos" (spec §4.3.c): por defecto una sola barra implícita vende todo, así que
    * mientras no haya puestos no se muestra grilla — solo la acción avanzada "Dividir en
@@ -62,7 +63,7 @@ type Props = {
   puestosMode?: boolean
 }
 
-export function EventBarsTab({ eventId, embedded = false, puestosMode = false }: Props) {
+export function EventBarsTab({ eventId, embedded = false, trackStock = true, puestosMode = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const [bars, setBars] = useState<EventBarRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -178,7 +179,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
           </p>
         </div>
         <div className="space-y-3 border-t border-white/[0.06] pt-3">
-          <div className="flex gap-2.5">
+          {trackStock ? <div className="flex gap-2.5">
             <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
             <div className="min-w-0 flex-1">
               {(bar.staffList?.length ?? 0) > 0 ? (
@@ -196,7 +197,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
                 </p>
               )}
             </div>
-          </div>
+          </div> : null}
           <div className="flex gap-2.5">
             <Package className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#8E8E93] dark:text-[#98989D]" />
             <div className="min-w-0 flex-1">
@@ -321,7 +322,9 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
             Configurar Barras
           </button>
           <p className="mt-1 text-[12px] text-white/25">
-            Organizá los puntos de venta del evento, su menú, stock y equipo.
+            {trackStock
+              ? "Organizá los puntos de venta del evento, su menú, stock y equipo."
+              : "Organizá los puntos de venta del evento, su menú y equipo."}
           </p>
           {createDialog}
         </section>
@@ -333,7 +336,9 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
           <div>
             <h3 className="text-[18px] font-semibold text-white">Configurar Barras</h3>
             <p className="mt-0.5 text-[13px] text-white/35">
-              Cada barra vende, cobra y descuenta stock por separado.
+              {trackStock
+                ? "Cada barra vende, cobra y descuenta stock por separado."
+                : "Cada barra vende y cobra por separado, sin controlar inventario."}
             </p>
           </div>
           <Button
@@ -356,6 +361,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
             if (!open) setConfigBar(null)
           }}
           eventId={eventId}
+          trackStock={trackStock}
           bar={configBar}
           onBarUpdated={() => void load({ silent: true })}
         />
@@ -387,8 +393,9 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
               Barras del evento
             </h2>
             <p className="mt-2 max-w-2xl text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-              Barras físicas del evento: personal asignado, productos activos, stock en barra
-              y ventas POS atribuidas a cada punto de venta.
+              {trackStock
+                ? "Barras físicas del evento: personal asignado, productos activos, stock en barra y ventas POS atribuidas a cada punto de venta."
+                : "Barras físicas del evento: personal, productos y ventas POS atribuidas a cada punto de venta."}
             </p>
           </div>
           <Button
@@ -411,8 +418,9 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
               <Wine className="h-7 w-7 text-[#8E8E93]" />
             </span>
             <p className="max-w-md text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-              Configurá las barras del evento para asignar productos, stock y personal a cada
-              punto de venta.
+              {trackStock
+                ? "Configurá las barras del evento para asignar productos, stock y personal a cada punto de venta."
+                : "Configurá las barras del evento para asignar productos y personal a cada punto de venta."}
             </p>
             <Button
               type="button"
@@ -438,6 +446,7 @@ export function EventBarsTab({ eventId, embedded = false, puestosMode = false }:
           if (!open) setConfigBar(null)
         }}
         eventId={eventId}
+        trackStock={trackStock}
         bar={configBar}
         onBarUpdated={() => void load({ silent: true })}
       />

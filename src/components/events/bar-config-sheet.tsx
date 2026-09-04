@@ -77,6 +77,7 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   eventId: string
+  trackStock?: boolean
   bar: EventBarRow | null
   onBarUpdated?: () => void
 }
@@ -85,6 +86,7 @@ export function BarConfigSheet({
   open,
   onOpenChange,
   eventId,
+  trackStock = true,
   bar,
   onBarUpdated,
 }: Props) {
@@ -172,10 +174,12 @@ export function BarConfigSheet({
           `/bars/${barId}/products?${q.toString()}`,
           { method: "GET", token }
         ),
-        apiFetch<BarInventoryApiResponse>(`/bars/${barId}/inventory`, {
-          method: "GET",
-          token,
-        }),
+        trackStock
+          ? apiFetch<BarInventoryApiResponse>(`/bars/${barId}/inventory`, {
+              method: "GET",
+              token,
+            })
+          : Promise.resolve({ items: [] } as BarInventoryApiResponse),
         apiFetch<EventStaffListResponse>(`/events/${eventId}/staff`, {
           method: "GET",
           token,
@@ -203,7 +207,7 @@ export function BarConfigSheet({
     } finally {
       setLoading(false)
     }
-  }, [token, barId, eventId])
+  }, [token, barId, eventId, trackStock])
 
   useEffect(() => {
     if (open && barId) {
@@ -406,7 +410,9 @@ export function BarConfigSheet({
                 <span className="font-semibold text-white">
                   {bar.name}
                 </span>{" "}
-                · Menú del evento y stock físico asignado a este punto de venta.
+                {trackStock
+                  ? "· Menú del evento y stock físico asignado a este punto de venta."
+                  : "· Menú y personal de este punto de venta."}
               </DialogDescription>
             </div>
           </div>
@@ -696,7 +702,7 @@ export function BarConfigSheet({
                                 {formatMoneyArs(p.price)}
                               </p>
                             </div>
-                            {catalogProduct?.recipes.length ? (
+                            {trackStock && catalogProduct?.recipes.length ? (
                               <div className="relative shrink-0">
                                 <Button type="button" onClick={() => openProductStock(catalogProduct)} className="h-8 rounded-lg border border-white/[0.12] bg-white/[0.04] px-2.5 text-[12px] text-white/70 hover:bg-white/[0.08]">
                                   Asignar stock

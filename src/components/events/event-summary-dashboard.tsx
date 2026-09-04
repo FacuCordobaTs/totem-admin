@@ -10,6 +10,11 @@ import type {
 import type { ApiTicketType } from "@/components/events/ticket-types"
 import { Lock, Loader2, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  eventSupportsConsumptions,
+  eventTracksStock,
+} from "@/lib/event-operation-mode"
+import type { EventOperationMode } from "@/types/events"
 
 /** Secciones del dashboard a las que el mapa de preparación puede saltar para corregir algo. */
 export type PreparationTarget = "entradas" | "barra" | "pagina"
@@ -36,6 +41,7 @@ type EventStatus = "draft" | "active" | "finished"
 type Props = {
   eventId: string
   status: EventStatus
+  operationMode: EventOperationMode
   refreshTrigger?: number
   /** Si el evento ya tiene una URL (slug) pública configurada. */
   hasUrl?: boolean
@@ -54,7 +60,7 @@ type EventInventoryListResponse = { items: EventInvRow[] }
  *   - Cerrado   → reporte (grilla de métricas; la liquidación completa es 4.4/4.5).
  * (El estado "En vivo" lo cubre el panel de la noche, tarea 4.3 — no acá.)
  */
-export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, hasUrl, onNavigate }: Props) {
+export function EventSummaryDashboard({ eventId, status, operationMode, refreshTrigger = 0, hasUrl, onNavigate }: Props) {
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
   const [types, setTypes] = useState<ApiTicketType[] | null>(null)
@@ -65,6 +71,8 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
   const [error, setError] = useState<string | null>(null)
 
   const isDraft = status === "draft"
+  const supportsConsumptions = eventSupportsConsumptions(operationMode)
+  const tracksStock = eventTracksStock(operationMode)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -81,11 +89,15 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
       // El mapa de preparación (borrador) necesita saber si la barra ya tiene stock y menú.
       if (isDraft) {
         const [inv, menu] = await Promise.all([
-          apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token }),
-          apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token }),
+          tracksStock
+            ? apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token })
+            : Promise.resolve({ items: [] } as EventInventoryListResponse),
+          supportsConsumptions
+            ? apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token })
+            : Promise.resolve({ products: [] } as EventMenuProductsResponse),
         ])
-        setHasStock(inv.items.some((i) => Number.parseFloat(i.stockAllocated) > 0))
-        setHasMenu(menu.products.some((p) => p.isActiveForEvent))
+        setHasStock(tracksStock ? inv.items.some((i) => Number.parseFloat(i.stockAllocated) > 0) : null)
+        setHasMenu(supportsConsumptions ? menu.products.some((p) => p.isActiveForEvent) : null)
         setPromoters([])
       } else {
         setHasStock(null)
@@ -102,7 +114,7 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
     } finally {
       setLoading(false)
     }
-  }, [token, eventId, refreshTrigger, isDraft])
+  }, [token, eventId, refreshTrigger, isDraft, supportsConsumptions, tracksStock])
 
   useEffect(() => {
     void load()
@@ -131,16 +143,18 @@ export function EventSummaryDashboard({ eventId, status, refreshTrigger = 0, has
         hasStock={hasStock}
         hasMenu={hasMenu}
         hasUrl={hasUrl}
+        supportsConsumptions={supportsConsumptions}
+        tracksStock={tracksStock}
         onNavigate={onNavigate}
       />
     )
   }
 
   if (status === "active") {
-    return <CommercialPulse summary={summary} types={types} promoters={promoters} />
+    return <CommercialPulse summary={summary} types={types} promoters={promoters} supportsConsumptions={supportsConsumptions} />
   }
 
-  return <ReportGrid data={summary} promoters={promoters} />
+  return <ReportGrid data={summary} promoters={promoters} supportsConsumptions={supportsConsumptions} />
 }
 
 /* ── Borrador: mapa de preparación (frases declarativas, sin checklists ni %) ────────── */
@@ -156,20 +170,24 @@ function PreparationMap({
   hasStock,
   hasMenu,
   hasUrl,
+  supportsConsumptions,
+  tracksStock,
   onNavigate,
 }: {
   types: ApiTicketType[]
   hasStock: boolean | null
   hasMenu: boolean | null
   hasUrl?: boolean
+  supportsConsumptions: boolean
+  tracksStock: boolean
   onNavigate?: (target: PreparationTarget) => void
 }) {
   const pending: PendingItem[] = []
   if (types.length === 0)
     pending.push({ line: "Todavía no hay tipos de entrada.", cta: "Configurar entradas", target: "entradas" })
-  if (hasMenu === false)
+  if (supportsConsumptions && hasMenu === false)
     pending.push({ line: "El menú de la barra está vacío.", cta: "Configurar barra", target: "barra" })
-  if (hasStock === false)
+  if (tracksStock && hasStock === false)
     pending.push({ line: "La barra no tiene stock inicial.", cta: "Cargar stock", target: "barra" })
   if (hasUrl === false)
     pending.push({ line: "Falta configurar la URL del evento.", cta: "Configurar URL", target: "pagina" })
@@ -244,10 +262,12 @@ function CommercialPulse({
   summary,
   types,
   promoters,
+  supportsConsumptions,
 }: {
   summary: EventSummaryResponse
   types: ApiTicketType[]
   promoters: EventPromoterSalesRow[]
+  supportsConsumptions: boolean
 }) {
   const sold = summary.ticketsSold
   const cap = summary.ticketCapacity
@@ -321,7 +341,7 @@ function CommercialPulse({
       )}
 
       {/* Tarea 9.2 — Ventas por promotor (visión §2.8). */}
-      <PromoterSalesBlock rows={promoters} />
+      <PromoterSalesBlock rows={promoters} supportsConsumptions={supportsConsumptions} />
 
       {/* Proyección contra punto de equilibrio */}
       {canViewCosts && (
@@ -348,9 +368,11 @@ function CommercialPulse({
 function ReportGrid({
   data,
   promoters,
+  supportsConsumptions,
 }: {
   data: EventSummaryResponse
   promoters: EventPromoterSalesRow[]
+  supportsConsumptions: boolean
 }) {
   const sold = data.ticketsSold
   const checked = data.ticketsCheckedIn
@@ -438,7 +460,7 @@ function ReportGrid({
         </div>
       </MetricCard>
 
-      <MetricCard label="bar & consumos">
+      {supportsConsumptions ? <MetricCard label="bar & consumos">
         <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
           {formatInt(data.digitalConsumptionsGenerated)}
         </p>
@@ -461,11 +483,11 @@ function ReportGrid({
             />
           </div>
         </div>
-      </MetricCard>
+      </MetricCard> : null}
       </div>
 
       {/* Tarea 9.2 — Ventas por promotor (visión §2.8). */}
-      <PromoterSalesBlock rows={promoters} />
+      <PromoterSalesBlock rows={promoters} supportsConsumptions={supportsConsumptions} />
     </div>
   )
 }
@@ -474,7 +496,7 @@ function ReportGrid({
    reporte de cierre 10.3 — `event-closed-report.tsx` la importa con los datos congelados
    en `closingReport.byPromoter`, mismo shape que la API). ───────────────────────────────── */
 
-export function PromoterSalesBlock({ rows }: { rows: EventPromoterSalesRow[] }) {
+export function PromoterSalesBlock({ rows, supportsConsumptions = true }: { rows: EventPromoterSalesRow[]; supportsConsumptions?: boolean }) {
   if (rows.length === 0) return null
 
   return (
@@ -494,8 +516,10 @@ export function PromoterSalesBlock({ rows }: { rows: EventPromoterSalesRow[] }) 
                 ) : null}
               </p>
               <p className="text-[12px] text-white/40">
-                {formatInt(p.ticketsCount)} entrada{p.ticketsCount === 1 ? "" : "s"} ·{" "}
-                {formatInt(p.barItemsCount)} consumo{p.barItemsCount === 1 ? "" : "s"}
+                {formatInt(p.ticketsCount)} entrada{p.ticketsCount === 1 ? "" : "s"}
+                {supportsConsumptions ? (
+                  <> · {formatInt(p.barItemsCount)} consumo{p.barItemsCount === 1 ? "" : "s"}</>
+                ) : null}
               </p>
             </div>
             <p className="shrink-0 text-[15px] font-semibold tabular-nums text-foreground">

@@ -1,4 +1,16 @@
-const base = () => import.meta.env.VITE_API_URL ?? "http://localhost:3000"
+const LOCAL_API_URL = "http://localhost:3000"
+const PRODUCTION_API_URL = "https://api.crow.ar"
+
+/**
+ * A release build runs inside Tauri, not beside the local Bun server. Keeping a
+ * production fallback here prevents an installer built without a .env file from
+ * silently trying to authenticate against localhost.
+ */
+const base = () => {
+  const configured = import.meta.env.VITE_API_URL?.trim()
+  if (configured) return configured
+  return import.meta.env.DEV ? LOCAL_API_URL : PRODUCTION_API_URL
+}
 
 export function getApiBase(): string {
   return base().replace(/\/$/, "")
