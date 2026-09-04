@@ -26,6 +26,7 @@ import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
+import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { eventStatusLabel } from "@/lib/event-status"
 import { EVENT_OPERATION_MODE_OPTIONS } from "@/lib/event-operation-mode"
@@ -200,7 +201,7 @@ export function EventsListPage() {
             </div>
           ) : empty ? (
             // Forma 1: la creación ES el empty state — sin texto de bienvenida.
-            <CreateHero navigate={navigate} token={token} />
+            <CreateHero navigate={navigate} token={token} tenantId={tenantId} />
           ) : (
             <>
               {error ? (
@@ -1008,13 +1009,16 @@ function EventCreationWizard({
 function CreateHero({
   navigate,
   token,
+  tenantId,
 }: {
   navigate: ReturnType<typeof useNavigate>
   token: string | null
+  tenantId: string | null
 }) {
   const form = useCreateEvent(token, navigate)
   return (
     <div className="flex min-h-[55vh] flex-col items-center justify-center">
+      <MpConnectionCard tenantId={tenantId} token={token} className="mb-8 w-full max-w-3xl" />
       <div className="mb-8 w-full max-w-3xl text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
           Tu primer evento
