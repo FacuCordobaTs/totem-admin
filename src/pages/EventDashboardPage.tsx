@@ -22,6 +22,7 @@ import { EventClosedReport } from "@/components/events/event-closed-report"
 import { EventFlyerMailPreview } from "@/components/events/event-flyer-mail-preview"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { AdmissionBlacklistPanel } from "@/components/events/admission-blacklist-panel"
+import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { apiFetch, ApiError } from "@/lib/api"
@@ -630,6 +631,9 @@ function PrimaryStateAction({
   onTransition: (to: EventStatus) => void
   onStartClosing: () => void
 }) {
+  const token = useAuthStore((s) => s.token)
+  const tenantId = useAuthStore((s) => s.staff?.tenantId)
+
   if (status === "draft") {
     const blocked = readiness != null && !readiness.canOpenSale
     const reason =
@@ -638,6 +642,7 @@ function PrimaryStateAction({
         : error
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <MpConnectionCard tenantId={tenantId} token={token} />
         {reason && (
           <span className="order-2 text-[13px] text-white/40 sm:order-1">
             {reason}
