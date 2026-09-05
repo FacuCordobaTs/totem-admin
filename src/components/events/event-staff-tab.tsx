@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { QRCodeSVG } from "qrcode.react"
-import { Copy, Loader2, Plus, UserPlus, Users } from "lucide-react"
+import { Copy, ExternalLink, Loader2, Plus, UserPlus, Users } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventAssignmentStaffRow, EventBarRow, EventBarsResponse, EventStaffListResponse } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
-import { PromotersPanel } from "@/components/events/promoters-panel"
 import { getPromoterEventShopUrl } from "@/lib/client-app-url"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -100,12 +99,6 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
     [rows]
   )
 
-  function copyPromoterLink(member: EventAssignmentStaffRow) {
-    if (!member.promoterId) return
-    void navigator.clipboard.writeText(getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId))
-    toast.success("Link de promotor copiado")
-  }
-
   async function setAssignment(member: EventAssignmentStaffRow, isAssigned: boolean, barId?: string | null) {
     if (!token || pendingIds.has(member.id)) return
     const previous = rows
@@ -173,19 +166,16 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
                     <p className="truncate text-[14px] text-white/80">{member.name}</p>
                     <p className="text-[12px] text-white/40">Promotor</p>
                     {member.promoterId ? (
-                      <div className="mt-2 flex min-w-0 items-center gap-2">
-                        <code className="min-w-0 flex-1 truncate rounded bg-black/25 px-2 py-1 text-[11px] text-white/55">
-                          {getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
-                        </code>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => copyPromoterLink(member)}
-                          aria-label={`Copiar link de ${member.name}`}
-                          className="h-7 w-7 shrink-0 text-white/55 hover:bg-white/[0.08] hover:text-white"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
+                      <div className="mt-2">
+                        <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
+                          <a
+                            href={getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Ver link
+                          </a>
                         </Button>
                       </div>
                     ) : null}
@@ -261,19 +251,16 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
                   <div key={member.id} className={`px-4 py-3 text-[14px] text-white/80 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}>
                     <p>{member.name}</p>
                     {member.role === "PROMOTER" && member.promoterId ? (
-                      <div className="mt-2 flex min-w-0 items-center gap-2">
-                        <code className="min-w-0 flex-1 truncate rounded bg-black/25 px-2 py-1 text-[11px] text-white/55">
-                          {getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
-                        </code>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => copyPromoterLink(member)}
-                          aria-label={`Copiar link de ${member.name}`}
-                          className="h-7 w-7 shrink-0 text-white/55 hover:bg-white/[0.08] hover:text-white"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
+                      <div className="mt-2">
+                        <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
+                          <a
+                            href={getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Ver link
+                          </a>
                         </Button>
                       </div>
                     ) : null}
@@ -305,7 +292,6 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
         }}
       />
       {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={load} accessHint={inviteAccessHint} initialInvitation={invitationToShow} /> : null}
-      <div className="border-t border-white/[0.06] pt-6"><PromotersPanel /></div>
     </div>
   )
 }
