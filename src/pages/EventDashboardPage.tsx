@@ -398,6 +398,8 @@ export function EventDashboardPage() {
           <SectionShell title="Equipo">
             <EventStaffTab
               eventId={id}
+              eventLinkId={event.slug ?? id}
+              promotersOnly={operationMode === "TICKETS_ONLY"}
               inviteAccessHint="El enlace inicia sesión directamente y sirve para volver a entrar, sin nombre ni PIN."
             />
           </SectionShell>

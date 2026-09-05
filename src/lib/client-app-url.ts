@@ -15,9 +15,14 @@ export function getClientAppBaseUrl(): string {
   return PRODUCTION_CLIENT_ORIGIN
 }
 
-/** Full URL to the event shop (`/e/:eventId`) for sharing with attendees. */
-export function getEventShopUrl(eventId: string): string {
-  return `${getClientAppBaseUrl()}/e/${eventId}`
+/** Full URL to the event shop. The public route accepts either a slug or an event id. */
+export function getEventShopUrl(eventSlugOrId: string): string {
+  return `${getClientAppBaseUrl()}/${encodeURIComponent(eventSlugOrId)}`
+}
+
+/** Link público de un evento que atribuye el checkout al promotor indicado. */
+export function getPromoterEventShopUrl(eventSlugOrId: string, promoterId: string): string {
+  return `${getEventShopUrl(eventSlugOrId)}?promotor=${encodeURIComponent(promoterId)}`
 }
 
 /**

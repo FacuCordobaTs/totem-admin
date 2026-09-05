@@ -125,6 +125,8 @@ export type EventAssignmentStaffRow = {
   role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "PROMOTER"
   isAssigned: boolean
   barId: string | null
+  /** Perfil comercial para construir su link público en este evento. */
+  promoterId: string | null
 }
 
 export type EventStaffListResponse = {

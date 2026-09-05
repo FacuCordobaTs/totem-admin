@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/auth-store"
 import type { EventAssignmentStaffRow, EventBarRow, EventBarsResponse, EventStaffListResponse } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { PromotersPanel } from "@/components/events/promoters-panel"
+import { getPromoterEventShopUrl } from "@/lib/client-app-url"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,12 +30,14 @@ const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "BARTENDER", "SECURITY",
 
 type Props = {
   eventId: string
+  /** Slug público cuando existe; el id sigue funcionando como fallback. */
+  eventLinkId?: string
   inviteAccessHint?: string
   /** En eventos de solo entradas, Equipo se reduce a la gestión de promotores. */
   promotersOnly?: boolean
 }
 
-export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false }: Props) {
+export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promotersOnly = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
@@ -51,10 +54,6 @@ export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false
 
   const load = useCallback(async (showLoading = false) => {
     if (!token) return
-    if (promotersOnly) {
-      setLoading(false)
-      return
-    }
     if (showLoading) setLoading(true)
     setError(null)
     try {
@@ -63,11 +62,13 @@ export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false
         canInvite
           ? apiFetch<InvitationsResponse>("/staff/invitations", { method: "GET", token })
           : Promise.resolve(null),
-        apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, { method: "GET", token }),
+        promotersOnly
+          ? Promise.resolve(null)
+          : apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, { method: "GET", token }),
       ])
       setRows(staffData.staff)
       setInvitations(invitationsData?.invitations ?? [])
-      setBars(barsData.bars.filter((bar) => bar.isActive !== false))
+      setBars(barsData?.bars.filter((bar) => bar.isActive !== false) ?? [])
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "No se pudo cargar el equipo del evento")
     } finally {
@@ -94,6 +95,17 @@ export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false
     [invitations]
   )
 
+  const assignedPromoters = useMemo(
+    () => rows.filter((member) => member.isAssigned && member.role === "PROMOTER"),
+    [rows]
+  )
+
+  function copyPromoterLink(member: EventAssignmentStaffRow) {
+    if (!member.promoterId) return
+    void navigator.clipboard.writeText(getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId))
+    toast.success("Link de promotor copiado")
+  }
+
   async function setAssignment(member: EventAssignmentStaffRow, isAssigned: boolean, barId?: string | null) {
     if (!token || pendingIds.has(member.id)) return
     const previous = rows
@@ -117,12 +129,113 @@ export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false
     }
   }
 
-  if (promotersOnly) {
-    return <PromotersPanel />
-  }
-
   if (loading) return <div className="h-36 animate-pulse rounded-2xl bg-white/[0.06]" />
   if (error) return <div className="rounded-2xl border border-red-900/50 bg-red-950/40 px-5 py-4 text-[15px] text-red-300">{error}</div>
+
+  if (promotersOnly) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[17px] font-medium text-foreground">Equipo asignado</p>
+            <p className="mt-1 text-[13px] text-white/40">Los promotores que venden entradas para este evento.</p>
+          </div>
+          {canInvite ? (
+            <Button
+              type="button"
+              onClick={() => {
+                setInvitationToShow(null)
+                setInviteOpen(true)
+              }}
+              className="gap-2 rounded-lg bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+            >
+              <UserPlus className="h-4 w-4" />
+              Invitar promotor
+            </Button>
+          ) : null}
+        </div>
+
+        {assignedPromoters.length === 0 ? (
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center text-[15px] text-white/45">
+            No hay promotores asignados a este evento.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+            {assignedPromoters.map((member, index) => {
+              const busy = pendingIds.has(member.id)
+              const invitation = invitationsByStaffId.get(member.id)
+              return (
+                <div
+                  key={member.id}
+                  className={`flex flex-wrap items-center gap-3 px-4 py-3 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] text-white/80">{member.name}</p>
+                    <p className="text-[12px] text-white/40">Promotor</p>
+                    {member.promoterId ? (
+                      <div className="mt-2 flex min-w-0 items-center gap-2">
+                        <code className="min-w-0 flex-1 truncate rounded bg-black/25 px-2 py-1 text-[11px] text-white/55">
+                          {getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
+                        </code>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => copyPromoterLink(member)}
+                          aria-label={`Copiar link de ${member.name}`}
+                          className="h-7 w-7 shrink-0 text-white/55 hover:bg-white/[0.08] hover:text-white"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {canInvite && invitation ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setInvitationToShow(invitation)
+                        setInviteOpen(true)
+                      }}
+                      className="border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]"
+                    >
+                      Reinvitar
+                    </Button>
+                  ) : null}
+                  {canManage ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void setAssignment(member, false)}
+                      className="border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]"
+                    >
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Quitar"}
+                    </Button>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {canInvite ? (
+          <InviteEmployeeDialog
+            eventId={eventId}
+            open={inviteOpen}
+            onOpenChange={setInviteOpen}
+            onCreated={load}
+            accessHint={inviteAccessHint}
+            initialInvitation={invitationToShow}
+            promoterOnly
+          />
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -144,7 +257,28 @@ export function EventStaffTab({ eventId, inviteAccessHint, promotersOnly = false
             <section key={group.role}>
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/35">{staffRoleLabel(group.role)} · {group.members.length}</p>
               <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
-                {group.members.map((member, index) => <div key={member.id} className={`px-4 py-3 text-[14px] text-white/80 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}>{member.name}</div>)}
+                {group.members.map((member, index) => (
+                  <div key={member.id} className={`px-4 py-3 text-[14px] text-white/80 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}>
+                    <p>{member.name}</p>
+                    {member.role === "PROMOTER" && member.promoterId ? (
+                      <div className="mt-2 flex min-w-0 items-center gap-2">
+                        <code className="min-w-0 flex-1 truncate rounded bg-black/25 px-2 py-1 text-[11px] text-white/55">
+                          {getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
+                        </code>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => copyPromoterLink(member)}
+                          aria-label={`Copiar link de ${member.name}`}
+                          className="h-7 w-7 shrink-0 text-white/55 hover:bg-white/[0.08] hover:text-white"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             </section>
           ))}
@@ -199,10 +333,10 @@ function TeamDialog({ open, onOpenChange, rows, pendingIds, canInvite, bars, inv
   </Dialog>
 }
 
-function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHint, initialInvitation }: { eventId: string; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void; accessHint?: string; initialInvitation: Invitation | null }) {
+function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHint, initialInvitation, promoterOnly = false }: { eventId: string; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void; accessHint?: string; initialInvitation: Invitation | null; promoterOnly?: boolean }) {
   const token = useAuthStore((s) => s.token)
   const [name, setName] = useState("")
-  const [role, setRole] = useState<StaffRole>("BARTENDER")
+  const [role, setRole] = useState<StaffRole>(promoterOnly ? "PROMOTER" : "BARTENDER")
   const [invitation, setInvitation] = useState<Invitation | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -219,7 +353,7 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
       setInvitation(null)
       setError(null)
       setName("")
-      setRole("BARTENDER")
+      setRole(promoterOnly ? "PROMOTER" : "BARTENDER")
     }
     onOpenChange(nextOpen)
   }
@@ -248,8 +382,41 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
 
   return <Dialog open={open} onOpenChange={close}>
     <DialogContent className="max-w-lg rounded-2xl border-white/[0.1] bg-black p-0 text-white">
-      <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left"><DialogTitle className="text-xl">Invitar empleado</DialogTitle><DialogDescription className="mt-1 text-white/45">La invitación crea el acceso al equipo de tu productora.</DialogDescription></DialogHeader>
-      <div className="space-y-4 px-6 py-5">{invitation ? <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-4"><p className="font-medium text-emerald-300">Link de invitación</p><p className="mt-1 text-sm text-white/55">{invitation.name} · {staffRoleLabel(invitation.role)}</p><div className="mt-4 flex flex-col items-center gap-4"><div className="rounded-xl bg-white p-3"><QRCodeSVG value={invitation.url} size={144} level="M" includeMargin /></div><div className="min-w-0 self-stretch"><p className="text-sm text-white/55">{accessHint ?? "Escaneá el QR para abrir la invitación."}</p><div className="mt-3 flex gap-2"><Input readOnly value={invitation.url} className="h-10 min-w-0 border-white/[0.1] bg-black text-xs text-white/65" /><Button type="button" variant="outline" size="icon" onClick={copy} aria-label="Copiar link de invitación" className="shrink-0 border-white/[0.12] bg-transparent"><Copy className="h-4 w-4" /></Button></div></div></div></div> : <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void create() }}><Field label="Nombre del empleado"><Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nombre y apellido" className="border-white/[0.1] bg-white/[0.04]" /></Field><Field label="Rol"><Select value={role} onValueChange={(value) => setRole(value as StaffRole)}><SelectTrigger className="border-white/[0.1] bg-white/[0.04]"><SelectValue /></SelectTrigger><SelectContent>{INVITE_ROLES.map((item) => <SelectItem key={item} value={item}>{staffRoleLabel(item)}</SelectItem>)}</SelectContent></Select></Field><Button type="submit" disabled={saving} className="w-full bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving ? "Creando…" : "Crear invitación"}</Button></form>}{error ? <p className="text-sm text-red-400">{error}</p> : null}</div>
+      <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left"><DialogTitle className="text-xl">Invitar {promoterOnly ? "promotor" : "empleado"}</DialogTitle><DialogDescription className="mt-1 text-white/45">La invitación crea el acceso al equipo de tu productora.</DialogDescription></DialogHeader>
+      <div className="space-y-4 px-6 py-5">
+        {invitation ? (
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-4">
+            <p className="font-medium text-emerald-300">Link de invitación</p>
+            <p className="mt-1 text-sm text-white/55">{invitation.name} · {staffRoleLabel(invitation.role)}</p>
+            <div className="mt-4 flex flex-col items-center gap-4">
+              <div className="rounded-xl bg-white p-3"><QRCodeSVG value={invitation.url} size={144} level="M" includeMargin /></div>
+              <div className="min-w-0 self-stretch">
+                <p className="text-sm text-white/55">{accessHint ?? "Escaneá el QR para abrir la invitación."}</p>
+                <div className="mt-3 flex gap-2">
+                  <Input readOnly value={invitation.url} className="h-10 min-w-0 border-white/[0.1] bg-black text-xs text-white/65" />
+                  <Button type="button" variant="outline" size="icon" onClick={copy} aria-label="Copiar link de invitación" className="shrink-0 border-white/[0.12] bg-transparent"><Copy className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void create() }}>
+            <Field label={`Nombre del ${promoterOnly ? "promotor" : "empleado"}`}>
+              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nombre y apellido" className="border-white/[0.1] bg-white/[0.04]" />
+            </Field>
+            {!promoterOnly ? (
+              <Field label="Rol">
+                <Select value={role} onValueChange={(value) => setRole(value as StaffRole)}>
+                  <SelectTrigger className="border-white/[0.1] bg-white/[0.04]"><SelectValue /></SelectTrigger>
+                  <SelectContent>{INVITE_ROLES.map((item) => <SelectItem key={item} value={item}>{staffRoleLabel(item)}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+            ) : null}
+            <Button type="submit" disabled={saving} className="w-full bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving ? "Creando…" : "Crear invitación"}</Button>
+          </form>
+        )}
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+      </div>
     </DialogContent>
   </Dialog>
 }
