@@ -20,25 +20,6 @@ function obfuscateMpUserId(raw: string | null): string {
   return `${t.slice(0, 4)}••••••${t.slice(-4)}`
 }
 
-/** Defaults de producción de Crow; override con VITE_* en .env si hace falta. */
-const DEFAULT_MP_APP_ID = "3918831191946006"
-const DEFAULT_MP_REDIRECT_URI = "https://api.crow.ar/api/mp/callback"
-
-function buildMpAuthUrl(tenantId: string): string {
-  const clientId =
-    import.meta.env.VITE_MP_APP_ID?.trim() || DEFAULT_MP_APP_ID
-  const redirectUri =
-    import.meta.env.VITE_MP_REDIRECT_URI?.trim() || DEFAULT_MP_REDIRECT_URI
-  const params = new URLSearchParams({
-    client_id: clientId,
-    response_type: "code",
-    platform_id: "mp",
-    state: tenantId,
-    redirect_uri: redirectUri,
-  })
-  return `https://auth.mercadopago.com.ar/authorization?${params.toString()}`
-}
-
 type MpConnectionCardProps = {
   tenantId: string | null
   token: string | null
@@ -48,6 +29,7 @@ type MpConnectionCardProps = {
 export function MpConnectionCard({ tenantId, token, className }: MpConnectionCardProps) {
   const [status, setStatus] = useState<MpStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
   const load = useCallback(async () => {
@@ -75,8 +57,19 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
     void load()
   }, [load])
 
-  const authUrl = tenantId ? buildMpAuthUrl(tenantId) : ""
   const connected = status?.mpConnected === true
+
+  async function handleConnect() {
+    if (!token || !tenantId || connecting) return
+    setConnecting(true)
+    try {
+      const { url } = await apiFetch<{ url: string }>("/api/mp/auth-url", { token })
+      window.location.assign(url)
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "No se pudo iniciar la conexión con Mercado Pago")
+      setConnecting(false)
+    }
+  }
 
   async function handleDisconnect() {
     if (!token) return
@@ -124,13 +117,13 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
               Connect Mercado Pago to receive payments directly into your account.
             </p>
             <Button
-              asChild
+              type="button"
+              disabled={!token || connecting}
+              onClick={() => void handleConnect()}
               size="lg"
               className="w-full rounded-xl border-0 bg-white text-black hover:bg-zinc-200 sm:w-auto"
             >
-              <a href={authUrl} rel="noopener noreferrer">
-                Conectar Mercado Pago
-              </a>
+              {connecting ? "Conectando…" : "Conectar Mercado Pago"}
             </Button>
           </div>
         ) : (

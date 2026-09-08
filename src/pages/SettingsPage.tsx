@@ -48,7 +48,14 @@ export function SettingsPage() {
     if (mpToastHandled.current) return
     mpToastHandled.current = true
     if (mpStatus === "success") toast.success("Mercado Pago conectado correctamente")
-    else toast.error("No se pudo conectar Mercado Pago")
+    else {
+      const messages: Record<string, string> = {
+        access_denied: "No autorizaste la conexión con Mercado Pago. Podés volver a intentarlo.",
+        config_error: "Mercado Pago no está configurado correctamente. Contactá al administrador de Crow.",
+        oauth_failed: "Mercado Pago no pudo completar la vinculación. Iniciá la conexión nuevamente.",
+      }
+      toast.error(messages[params.get("mp_error") ?? ""] ?? "No se pudo conectar Mercado Pago")
+    }
     params.delete("mp_status")
     params.delete("mp_error")
     window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`)
