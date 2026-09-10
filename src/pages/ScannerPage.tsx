@@ -32,8 +32,13 @@ import {
   ZoomIn,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatAdmissionWindow } from "@/lib/ticket-admission"
 
 type ValidateResponse = {
+  validFrom: string | null
+  validUntil: string | null
+  reentry?: boolean
+  gatePassCount?: number
   message: string
   ticket: {
     id: string
@@ -48,6 +53,8 @@ type ValidateResponse = {
 /** Tarea 1.4 — Respuesta de `POST /tickets/validate-by-dni` (misma lógica que el QR, con
  * discriminadores para la puerta: tipo de entrada y `reentry`). */
 type ValidateByDniResponse = {
+  validFrom: string | null
+  validUntil: string | null
   message: string
   ticket: {
     id: string
@@ -67,6 +74,7 @@ type ValidateByDniResponse = {
 type OverlayState =
   | {
       kind: "success"
+      admissionWindow: string | null
       buyerName: string
       /** Tarea 3.2 — id del tipo de entrada: el color del chip sale de este id (mapa por tipo). */
       ticketTypeId: string
@@ -183,6 +191,7 @@ function formatEventLabel(ev: ApiEvent): string {
 
 function errorHeadline(message: string): string {
   const m = message.toLowerCase()
+  if (m.includes("fuera de horario")) return "¡Fuera de horario!"
   if (m.includes("lista de admisión")) return "¡Lista de admisión!"
   if (m.includes("otro evento")) return "¡Evento incorrecto!"
   if (m.includes("ya usado")) return "¡Ya usado!"
@@ -338,6 +347,9 @@ export function ScannerPage() {
           // Tarea 3.2 — el chip del tipo de entrada se colorea con este id.
           ticketTypeId: res.ticketTypeId,
           ticketTypeName: typeName,
+          admissionWindow: formatAdmissionWindow(res),
+          reentry: res.reentry === true,
+          gatePassCount: res.gatePassCount,
         })
         void loadScannedTickets()
       } catch (err) {
@@ -384,6 +396,7 @@ export function ScannerPage() {
           // Tarea 3.2 — el chip del tipo de entrada se colorea con este id.
           ticketTypeId: res.ticketTypeId,
           ticketTypeName: typeName,
+          admissionWindow: formatAdmissionWindow(res),
           reentry: res.reentry === true,
           gatePassCount: res.gatePassCount,
         })
@@ -1077,6 +1090,7 @@ export function ScannerPage() {
           >
             {overlay.ticketTypeName}
           </span>
+          {overlay.admissionWindow && <p className="mt-3 max-w-sm text-center text-sm opacity-80">{overlay.admissionWindow}</p>}
           <p className="mt-7 text-4xl font-black tracking-tight sm:text-5xl">
             {overlay.reentry ? "¡Reingreso!" : "¡Ticket válido!"}
           </p>

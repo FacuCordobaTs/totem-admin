@@ -12,8 +12,11 @@ import {
 } from "@/components/ui/dialog"
 import { publicApiFetch, ApiError } from "@/lib/api"
 import { Calendar, MapPin, Sparkles } from "lucide-react"
+import { formatAdmissionWindow } from "@/lib/ticket-admission"
 
 type PublicTicketType = {
+  validFrom: string | null
+  validUntil: string | null
   id: string
   name: string
   price: string
@@ -270,6 +273,7 @@ export function PublicEventPage() {
                   >
                     <div>
                       <p className="font-medium text-neutral-100">{tt.name}</p>
+                      {formatAdmissionWindow(tt) && <p className="mt-1 text-sm text-amber-200">{formatAdmissionWindow(tt)}</p>}
                       <p className="mt-1 text-lg font-semibold text-amber-400/95">
                         ${Number(tt.price).toFixed(2)}
                       </p>

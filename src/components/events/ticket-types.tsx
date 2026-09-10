@@ -3,6 +3,8 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { ChevronDown, Plus, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { admissionInputToIso, formatAdmissionWindow } from "@/lib/ticket-admission"
+import { TicketAdmissionEditor, TicketAdmissionFields } from "./ticket-admission-fields"
 import {
   Dialog,
   DialogContent,
@@ -23,6 +25,8 @@ export type ApiTier = {
 }
 
 export type ApiTicketType = {
+  validFrom: string | null
+  validUntil: string | null
   id: string
   eventId: string
   tenantId: string
@@ -41,6 +45,7 @@ type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 
 type TicketTypesProps = {
   eventId: string
+  eventDate: string
   refreshTrigger: number
   onChanged?: () => void
   /** Abre el diálogo de alta alojado por la página del evento. */
@@ -263,6 +268,7 @@ function TierLadder({
 
 function TypeRow({
   eventId,
+  eventDate,
   type,
   expanded,
   onToggle,
@@ -271,6 +277,7 @@ function TypeRow({
 }: {
   eventId: string
   type: ApiTicketType
+  eventDate: string
   expanded: boolean
   onToggle: () => void
   onChanged: () => void
@@ -386,6 +393,7 @@ function TypeRow({
             ) : null}
           </div>
           <span className="text-[13px] text-white/40">{soldText}</span>
+          {formatAdmissionWindow(type) && <p className="mt-1 text-xs text-amber-300">{formatAdmissionWindow(type)}</p>}
         </div>
         <span className="shrink-0 text-[16px] font-semibold text-white">
           {formatPrice(displayPrice)}
@@ -436,6 +444,7 @@ function TypeRow({
           </div>
 
           <TierLadder eventId={eventId} type={type} onChanged={onChanged} />
+          <TicketAdmissionEditor key={`${type.id}:${type.validFrom}:${type.validUntil}`} eventId={eventId} eventDate={eventDate} type={type} onChanged={onChanged} />
 
           <div className="flex items-center justify-between">
             <span aria-live="polite" className="text-[12px]">
@@ -468,12 +477,14 @@ function TypeRow({
 
 export function TicketTypeCreateDialog({
   eventId,
+  eventDate,
   open,
   onOpenChange,
   onCreated,
 }: {
   eventId: string
   open: boolean
+  eventDate: string
   onOpenChange: (open: boolean) => void
   onCreated: () => void
 }) {
@@ -482,6 +493,8 @@ export function TicketTypeCreateDialog({
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
   const [stock, setStock] = useState("")
+  const [validFrom, setValidFrom] = useState("")
+  const [validUntil, setValidUntil] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -501,6 +514,10 @@ export function TicketTypeCreateDialog({
     event.preventDefault()
     if (!token || saving) return
     if (name.trim() === "") return
+    if (validFrom && validUntil && validFrom >= validUntil) {
+      setError("El horario hasta debe ser posterior al horario desde.")
+      return
+    }
     const parsedPrice = parsePrice(price)
     if (parsedPrice == null) {
       setError("Precio inválido")
@@ -521,11 +538,15 @@ export function TicketTypeCreateDialog({
           name: name.trim(),
           price: parsedPrice,
           stockLimit: parsedStock.value,
+          validFrom: admissionInputToIso(validFrom),
+          validUntil: admissionInputToIso(validUntil),
         }),
       })
       setName("")
       setPrice("")
       setStock("")
+      setValidFrom("")
+      setValidUntil("")
       onOpenChange(false)
       onCreated()
     } catch (err) {
@@ -559,6 +580,7 @@ export function TicketTypeCreateDialog({
               <input id="ticket-type-stock" value={stock} onChange={(e) => setStock(e.target.value)} inputMode="numeric" placeholder="Sin límite" className={fieldClass} />
             </div>
           </div>
+          <TicketAdmissionFields from={validFrom} until={validUntil} onFromChange={setValidFrom} onUntilChange={setValidUntil} eventDate={eventDate} disabled={saving} />
           {error ? <p className="text-[13px] text-red-400">{error}</p> : null}
           <DialogFooter className="gap-2">
             <button type="button" onClick={close} disabled={saving} className="h-10 rounded-lg px-4 text-[14px] text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40">Cancelar</button>
@@ -570,7 +592,7 @@ export function TicketTypeCreateDialog({
   )
 }
 
-export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange, onCreateTicketType }: TicketTypesProps) {
+export function TicketTypes({ eventId, eventDate, refreshTrigger, onChanged, onCountChange, onCreateTicketType }: TicketTypesProps) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
@@ -636,6 +658,7 @@ export function TicketTypes({ eventId, refreshTrigger, onChanged, onCountChange,
               key={t.id}
               eventId={eventId}
               type={t}
+              eventDate={eventDate}
               expanded={expandedId === t.id}
               onToggle={() =>
                 setExpandedId((cur) => (cur === t.id ? null : t.id))

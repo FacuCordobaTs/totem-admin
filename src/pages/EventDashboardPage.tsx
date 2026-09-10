@@ -341,12 +341,14 @@ export function EventDashboardPage() {
             }
           >
             <TicketTypeCreateDialog
+              eventDate={event.date}
               eventId={id}
               open={ticketTypeDialogOpen}
               onOpenChange={setTicketTypeDialogOpen}
               onCreated={bump}
             />
             <TicketTypes
+              eventDate={event.date}
               eventId={id}
               refreshTrigger={refreshTick}
               onChanged={bump}
