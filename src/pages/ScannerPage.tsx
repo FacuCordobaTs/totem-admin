@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Scanner } from "@yudiel/react-qr-scanner"
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
+import { useZxingScanner } from "@/hooks/use-zxing-scanner"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -105,28 +104,6 @@ type ScannedTicketsResponse = { tickets: ScannedTicket[] }
 
 const SCANNED_TICKETS_PER_PAGE = 10
 
-/** Tarea 3.1 — id del contenedor del lector de DNI: html5-qrcode v2 resuelve el elemento por
- * `document.getElementById(id)` en el constructor (no acepta el elemento directo). */
-const DNI_SCANNER_ELEMENT_ID = "dni-barcode-scanner"
-
-const DNI_SUPPORTED_FORMATS = [
-  Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.PDF_417,
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-]
-
-type ExtendedMediaTrackCapabilities = MediaTrackCapabilities & {
-  torch?: boolean
-  zoom?: { min: number; max: number; step: number }
-}
-
-type ExtendedMediaTrackConstraintSet = MediaTrackConstraintSet & {
-  focusMode?: string
-  torch?: boolean
-  zoom?: number
-}
-
 /** Tarea 3.2 — Color por tipo de entrada (visión §2.4: "VIP o General, bien diferenciado por
  * color"). Los nombres conocidos mapean a colores de marca — VIP = dorado, General = blanco —
  * y los tipos custom del evento caen en una paleta determinística por hash del `ticketTypeId`
@@ -224,10 +201,8 @@ export function ScannerPage() {
 
   const [cameraOn, setCameraOn] = useState(true)
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
-  const [torchAvailable, setTorchAvailable] = useState(false)
-  const [torchOn, setTorchOn] = useState(false)
-  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number } | null>(null)
-  const [zoomValue, setZoomValue] = useState(1)
+  /** Linterna deseada: el hook la aplica (y la reaplica) sobre el track vivo. */
+  const [torchDesired, setTorchDesired] = useState(false)
 
   /** Tarea 3.1 — Modo de lectura: QR de entrada (default) o código de barras del DNI físico. */
   const [mode, setMode] = useState<ScanMode>("qr")
@@ -246,11 +221,6 @@ export function ScannerPage() {
 
   const inFlightRef = useRef(false)
   const manualDniInputRef = useRef<HTMLInputElement | null>(null)
-
-  // --- Tarea 3.1 — ciclo de vida del escáner de DNI (QR, PDF417 y barras legacy) ----------
-  const dniScannerRef = useRef<Html5Qrcode | null>(null)
-  const dniRunRef = useRef(0)
-  const dniShouldScanRef = useRef(false)
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null
 
@@ -320,10 +290,8 @@ export function ScannerPage() {
   }
 
   const handleScan = useCallback(
-    async (codes: { rawValue: string }[]) => {
+    async (raw: string) => {
       if (!token || !selectedEventId || overlay || inFlightRef.current) return
-      const raw = codes[0]?.rawValue
-      if (!raw) return
 
       const qrHash = parseQrHash(raw)
       if (!qrHash) return
@@ -463,156 +431,40 @@ export function ScannerPage() {
     [token, selectedEventId, overlay, dniDatePrompt, validateDni, selectedEvent]
   )
 
-  const handleDniScanRef = useRef(handleDniScan)
-  handleDniScanRef.current = handleDniScan
+  const scannerPaused =
+    !cameraOn ||
+    !selectedEventId ||
+    overlay !== null ||
+    dniDatePrompt !== null ||
+    !token
 
-  const stopDniScanner = useCallback(async () => {
-    // Invalida cualquier arranque en vuelo (un `start()` pendiente de la cámara se auto-detiene
-    // al resolver) y suelta la cámara del escáner activo.
-    dniRunRef.current++
-    const s = dniScannerRef.current
-    dniScannerRef.current = null
-    setTorchAvailable(false)
-    setTorchOn(false)
-    setZoomRange(null)
-    if (s?.isScanning) {
-      try {
-        await s.stop()
-      } catch {
-        // Cámara ya liberada o detenida en paralelo: no es un error de la puerta.
-      }
-    }
-  }, [])
+  // Un solo escáner para los dos modos: `profile` sólo cambia las opciones de decodificación y
+  // el tope de resolución del canvas, así que alternar QR ↔ DNI ya no suelta la cámara (antes
+  // `startDniScanner` la readquiría en cada cambio de modo y de cámara).
+  const onScannerResult = useCallback(
+    (raw: string) => {
+      if (mode === "qr") void handleScan(raw)
+      else handleDniScan(raw)
+    },
+    [mode, handleScan, handleDniScan]
+  )
 
-  const startDniScanner = useCallback(async () => {
-    if (!document.getElementById(DNI_SCANNER_ELEMENT_ID)) return
-    const run = ++dniRunRef.current
-    // Suelta el escáner anterior SIN invalidar este arranque (stopDniScanner sí lo haría).
-    const prev = dniScannerRef.current
-    dniScannerRef.current = null
-    if (prev?.isScanning) {
-      try {
-        await prev.stop()
-      } catch {
-        // Cámara ya liberada: no es un error.
-      }
-    }
-    if (run !== dniRunRef.current) return
-
-    const attempt = async (tryCount: number): Promise<void> => {
-      if (run !== dniRunRef.current || !dniShouldScanRef.current) return
-      const s = new Html5Qrcode(DNI_SCANNER_ELEMENT_ID, {
-        verbose: false,
-        formatsToSupport: DNI_SUPPORTED_FORMATS,
-        // Chrome/Android puede delegar al detector nativo; ZXing sigue siendo el fallback
-        // automático en navegadores sin BarcodeDetector.
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      })
-      if (run !== dniRunRef.current) return
-      dniScannerRef.current = s
-      try {
-        await s.start(
-          { facingMode },
-          {
-            fps: 10,
-            // html5-qrcode exige las restricciones completas dentro de `videoConstraints`;
-            // el primer argumento solo admite facingMode o deviceId.
-            videoConstraints: {
-              facingMode: { ideal: facingMode },
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              advanced: [
-                { focusMode: "continuous" } as ExtendedMediaTrackConstraintSet,
-              ],
-            },
-            // Un cuadro cuadrado sirve para el QR nuevo y sigue dejando entrar completo el
-            // PDF417/código de barras horizontal de los documentos anteriores.
-            qrbox: (viewfinderWidth, viewfinderHeight) => {
-              const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.8)
-              return { width: size, height: size }
-            },
-          },
-          (decodedText) => handleDniScanRef.current(decodedText),
-          () => {
-            /* errores por frame: silenciosos */
-          }
-        )
-        if (run === dniRunRef.current && dniShouldScanRef.current) {
-          try {
-            const capabilities = s.getRunningTrackCapabilities() as ExtendedMediaTrackCapabilities
-            const settings = s.getRunningTrackSettings() as MediaTrackSettings & { zoom?: number }
-            setTorchAvailable(capabilities.torch === true)
-            if (
-              capabilities.zoom &&
-              Number.isFinite(capabilities.zoom.min) &&
-              Number.isFinite(capabilities.zoom.max) &&
-              capabilities.zoom.max > capabilities.zoom.min
-            ) {
-              const range = {
-                min: capabilities.zoom.min,
-                max: capabilities.zoom.max,
-                step: capabilities.zoom.step || 0.1,
-              }
-              setZoomRange(range)
-              setZoomValue(
-                Math.min(range.max, Math.max(range.min, settings.zoom ?? range.min))
-              )
-            } else {
-              setZoomRange(null)
-            }
-          } catch {
-            // Algunos navegadores exponen cámara pero no sus capacidades avanzadas.
-            setTorchAvailable(false)
-            setZoomRange(null)
-          }
-        }
-        // Invalidado mientras arrancaba (overlay, cambio de evento/modo, cámara off):
-        // el escáner no debe quedar encendido aunque la cámara ya se haya adquirido.
-        if (run !== dniRunRef.current || !dniShouldScanRef.current) {
-          dniScannerRef.current = null
-          if (s.isScanning) {
-            try {
-              await s.stop()
-            } catch {
-              // ya detenida
-            }
-          }
-        }
-      } catch {
-        // Cámara en uso (permiso negado o el lector de QR recién se apagó): reintenta una vez.
-        dniScannerRef.current = null
-        if (
-          run === dniRunRef.current &&
-          tryCount < 2 &&
-          dniShouldScanRef.current
-        ) {
-          setTimeout(() => void attempt(tryCount + 1), 500)
-        }
-      }
-    }
-
-    await attempt(1)
-  }, [facingMode])
-
-  const dniScanningActive =
-    mode === "dni" &&
-    !!selectedEventId &&
-    cameraOn &&
-    overlay === null &&
-    dniDatePrompt === null &&
-    !!token
-  dniShouldScanRef.current = dniScanningActive
-
-  useEffect(() => {
-    if (!dniScanningActive) {
-      void stopDniScanner()
-      return
-    }
-    void startDniScanner()
-    return () => {
-      void stopDniScanner()
-    }
-  }, [dniScanningActive, startDniScanner, stopDniScanner])
+  const scanner = useZxingScanner({
+    active: !!selectedEventId && cameraOn && !!token,
+    paused: scannerPaused,
+    facingMode,
+    profile: mode === "qr" ? "qr" : "dni",
+    torch: torchDesired,
+    onResult: onScannerResult,
+  })
+  const {
+    videoRef,
+    torchAvailable,
+    torchOn,
+    zoomRange,
+    zoomValue,
+    setZoom,
+  } = scanner
 
   const switchMode = (next: ScanMode) => {
     setMode(next)
@@ -625,32 +477,8 @@ export function ScannerPage() {
     }
   }
 
-  const toggleTorch = async () => {
-    const scanner = dniScannerRef.current
-    if (!scanner?.isScanning || !torchAvailable) return
-    const next = !torchOn
-    try {
-      await scanner.applyVideoConstraints({
-        advanced: [{ torch: next } as ExtendedMediaTrackConstraintSet],
-      })
-      setTorchOn(next)
-    } catch {
-      setTorchAvailable(false)
-      setTorchOn(false)
-    }
-  }
-
-  const applyZoom = async (value: number) => {
-    const scanner = dniScannerRef.current
-    setZoomValue(value)
-    if (!scanner?.isScanning || !zoomRange) return
-    try {
-      await scanner.applyVideoConstraints({
-        advanced: [{ zoom: value } as ExtendedMediaTrackConstraintSet],
-      })
-    } catch {
-      setZoomRange(null)
-    }
+  const toggleTorch = () => {
+    setTorchDesired((current) => !current)
   }
 
   const confirmManualDni = () => {
@@ -690,13 +518,6 @@ export function ScannerPage() {
     }
     void validateDni(dni, dniDatePrompt.closeManualKeyboard)
   }
-
-  const scannerPaused =
-    !cameraOn ||
-    !selectedEventId ||
-    overlay !== null ||
-    dniDatePrompt !== null ||
-    !token
 
   /** Tarea 3.2 — Color del chip del tipo de entrada del overlay activo (si es un éxito). */
   const scannedTicketsTotalPages = Math.max(
@@ -879,27 +700,13 @@ export function ScannerPage() {
           style={{ aspectRatio: "1" }}
         >
           {selectedEventId && cameraOn && token ? (
-            mode === "qr" ? (
-              <Scanner
-                onScan={(detected) => void handleScan(detected)}
-                constraints={{ facingMode }}
-                paused={scannerPaused}
-                sound={false}
-                scanDelay={600}
-                components={{ torch: false }}
-                onError={() => {
-                  /* cámara: errores silenciosos; el usuario puede reiniciar */
-                }}
-                classNames={{
-                  container: "h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover",
-                }}
-              />
-            ) : (
-              <div
-                id={DNI_SCANNER_ELEMENT_ID}
-                className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover"
-              />
-            )
+            <video
+              ref={videoRef}
+              className="h-full w-full object-cover"
+              playsInline
+              muted
+              autoPlay
+            />
           ) : (
             <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 bg-neutral-900 p-6 text-center">
               <CameraOff className="h-14 w-14 text-neutral-600" />
@@ -923,51 +730,49 @@ export function ScannerPage() {
 
         </div>
 
-        {mode === "dni" && (
+        {(torchAvailable || zoomRange) && (
           <div className="mx-auto mt-4 w-full max-w-lg space-y-3">
-            {(torchAvailable || zoomRange) && (
-              <div className="rounded-xl border border-zinc-800 bg-[#1C1C1E] p-3">
-                <div className="flex items-center gap-3">
-                  {torchAvailable && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={cn(
-                        "h-11 shrink-0 gap-2 rounded-xl border-zinc-700",
-                        torchOn
-                          ? "border-[#FF9500] bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
-                          : "bg-transparent text-white hover:bg-white/5"
-                      )}
-                      onClick={() => void toggleTorch()}
-                    >
-                      <Flashlight className="h-4 w-4" />
-                      {torchOn ? "Apagar luz" : "Encender luz"}
-                    </Button>
-                  )}
-                  {zoomRange && (
-                    <label className="min-w-0 flex-1">
-                      <span className="mb-1.5 flex items-center justify-between text-xs text-[#98989D]">
-                        <span className="flex items-center gap-1.5">
-                          <ZoomIn className="h-3.5 w-3.5" />
-                          Zoom
-                        </span>
-                        <span>{zoomValue.toFixed(1)}×</span>
+            <div className="rounded-xl border border-zinc-800 bg-[#1C1C1E] p-3">
+              <div className="flex items-center gap-3">
+                {torchAvailable && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={cn(
+                      "h-11 shrink-0 gap-2 rounded-xl border-zinc-700",
+                      torchOn
+                        ? "border-[#FF9500] bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+                        : "bg-transparent text-white hover:bg-white/5"
+                    )}
+                    onClick={toggleTorch}
+                  >
+                    <Flashlight className="h-4 w-4" />
+                    {torchOn ? "Apagar luz" : "Encender luz"}
+                  </Button>
+                )}
+                {zoomRange && (
+                  <label className="min-w-0 flex-1">
+                    <span className="mb-1.5 flex items-center justify-between text-xs text-[#98989D]">
+                      <span className="flex items-center gap-1.5">
+                        <ZoomIn className="h-3.5 w-3.5" />
+                        Zoom
                       </span>
-                      <input
-                        type="range"
-                        min={zoomRange.min}
-                        max={zoomRange.max}
-                        step={zoomRange.step}
-                        value={zoomValue}
-                        onChange={(e) => void applyZoom(Number(e.target.value))}
-                        className="h-2 w-full cursor-pointer accent-[#FF9500]"
-                        aria-label="Zoom de cámara"
-                      />
-                    </label>
-                  )}
-                </div>
+                      <span>{zoomValue.toFixed(1)}×</span>
+                    </span>
+                    <input
+                      type="range"
+                      min={zoomRange.min}
+                      max={zoomRange.max}
+                      step={zoomRange.step}
+                      value={zoomValue}
+                      onChange={(e) => setZoom(Number(e.target.value))}
+                      className="h-2 w-full cursor-pointer accent-[#FF9500]"
+                      aria-label="Zoom de cámara"
+                    />
+                  </label>
+                )}
               </div>
-            )}
+            </div>
           </div>
         )}
 

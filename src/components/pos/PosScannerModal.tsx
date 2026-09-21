@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Html5Qrcode } from "html5-qrcode"
+import { useZxingScanner } from "@/hooks/use-zxing-scanner"
 import {
   Dialog,
   DialogContent,
@@ -121,9 +121,13 @@ export function PosScannerModal({
   // Estado efímero para que cada barman pueda organizar la preparación. No se persiste.
   const [servedProductIds, setServedProductIds] = useState<Set<string>>(() => new Set())
 
-  const scannerRef = useRef<Html5Qrcode | null>(null)
-  const readerIdRef = useRef(`pos-scanner-${Math.random().toString(36).slice(2, 11)}`)
   const isProcessingRef = useRef(false)
+  // El hook se declara antes que los handlers y ellos antes que él: `handleDecoded` no puede
+  // referenciarse a sí mismo en el render en que se crea, así que el resultado entra por ref.
+  const handleDecodedRef = useRef<((raw: string) => void) | null>(null)
+  const onScannerResult = useCallback((raw: string) => {
+    handleDecodedRef.current?.(raw)
+  }, [])
   const tokenRef = useRef(token)
   const barIdRef = useRef(barId)
   const phaseRef = useRef<Phase>(phase)
@@ -132,9 +136,24 @@ export function PosScannerModal({
 
   const { selectedPrinter, printRaw } = usePrinter()
 
-  tokenRef.current = token
-  barIdRef.current = barId
-  phaseRef.current = phase
+  const scanner = useZxingScanner({
+    // El stream sobrevive a la pantalla de pedido: "Entregado y volver a escanear" ya no
+    // readquiere la cámara (eran 300-800 ms de negro en cada entrega). Requiere que el <video>
+    // siga montado, por eso no se desmonta al pasar a `order`.
+    active: open && (phase === "scanning" || phase === "order") && !!barId && !!token,
+    paused: phase !== "scanning",
+    facingMode: "environment",
+    profile: "qr",
+    torch: torchDesired,
+    // Cada lectura dispara una llamada de red: no tiene sentido seguir decodificando mientras
+    // está en vuelo. Cada camino que muestra un overlay reanuda explícitamente.
+    pauseOnResult: true,
+    onResult: onScannerResult,
+    onError: setCameraError,
+  })
+  const { error: cameraOpenError, resume: resumeScan, videoRef } = scanner
+  /** Falla al abrir la cámara (hook) o al arrancar el motor de decodificación (`onError`). */
+  const scanError = cameraError ?? cameraOpenError
 
   const resetToChoose = useCallback(() => {
     setPhase("choose")
@@ -228,11 +247,7 @@ export function PosScannerModal({
       window.setTimeout(() => {
         setOverlay({ kind: "none" })
         isProcessingRef.current = false
-        try {
-          scannerRef.current?.resume()
-        } catch {
-          /* ignore */
-        }
+        resumeScan()
       }, 2000)
     } catch (e) {
       const message =
@@ -242,7 +257,7 @@ export function PosScannerModal({
         message: message.toUpperCase(),
       })
     }
-  }, [])
+  }, [resumeScan])
 
   const handleDecoded = useCallback(
     async (decodedText: string) => {
@@ -254,11 +269,7 @@ export function PosScannerModal({
       if (!t || !b) return
 
       isProcessingRef.current = true
-      try {
-        scannerRef.current?.pause(true)
-      } catch {
-        /* ignore */
-      }
+      // El loop ya quedó pausado por `pauseOnResult`: no hace falta pausar acá.
 
       // 1) ¿Es un QR de pedido? GET idempotente. Si 404 → no es pedido, cae al canje 1×1.
       //    Cualquier otro error (ej. pedido de otro evento, 400) se muestra, no se canjea.
@@ -293,68 +304,19 @@ export function PosScannerModal({
     [redeemSingle]
   )
 
+  // Refs de "último valor", sincronizados en un efecto y no durante el render: los leen el
+  // handler de `popstate` y los handlers async, siempre después del commit.
   useEffect(() => {
-    if (!open || phase !== "scanning" || !barId || !token) {
-      return
-    }
-
-    setCameraError(null)
-    const elId = readerIdRef.current
-    const html5 = new Html5Qrcode(elId, false)
-    scannerRef.current = html5
-    let cancelled = false
-
-    void html5
-      .start(
-        { facingMode: "environment" },
-        {
-          fps: 12,
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const edge = Math.min(viewfinderWidth, viewfinderHeight, 340)
-            return { width: edge, height: edge }
-          },
-        },
-        (text) => {
-          void handleDecoded(text)
-        },
-        () => {}
-      )
-      .then(() => {
-        if (cancelled || !torchDesired) return
-        return html5
-          .applyVideoConstraints({
-            advanced: [{ torch: true } as MediaTrackConstraintSet],
-          })
-          .catch(() => {
-            /* torch not supported or denied — seguir sin linterna */
-          })
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setCameraError(
-            err instanceof Error ? err.message : "No se pudo abrir la cámara"
-          )
-        }
-      })
-
-    return () => {
-      cancelled = true
-      scannerRef.current = null
-      void html5
-        .stop()
-        .then(() => html5.clear())
-        .catch(() => {})
-    }
-  }, [open, phase, torchDesired, barId, token, handleDecoded])
+    tokenRef.current = token
+    barIdRef.current = barId
+    phaseRef.current = phase
+    handleDecodedRef.current = handleDecoded
+  })
 
   const dismissError = () => {
     setOverlay({ kind: "none" })
     isProcessingRef.current = false
-    try {
-      scannerRef.current?.resume()
-    } catch {
-      /* ignore */
-    }
+    resumeScan()
   }
 
   // Entrega del pedido: marca todo REDEEMED + descuenta stock en el backend (4.2),
@@ -630,149 +592,160 @@ export function PosScannerModal({
             </section>
             </div>
           </div>
-        ) : phase === "order" && order ? (
-          <div className="flex min-h-0 flex-1 flex-col bg-[#0A0A0A]">
-            <div className="shrink-0 border-b border-zinc-800 px-5 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-500/20">
-                    <Package className="h-6 w-6 text-violet-400" />
-                  </span>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
-                      Pedido de retiro
-                    </p>
-                    <p className="mt-0.5 text-lg font-black tracking-tighter text-white">
-                      {order.items.reduce((n, i) => n + i.quantity, 0)} consumiciones
-                    </p>
+        ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
+            {/* El video vive en su propia capa y no se desmonta al pasar a la pantalla de pedido:
+                el stream queda caliente y "Entregado y volver a escanear" es inmediato. Tampoco se
+                oculta con `display: none`: Safari deja de producir frames y `drawImage` da negro. */}
+            <video
+              ref={videoRef}
+              className="absolute inset-0 h-full w-full object-cover"
+              playsInline
+              muted
+              autoPlay
+            />
+
+            {phase === "order" && order ? (
+              <div className="relative z-10 flex min-h-0 flex-1 flex-col bg-[#0A0A0A]">
+                <div className="shrink-0 border-b border-zinc-800 px-5 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-500/20">
+                        <Package className="h-6 w-6 text-violet-400" />
+                      </span>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                          Pedido de retiro
+                        </p>
+                        <p className="mt-0.5 text-lg font-black tracking-tighter text-white">
+                          {order.items.reduce((n, i) => n + i.quantity, 0)} consumiciones
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider",
+                        order.status === "PENDING" &&
+                          "bg-amber-500/15 text-amber-400",
+                        order.status === "DELIVERED" &&
+                          "bg-emerald-500/15 text-emerald-400",
+                        order.status === "CANCELLED" && "bg-red-500/15 text-red-400"
+                      )}
+                    >
+                      {order.status === "PENDING"
+                        ? "Pendiente"
+                        : order.status === "DELIVERED"
+                          ? "Entregado"
+                          : "Cancelado"}
+                    </span>
                   </div>
                 </div>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider",
-                    order.status === "PENDING" &&
-                      "bg-amber-500/15 text-amber-400",
-                    order.status === "DELIVERED" &&
-                      "bg-emerald-500/15 text-emerald-400",
-                    order.status === "CANCELLED" && "bg-red-500/15 text-red-400"
-                  )}
-                >
-                  {order.status === "PENDING"
-                    ? "Pendiente"
-                    : order.status === "DELIVERED"
-                      ? "Entregado"
-                      : "Cancelado"}
-                </span>
-              </div>
-            </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-              {order.items.length === 0 ? (
-                <p className="py-10 text-center text-base text-zinc-500">
-                  Este pedido no tiene items.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {order.items.map((item) => {
-                    const isServed = servedProductIds.has(item.productId)
-                    return (
-                      <li
-                        key={item.productId}
-                        role="button"
-                        tabIndex={orderDelivered ? -1 : 0}
-                        aria-pressed={isServed}
-                        onClick={() => !orderDelivered && toggleServedProduct(item.productId)}
-                        onKeyDown={(event) => {
-                          if (!orderDelivered && (event.key === "Enter" || event.key === " ")) {
-                            event.preventDefault()
-                            toggleServedProduct(item.productId)
-                          }
-                        }}
-                        className={cn(
-                          "flex cursor-pointer items-center gap-4 rounded-2xl border p-4 transition-colors active:scale-[0.99]",
-                          isServed
-                            ? "border-emerald-400 bg-emerald-400 text-emerald-950"
-                            : "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15",
-                          orderDelivered && "cursor-default opacity-50"
-                        )}
-                      >
-                        <span className={cn(
-                          "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-black",
-                          isServed ? "bg-emerald-950/15 text-emerald-950" : "bg-emerald-500/20 text-emerald-300"
-                        )}>
-                          {item.quantity}×
-                        </span>
-                        <p className={cn("flex-1 text-xl font-black tracking-tight", isServed ? "text-emerald-950" : "text-white")}>
-                          {item.productName}
-                        </p>
-                        <Check className={cn("h-6 w-6 shrink-0", isServed ? "text-emerald-950" : "text-emerald-400/50")} />
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-
-              {hasStockShortages ? (
-                <section className="mt-5 rounded-2xl border border-red-400/50 bg-red-500/15 p-4" aria-live="assertive">
-                  <div className="flex items-center gap-2 text-red-300">
-                    <AlertTriangle className="h-5 w-5 shrink-0" />
-                    <p className="font-black">No alcanza el stock para entregar este pedido</p>
-                  </div>
-                  <ul className="mt-3 space-y-2">
-                    {order.stockShortages?.map((shortage) => (
-                      <li key={shortage.inventoryItemId} className="text-sm font-semibold text-red-100">
-                        {shortage.inventoryItemName}: hay {shortage.available}, se necesitan {shortage.required}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {orderDelivered ? (
-                <p className={cn(
-                  "mt-5 px-4 py-8 text-center text-2xl font-black uppercase leading-tight tracking-tight",
-                  order.status === "DELIVERED" ? "bg-red-700 text-white" : "rounded-2xl border border-zinc-800 bg-zinc-900/60 text-zinc-400"
-                )}>
-                  {order.status === "DELIVERED"
-                    ? "Este pedido ya fue entregado"
-                    : "Este pedido fue cancelado."}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="shrink-0 space-y-3 border-t border-zinc-800 bg-[#0A0A0A]/95 px-4 py-4 backdrop-blur-md">
-              {order.status === "PENDING" ? (
-                <Button
-                  type="button"
-                  disabled={delivering || hasStockShortages}
-                  onClick={() => void handleDeliver()}
-                  className="h-16 w-full gap-2 rounded-2xl bg-emerald-500 text-lg font-black tracking-tight text-emerald-950 transition-all duration-300 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-60"
-                >
-                  {delivering ? (
-                    <span className="animate-pulse">Entregando…</span>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                  {order.items.length === 0 ? (
+                    <p className="py-10 text-center text-base text-zinc-500">
+                      Este pedido no tiene items.
+                    </p>
                   ) : (
-                    <>
-                      <Check className="h-6 w-6" />
-                      Entregado y volver a escanear
-                    </>
+                    <ul className="flex flex-col gap-3">
+                      {order.items.map((item) => {
+                        const isServed = servedProductIds.has(item.productId)
+                        return (
+                          <li
+                            key={item.productId}
+                            role="button"
+                            tabIndex={orderDelivered ? -1 : 0}
+                            aria-pressed={isServed}
+                            onClick={() => !orderDelivered && toggleServedProduct(item.productId)}
+                            onKeyDown={(event) => {
+                              if (!orderDelivered && (event.key === "Enter" || event.key === " ")) {
+                                event.preventDefault()
+                                toggleServedProduct(item.productId)
+                              }
+                            }}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-4 rounded-2xl border p-4 transition-colors active:scale-[0.99]",
+                              isServed
+                                ? "border-emerald-400 bg-emerald-400 text-emerald-950"
+                                : "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15",
+                              orderDelivered && "cursor-default opacity-50"
+                            )}
+                          >
+                            <span className={cn(
+                              "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-black",
+                              isServed ? "bg-emerald-950/15 text-emerald-950" : "bg-emerald-500/20 text-emerald-300"
+                            )}>
+                              {item.quantity}×
+                            </span>
+                            <p className={cn("flex-1 text-xl font-black tracking-tight", isServed ? "text-emerald-950" : "text-white")}>
+                              {item.productName}
+                            </p>
+                            <Check className={cn("h-6 w-6 shrink-0", isServed ? "text-emerald-950" : "text-emerald-400/50")} />
+                          </li>
+                        )
+                      })}
+                    </ul>
                   )}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                className="mx-auto h-10 w-auto px-4 text-sm font-medium text-zinc-500 hover:bg-transparent hover:text-zinc-300"
-                onClick={resumeScanning}
-              >
-                No entregado
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="relative flex min-h-0 flex-1 flex-col bg-black">
-            {cameraError ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-                <p className="text-lg font-semibold text-red-400">{cameraError}</p>
+
+                  {hasStockShortages ? (
+                    <section className="mt-5 rounded-2xl border border-red-400/50 bg-red-500/15 p-4" aria-live="assertive">
+                      <div className="flex items-center gap-2 text-red-300">
+                        <AlertTriangle className="h-5 w-5 shrink-0" />
+                        <p className="font-black">No alcanza el stock para entregar este pedido</p>
+                      </div>
+                      <ul className="mt-3 space-y-2">
+                        {order.stockShortages?.map((shortage) => (
+                          <li key={shortage.inventoryItemId} className="text-sm font-semibold text-red-100">
+                            {shortage.inventoryItemName}: hay {shortage.available}, se necesitan {shortage.required}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
+
+                  {orderDelivered ? (
+                    <p className={cn(
+                      "mt-5 px-4 py-8 text-center text-2xl font-black uppercase leading-tight tracking-tight",
+                      order.status === "DELIVERED" ? "bg-red-700 text-white" : "rounded-2xl border border-zinc-800 bg-zinc-900/60 text-zinc-400"
+                    )}>
+                      {order.status === "DELIVERED"
+                        ? "Este pedido ya fue entregado"
+                        : "Este pedido fue cancelado."}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="shrink-0 space-y-3 border-t border-zinc-800 bg-[#0A0A0A]/95 px-4 py-4 backdrop-blur-md">
+                  {order.status === "PENDING" ? (
+                    <Button
+                      type="button"
+                      disabled={delivering || hasStockShortages}
+                      onClick={() => void handleDeliver()}
+                      className="h-16 w-full gap-2 rounded-2xl bg-emerald-500 text-lg font-black tracking-tight text-emerald-950 transition-all duration-300 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-60"
+                    >
+                      {delivering ? (
+                        <span className="animate-pulse">Entregando…</span>
+                      ) : (
+                        <>
+                          <Check className="h-6 w-6" />
+                          Entregado y volver a escanear
+                        </>
+                      )}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="mx-auto h-10 w-auto px-4 text-sm font-medium text-zinc-500 hover:bg-transparent hover:text-zinc-300"
+                    onClick={resumeScanning}
+                  >
+                    No entregado
+                  </Button>
+                </div>
+              </div>
+            ) : scanError ? (
+              <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 bg-[#0A0A0A] px-6 text-center">
+                <p className="text-lg font-semibold text-red-400">{scanError}</p>
                 <Button
                   type="button"
                   className="h-14 min-w-[220px] rounded-2xl bg-violet-600 text-base font-bold text-white transition-all duration-300 hover:bg-violet-500 active:scale-[0.98]"
@@ -782,24 +755,18 @@ export function PosScannerModal({
                 </Button>
               </div>
             ) : (
-              <>
-                <div
-                  id={readerIdRef.current}
-                  className="min-h-0 flex-1 [&_video]:object-cover"
-                />
-                <div className="shrink-0 border-t border-zinc-800 bg-[#0A0A0A]/95 px-4 py-4 backdrop-blur-md">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-14 w-full rounded-2xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 transition-all duration-300 hover:bg-zinc-800 active:scale-[0.98]"
-                    onClick={toggleScanMode}
-                  >
-                    {torchDesired
-                      ? "Cambiar a app / celular"
-                      : "Cambiar a ticket / papel"}
-                  </Button>
-                </div>
-              </>
+              <div className="relative z-10 mt-auto shrink-0 border-t border-zinc-800 bg-[#0A0A0A]/95 px-4 py-4 backdrop-blur-md">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-14 w-full rounded-2xl border border-zinc-700 bg-zinc-900 text-base font-semibold text-zinc-100 transition-all duration-300 hover:bg-zinc-800 active:scale-[0.98]"
+                  onClick={toggleScanMode}
+                >
+                  {torchDesired
+                    ? "Cambiar a app / celular"
+                    : "Cambiar a ticket / papel"}
+                </Button>
+              </div>
             )}
           </div>
         )}

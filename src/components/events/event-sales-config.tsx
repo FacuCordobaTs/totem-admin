@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Copy, Loader2 } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiEvent } from "@/types/events"
@@ -140,6 +141,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const [savedAt, setSavedAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedAccess, setCopiedAccess] = useState(false)
   const supportsConsumptions = eventSupportsConsumptions(
     event.operationMode ?? "FULL_OPERATION"
   )
@@ -174,6 +176,9 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   }, [])
 
   const slugTrimmed = slug.trim()
+  // Sin slug el backend resuelve el evento por id, así que el link de acceso siempre existe.
+  const accessPath = slugTrimmed || event.id
+  const accessUrl = `https://crow.ar/${accessPath}/acceso`
   const slugError =
     slugTrimmed !== "" && !isValidSlug(slugTrimmed)
       ? "Solo minúsculas, números y guiones (ej: fiesta-verano)"
@@ -323,6 +328,47 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
 
       {!onlySlug ? (
         <>
+          {/* Link de acceso del cliente (`crow.ar/{slug}/acceso`): es el que se imprime para la
+              barra. El cliente lo escanea, entra con su DNI o celular y recibe un código por
+              WhatsApp — sin depender del link que le llegó al mail. */}
+          <div className="mt-8 space-y-3 rounded-xl bg-zinc-950 p-4 ring-1 ring-white/[0.06]">
+            <div>
+              <p className="text-md font-medium text-[#98989D]">
+                Link de acceso del cliente
+              </p>
+              <p className="mt-0.5 text-[12px] text-[#8E8E93] dark:text-[#98989D]">
+                Para la barra: el cliente lo escanea, entra con su DNI o celular y recibe un
+                código por WhatsApp.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-md text-[#8E8E93] dark:text-[#98989D]">
+              <span className="font-mono break-all">crow.ar/{accessPath}/acceso</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(accessUrl)
+                    setCopiedAccess(true)
+                    window.setTimeout(() => setCopiedAccess(false), 2000)
+                  } catch {
+                    /* clipboard unavailable */
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-white/40 transition-colors hover:text-white/70"
+              >
+                {copiedAccess ? (
+                  <Check className="h-3 w-3 text-emerald-400" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+                {copiedAccess ? "Copiado" : "Copiar"}
+              </button>
+            </div>
+            <div className="w-fit rounded-xl bg-white p-3">
+              <QRCodeSVG value={accessUrl} size={144} level="M" includeMargin />
+            </div>
+          </div>
+
           <div className={`mt-6 grid gap-6 ${supportsConsumptions ? "sm:grid-cols-2" : ""}`}>
             <DateTimeField
               id={`sales-tickets-${event.id}`}
