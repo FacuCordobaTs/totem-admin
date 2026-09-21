@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
-import { Check } from "lucide-react"
+import { Link } from "react-router"
+import { Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -24,9 +25,20 @@ type MpConnectionCardProps = {
   tenantId: string | null
   token: string | null
   className?: string
+  /**
+   * `card` (Cuenta → Pagos): la tarjeta con título, detalle de cuenta y desconexión.
+   * `inline` (header del evento): un solo control compacto que entra en la fila de acciones
+   * junto a "Abrir venta", sin arrastrar el layout de tarjeta.
+   */
+  variant?: "card" | "inline"
 }
 
-export function MpConnectionCard({ tenantId, token, className }: MpConnectionCardProps) {
+export function MpConnectionCard({
+  tenantId,
+  token,
+  className,
+  variant = "card",
+}: MpConnectionCardProps) {
   const [status, setStatus] = useState<MpStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
@@ -92,6 +104,52 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
     return null
   }
 
+  // Inline: mismo alto que los botones del header (h-9) y un solo elemento. Desconectado es la
+  // acción que destraba "Abrir venta"; conectado, un chip de estado que no compite con el CTA.
+  if (variant === "inline") {
+    if (loading) {
+      return (
+        <div
+          aria-hidden
+          className={cn("h-9 w-40 animate-pulse rounded-lg bg-white/[0.04]", className)}
+        />
+      )
+    }
+    if (!connected) {
+      return (
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={!token || connecting}
+          onClick={() => void handleConnect()}
+          className={cn(
+            "h-9 shrink-0 gap-1.5 rounded-lg border border-white/[0.15] bg-white/[0.05] px-4 text-[13px] font-medium text-white/70",
+            "hover:bg-white/[0.08] hover:text-white/90 disabled:opacity-40",
+            className
+          )}
+        >
+          {connecting && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+          {connecting ? "Conectando…" : "Conectar Mercado Pago"}
+        </Button>
+      )
+    }
+    return (
+      <Link
+        to="/configuracion"
+        aria-label="Mercado Pago conectado. Ver la configuración de pagos."
+        className={cn(
+          "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-3",
+          "text-[12px] font-medium text-emerald-300/90 transition-colors",
+          "hover:border-emerald-500/30 hover:bg-emerald-500/[0.12]",
+          className
+        )}
+      >
+        <Check className="h-3.5 w-3.5" aria-hidden />
+        Mercado Pago conectado
+      </Link>
+    )
+  }
+
   return (
     <Card
       className={cn(
@@ -114,7 +172,7 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
         ) : !connected ? (
           <div className="space-y-4">
             <p className="text-[15px] leading-relaxed text-zinc-300">
-              Connect Mercado Pago to receive payments directly into your account.
+              Conectá Mercado Pago para recibir los cobros directo en tu cuenta.
             </p>
             <Button
               type="button"
@@ -154,7 +212,7 @@ export function MpConnectionCard({ tenantId, token, className }: MpConnectionCar
               onClick={() => void handleDisconnect()}
               className="w-full rounded-xl border border-red-500/30 bg-red-950/80 text-red-200 hover:bg-red-900/90 sm:w-auto"
             >
-              {disconnecting ? "Desconectando…" : "Disconnect"}
+              {disconnecting ? "Desconectando…" : "Desconectar"}
             </Button>
           </div>
         )}

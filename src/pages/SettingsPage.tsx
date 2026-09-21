@@ -138,7 +138,7 @@ export function SettingsPage() {
               </section>
 
               <section className="space-y-4">
-                <div><h2 className="text-xl font-bold tracking-tight text-foreground">WhatsApp</h2><p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">Configurá los mensajes para tus clientes y tu equipo.</p></div>
+                <div><h2 className="text-xl font-bold tracking-tight text-foreground">WhatsApp</h2><p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">Así salen los mensajes a tus clientes y tu equipo.</p></div>
                 {hasTenant ? <WhatsAppConnectionCard tenantId={tenantId} token={token} /> : null}
               </section>
             </>

@@ -646,7 +646,7 @@ function PrimaryStateAction({
         : error
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <MpConnectionCard tenantId={tenantId} token={token} />
+        <MpConnectionCard tenantId={tenantId} token={token} variant="inline" />
         {reason && (
           <span className="order-2 text-[13px] text-white/40 sm:order-1">
             {reason}
