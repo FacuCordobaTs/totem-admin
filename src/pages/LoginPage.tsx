@@ -1,13 +1,16 @@
 import { useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
 import { ArrowLeft, Eye, EyeOff, ShieldCheck, Store, UserRoundCog } from "lucide-react"
+import { isTauri } from "@tauri-apps/api/core"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
+import { DeviceLinkPanel } from "@/components/auth/device-link-panel"
 import { cn } from "@/lib/utils"
+import { homeForRole } from "@/lib/staff-home"
 import { getStaffLoginUrl } from "@/lib/staff-app-url"
 
 type LoginResponse = {
@@ -94,15 +97,7 @@ export function LoginPage() {
 
       const loginData = data as LoginResponse
       setAuth(loginData.token, loginData.staff)
-      const home =
-        loginData.staff.role === "BARTENDER"
-          ? "/pos"
-          : loginData.staff.role === "SECURITY"
-            ? "/scanner"
-            : loginData.staff.role === "PROMOTER"
-              ? "/promotor"
-            : "/"
-      navigate(home, { replace: true })
+      navigate(homeForRole(loginData.staff.role), { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión")
     } finally {
@@ -164,11 +159,27 @@ export function LoginPage() {
             />
           </div>
         ) : !showCredentials && entryMode !== "admin" ? (
-          <PhoneHandoff
-            mode={entryMode}
-            onBack={goBackToModes}
-            onUseThisDevice={() => setShowCredentials(true)}
-          />
+          // En la app de Windows el QR vincula esta computadora con la sesión del teléfono; en el
+          // navegador sigue sirviendo para abrir el módulo en el teléfono.
+          isTauri() ? (
+            <DeviceLinkPanel
+              access={entryMode}
+              title={roleHandoff[entryMode].title}
+              icon={roleHandoff[entryMode].icon}
+              onLinked={(token, staff) => {
+                setAuth(token, staff)
+                navigate(homeForRole(staff.role), { replace: true })
+              }}
+              onBack={goBackToModes}
+              onUseThisDevice={() => setShowCredentials(true)}
+            />
+          ) : (
+            <PhoneHandoff
+              mode={entryMode}
+              onBack={goBackToModes}
+              onUseThisDevice={() => setShowCredentials(true)}
+            />
+          )
         ) : (
           <>
             <div className="mb-7 text-center">

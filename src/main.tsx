@@ -19,6 +19,7 @@ import { PublicEventPage } from "@/pages/PublicEventPage"
 import { ReportPage } from "@/pages/ReportPage"
 import { JoinPage } from "@/pages/JoinPage"
 import { AccessPage } from "@/pages/AccessPage"
+import { DeviceLinkPage } from "@/pages/DeviceLinkPage"
 import { PosSessionPage } from "@/pages/PosSessionPage"
 import { PromoterPage } from "@/pages/PromoterPage"
 import { RequireAuth } from "@/components/auth/RequireAuth"
@@ -56,6 +57,8 @@ const router = createBrowserRouter([
   { path: "/e/:id", element: <LegacyPublicEventRedirect /> },
   { path: "/unirse/:token", element: <JoinPage /> },
   { path: "/acceso/:token", element: <AccessPage /> },
+  // Mitad móvil de la vinculación de equipo: necesita la sesión iniciada para aprobar.
+  { path: "/vincular/:code", element: <DeviceLinkPage /> },
   { path: "/pos/sesion/:token", element: <PosSessionPage /> },
   {
     path: "/login",

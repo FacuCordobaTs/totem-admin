@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
+import { homeForRole } from "@/lib/staff-home"
 
 type AccessResponse = {
   message: string
@@ -14,13 +15,6 @@ type AccessResponse = {
 type TenantSelectionResponse = {
   requiresTenantSelection: true
   options: { staffId: string; tenantName: string }[]
-}
-
-function homeForRole(role: StaffProfile["role"]): string {
-  if (role === "BARTENDER") return "/pos"
-  if (role === "SECURITY") return "/scanner"
-  if (role === "PROMOTER") return "/promotor"
-  return "/"
 }
 
 export function AccessPage() {

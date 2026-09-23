@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
+import { homeForRole } from "@/lib/staff-home"
 
 type AcceptResponse = {
   message: string
@@ -27,15 +28,7 @@ export function JoinPage() {
           body: JSON.stringify({}),
         })
         setAuth(data.token, data.staff)
-        const home =
-          data.staff.role === "BARTENDER"
-            ? "/pos"
-            : data.staff.role === "SECURITY"
-              ? "/scanner"
-              : data.staff.role === "PROMOTER"
-                ? "/promotor"
-              : "/"
-        navigate(home, { replace: true })
+        navigate(homeForRole(data.staff.role), { replace: true })
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión")
       }
