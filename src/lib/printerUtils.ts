@@ -167,6 +167,11 @@ export interface SaleItemPrintData {
 export interface SalePrintData {
     id: string;
     receiptToken?: string | null;
+    /**
+     * Token del QR del pedido completo impreso en el recibo. El barman lo escanea en el POS
+     * y sirve la venta entera; `null` deja el recibo sin QR (venta sólo de carga de saldo).
+     */
+    orderQrToken?: string | null;
     totalAmount: number | string;
     paymentMethod: 'CASH' | 'CARD' | 'MERCADOPAGO' | 'TRANSFER' | 'SALDO';
     staffName?: string | null;
@@ -287,6 +292,21 @@ export function formatReciboVentaBarra(
 
     cmds.push(...CMD.FEED);
     cmds.push(...CMD.ALIGN_CENTER);
+
+    // QR del pedido completo: el barman lo escanea en el POS y sirve toda la venta de una vez
+    // (GET/POST /bars/:barId/sales/:receiptToken). Es el único camino escaneable de una venta
+    // anónima, que antes no imprimía ningún QR.
+    if (sale.orderQrToken) {
+        cmds.push(...CMD.SIZE_DOUBLE_HEIGHT, ...CMD.BOLD_ON);
+        cmds.push(...line('ENTREGA'));
+        cmds.push(...CMD.BOLD_OFF, ...CMD.SIZE_NORMAL);
+        cmds.push(...line('Presenta este QR en la barra'));
+        cmds.push(...line('para servir tu pedido'));
+        cmds.push(...CMD.FEED);
+        cmds.push(...qrCodeCommand(sale.orderQrToken));
+        cmds.push(...CMD.FEED);
+    }
+
     if (sale.receiptToken) cmds.push(...line('Comprobante: ' + sale.receiptToken));
     cmds.push(...line('Gracias por tu compra!'));
 

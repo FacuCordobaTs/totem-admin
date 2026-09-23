@@ -68,22 +68,29 @@ type StockShortage = {
   available: string
 }
 
-/** Pedido de retiro (GET /bars/:barId/pickups/:token). */
-type PickupOrderView = {
+/**
+ * Payload de los dos previews escaneables: `GET /bars/:barId/pickups/:token` (pedido de retiro
+ * armado en la app) y `GET /bars/:barId/sales/:receiptToken` (venta completa, o sea el QR del
+ * ticket impreso en el POS). El segundo lista sólo lo que sigue PENDING.
+ */
+type OrderPayload = {
   token: string
   status: "PENDING" | "DELIVERED" | "CANCELLED"
   items: PickupOrderItem[]
   stockShortages?: StockShortage[]
 }
 
-/** Respuesta de POST /bars/:barId/pickups/:token/deliver. */
+/** Preview ya validado, más por qué camino entró: cambia la URL de entrega. */
+type OrderView = OrderPayload & { kind: "pickup" | "sale" }
+
+/** Respuesta de POST /bars/:barId/{pickups|sales}/:token/deliver. */
 type DeliverResponse = {
   ok: boolean
   items: PickupOrderItem[]
   totalAmount?: string
 }
 
-type ScannedPickup = PickupOrderView & {
+type ScannedPickup = OrderView & {
   scannedAt: number
 }
 
@@ -113,8 +120,8 @@ export function PosScannerModal({
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [closeConfirmationOpen, setCloseConfirmationOpen] = useState(false)
 
-  // Pedido de retiro (4.3): el QR escaneado era un pedido → ver lista, entregar.
-  const [order, setOrder] = useState<PickupOrderView | null>(null)
+  // Pedido de retiro (4.3) o venta completa: el QR escaneado era un pedido → ver lista, entregar.
+  const [order, setOrder] = useState<OrderView | null>(null)
   const [delivering, setDelivering] = useState(false)
   const [scannedPickups, setScannedPickups] = useState<ScannedPickup[]>([])
   const [pickupHistoryPage, setPickupHistoryPage] = useState(1)
@@ -259,6 +266,20 @@ export function PosScannerModal({
     }
   }, [resumeScan])
 
+  // Pantalla de entrega compartida por pedido de retiro y venta completa.
+  const openOrder = useCallback((kind: OrderView["kind"], found: OrderPayload) => {
+    playScannerSound("success")
+    setScannedPickups((current) => [
+      { ...found, kind, scannedAt: Date.now() },
+      ...current,
+    ])
+    setPickupHistoryPage(1)
+    setOrder({ ...found, kind })
+    setServedProductIds(new Set())
+    isProcessingRef.current = false
+    setPhase("order")
+  }, [])
+
   const handleDecoded = useCallback(
     async (decodedText: string) => {
       if (isProcessingRef.current) return
@@ -270,24 +291,18 @@ export function PosScannerModal({
 
       isProcessingRef.current = true
       // El loop ya quedó pausado por `pauseOnResult`: no hace falta pausar acá.
+      // `encodeURIComponent` en ambos segmentos: sin él un payload tipo `a/../b` deja que
+      // `fetch` normalice el path y la rama elegida deje de ser la que decodificó el QR.
+      const segment = encodeURIComponent(qrHash)
 
-      // 1) ¿Es un QR de pedido? GET idempotente. Si 404 → no es pedido, cae al canje 1×1.
+      // 1) ¿Es un QR de pedido de retiro? GET idempotente. Si 404 → probamos la venta.
       //    Cualquier otro error (ej. pedido de otro evento, 400) se muestra, no se canjea.
       try {
-        const found = await apiFetch<PickupOrderView>(
-          `/bars/${b}/pickups/${qrHash}`,
+        const found = await apiFetch<OrderPayload>(
+          `/bars/${b}/pickups/${segment}`,
           { method: "GET", token: t }
         )
-        playScannerSound("success")
-        setScannedPickups((current) => [
-          { ...found, scannedAt: Date.now() },
-          ...current,
-        ])
-        setPickupHistoryPage(1)
-        setOrder(found)
-        setServedProductIds(new Set())
-        isProcessingRef.current = false
-        setPhase("order")
+        openOrder("pickup", found)
         return
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 404)) {
@@ -298,10 +313,27 @@ export function PosScannerModal({
         }
       }
 
-      // 2) QR individual de consumición.
+      // 2) ¿Es el QR del ticket impreso en el POS (venta completa)? Si 404 → canje 1×1.
+      try {
+        const found = await apiFetch<OrderPayload>(
+          `/bars/${b}/sales/${segment}`,
+          { method: "GET", token: t }
+        )
+        openOrder("sale", found)
+        return
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404)) {
+          const message =
+            e instanceof ApiError ? e.message : "No se pudo validar el código"
+          setOverlay({ kind: "error", message: message.toUpperCase() })
+          return
+        }
+      }
+
+      // 3) QR individual de consumición.
       await redeemSingle(qrHash)
     },
-    [redeemSingle]
+    [redeemSingle, openOrder]
   )
 
   // Refs de "último valor", sincronizados en un efecto y no durante el render: los leen el
@@ -327,8 +359,10 @@ export function PosScannerModal({
     if ((order.stockShortages?.length ?? 0) > 0) return
     setDelivering(true)
     try {
+      // La venta del ticket se entrega por comprobante; el resto del flujo es idéntico.
+      const path = order.kind === "pickup" ? "pickups" : "sales"
       const res = await apiFetch<DeliverResponse>(
-        `/bars/${barId}/pickups/${order.token}/deliver`,
+        `/bars/${barId}/${path}/${encodeURIComponent(order.token)}/deliver`,
         { method: "POST", token }
       )
       playScannerSound("success")
@@ -496,17 +530,17 @@ export function PosScannerModal({
                 </span>
               </Button>
             </div>
-            <section className="border-t border-zinc-800 pt-6" aria-labelledby="scanned-pickups-title">
+            <section className="border-t border-zinc-800 pt-6" aria-labelledby="scanned-orders-title">
               <div className="flex items-center gap-2">
                 <History className="h-5 w-5 text-violet-400" />
-                <h2 id="scanned-pickups-title" className="text-base font-black text-white">
-                  Últimos retiros escaneados
+                <h2 id="scanned-orders-title" className="text-base font-black text-white">
+                  Últimos pedidos escaneados
                 </h2>
               </div>
 
               {pickupHistoryItems.length === 0 ? (
                 <p className="py-5 text-sm text-zinc-500">
-                  Los retiros que escanees aparecerán acá.
+                  Los pedidos que escanees aparecerán acá.
                 </p>
               ) : (
                 <>
@@ -615,7 +649,9 @@ export function PosScannerModal({
                       </span>
                       <div>
                         <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
-                          Pedido de retiro
+                          {order.kind === "pickup"
+                            ? "Pedido de retiro"
+                            : "Comprobante de venta"}
                         </p>
                         <p className="mt-0.5 text-lg font-black tracking-tighter text-white">
                           {order.items.reduce((n, i) => n + i.quantity, 0)} consumiciones

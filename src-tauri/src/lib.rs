@@ -156,11 +156,66 @@ fn save_debug_print_job(app: &AppHandle, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Encoder QR vendorizado desde `qrcode.react` (Project Nayuki, MIT): el mismo con el que el
+/// admin dibuja los QR que se escanean en producción. Se copia en vez de importarse porque esta
+/// vista previa es un HTML autónomo que se abre desde el disco, sin bundler y sin red: los
+/// payloads son capabilities y no pueden salir a un servicio externo para "generar la imagen".
+const DEBUG_PREVIEW_QR_ENCODER_JS: &str = include_str!("debug-preview-qr.js");
+
+/// Dibuja cada `.qr-canvas[data-payload]` como SVG, replicando el comando `GS ( k` que emite
+/// `printerUtils.ts`: modelo 2, byte mode, ECC M, versión y máscara automáticas. Sin `boostEcl`,
+/// para que el patrón sea el mismo que el de la térmica. El payload se lee del atributo como
+/// dato y nunca se interpola en el markup.
+const DEBUG_PREVIEW_QR_RENDERER_JS: &str = r##"(function () {
+  var canvases = document.querySelectorAll(".qr-canvas[data-payload]");
+  for (var c = 0; c < canvases.length; c++) {
+    var payload = canvases[c].getAttribute("data-payload") || "";
+    var bytes = [];
+    for (var i = 0; i < payload.length; i++) bytes.push(payload.charCodeAt(i) & 0xff);
+    var qr;
+    try {
+      qr = qrcodegen.QrCode.encodeSegments(
+        [qrcodegen.QrSegment.makeBytes(bytes)],
+        qrcodegen.QrCode.Ecc.MEDIUM, 1, 40, -1, false
+      );
+    } catch (error) {
+      continue;
+    }
+    var margin = 4;
+    var span = qr.size + margin * 2;
+    var ops = [];
+    for (var y = 0; y < qr.size; y++) {
+      for (var x = 0; x < qr.size; x++) {
+        if (qr.getModule(x, y)) ops.push("M" + (x + margin) + " " + (y + margin) + "h1v1h-1z");
+      }
+    }
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 " + span + " " + span);
+    svg.setAttribute("shape-rendering", "crispEdges");
+    var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", ops.join(""));
+    path.setAttribute("fill", "#000");
+    svg.appendChild(path);
+    canvases[c].appendChild(svg);
+    var figure = canvases[c].parentNode;
+    var fallback = figure ? figure.querySelector(".qr-fallback") : null;
+    if (fallback) fallback.hidden = true;
+  }
+})();"##;
+
+const DEBUG_PREVIEW_CSS: &str = r##"body{margin:0;background:#f4f4f4;font-family:Arial,sans-serif}main{width:58mm;margin:24px auto;padding:7mm;background:#fff;box-shadow:0 2px 12px #0003}h1{font-size:12px;margin:0 0 5mm;text-align:center}p{font-size:9px;color:#555;line-height:1.4}pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.35 'Courier New',monospace;color:#000}figure.qr{margin:5mm 0;display:flex;justify-content:center}figure.qr .qr-fallback{font:12px/1.35 'Courier New',monospace;color:#000}figure.qr svg{width:40mm;height:40mm}@media print{body{background:#fff}main{margin:0;box-shadow:none}figure.qr{break-inside:avoid}}"##;
+
 /// Intérprete deliberadamente pequeño del subconjunto ESC/POS que genera
 /// `printerUtils.ts`: texto, saltos de línea y los payloads de QR. No sustituye
 /// al archivo RAW; existe exclusivamente para que la comanda sea inspeccionable.
+///
+/// Los payloads de QR se emiten como un `<figure>` con un SVG que dibuja el script embebido, más
+/// el texto `[QR: ...]` como respaldo (sin JS, o si el encoder falla, se sigue leyendo el token).
+/// El marcado se arma escapando cada tramo de texto al agregarlo: nunca se interpola contenido
+/// del RAW sin escapar.
 fn render_debug_preview(content: &[u8]) -> String {
     let mut text = String::new();
+    let mut body = String::new();
     let mut index = 0;
 
     while index < content.len() {
@@ -189,10 +244,15 @@ fn render_debug_preview(content: &[u8]) -> String {
                     && content[index + 6] == 0x50
                     && content[index + 7] == 0x30
                 {
-                    let payload = &content[index + 8..command_end];
-                    text.push_str("[QR: ");
-                    text.push_str(&String::from_utf8_lossy(payload));
-                    text.push_str("]\n");
+                    let payload = escape_html(&String::from_utf8_lossy(
+                        &content[index + 8..command_end],
+                    ));
+                    flush_text(&mut text, &mut body);
+                    body.push_str(r#"<figure class="qr"><span class="qr-fallback">[QR: "#);
+                    body.push_str(&payload);
+                    body.push_str(r#"]</span><div class="qr-canvas" data-payload=""#);
+                    body.push_str(&payload);
+                    body.push_str(r#""></div></figure>"#);
                 }
                 index = command_end;
             }
@@ -208,14 +268,35 @@ fn render_debug_preview(content: &[u8]) -> String {
             _ => index += 1,
         }
     }
+    flush_text(&mut text, &mut body);
 
-    let escaped_text = escape_html(&text);
     format!(
         r#"<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><title>Vista previa de comanda</title>
-<style>body{{margin:0;background:#f4f4f4;font-family:Arial,sans-serif}}main{{width:58mm;margin:24px auto;padding:7mm;background:#fff;box-shadow:0 2px 12px #0003}}h1{{font-size:12px;margin:0 0 5mm;text-align:center}}p{{font-size:9px;color:#555;line-height:1.4}}pre{{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.35 'Courier New',monospace;color:#000}}@media print{{body{{background:#fff}}main{{margin:0;box-shadow:none}}}}</style>
-</head><body><main><h1>COMANDA — VISTA PREVIA</h1><p>Archivo generado por la impresora de debug de Crow. El archivo .escpos homónimo contiene los bytes RAW originales para un visor o impresora ESC/POS.</p><pre>{escaped_text}</pre></main></body></html>"#
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>{css}</style>
+</head><body><main><h1>COMANDA — VISTA PREVIA</h1><p>Archivo generado por la impresora de debug de Crow. El archivo .escpos homónimo contiene los bytes RAW originales para un visor o impresora ESC/POS.</p>{body}</main>
+<script>{encoder}</script>
+<script>{renderer}</script>
+</body></html>"#,
+        css = DEBUG_PREVIEW_CSS,
+        body = body,
+        encoder = DEBUG_PREVIEW_QR_ENCODER_JS,
+        renderer = DEBUG_PREVIEW_QR_RENDERER_JS,
     )
+}
+
+/// Vuelca el texto acumulado como un `<pre>` y lo limpia, para poder intercalar los QR en su
+/// posición dentro de la comanda. El `pre-wrap` hace que varios `<pre>` seguidos se vean igual
+/// que uno solo.
+fn flush_text(text: &mut String, body: &mut String) {
+    if text.is_empty() {
+        return;
+    }
+    body.push_str("<pre>");
+    body.push_str(&escape_html(text));
+    body.push_str("</pre>");
+    text.clear();
 }
 
 fn escape_html(text: &str) -> String {
@@ -230,6 +311,19 @@ fn escape_html(text: &str) -> String {
 mod tests {
     use super::render_debug_preview;
 
+    /// Secuencia `GS ( k` completa como la emite `qrCodeCommand`: modelo 2, módulo, ECC M,
+    /// guardar datos (lo único que interpreta el preview) e imprimir.
+    fn qr_commands(payload: &str) -> Vec<u8> {
+        let mut bytes = vec![0x1d, 0x28, 0x6b];
+        let length = payload.len() + 3;
+        bytes.push((length & 0xff) as u8);
+        bytes.push(((length >> 8) & 0xff) as u8);
+        bytes.extend_from_slice(&[0x31, 0x50, 0x30]);
+        bytes.extend_from_slice(payload.as_bytes());
+        bytes.extend_from_slice(&[0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30]);
+        bytes
+    }
+
     #[test]
     fn debug_preview_keeps_text_and_qr_payload_safe_for_html() {
         let bytes = [
@@ -241,6 +335,39 @@ mod tests {
 
         assert!(preview.contains("&lt;CROW&gt;"));
         assert!(preview.contains("[QR: QR1]"));
+    }
+
+    #[test]
+    fn debug_preview_exposes_the_qr_payload_and_an_offline_encoder() {
+        let token = "2f1c9d4e-6a7b-4c0e-9f21-0d3e5a7b8c90";
+        let mut bytes = vec![0x1b, 0x40];
+        bytes.extend_from_slice(&qr_commands(token));
+
+        let preview = render_debug_preview(&bytes);
+
+        // El payload queda disponible como dato para el renderer y como texto de respaldo.
+        assert!(preview.contains(&format!(r#"data-payload="{token}""#)));
+        assert!(preview.contains(&format!("[QR: {token}]")));
+        // El encoder viaja embebido y el CSP corta toda salida a la red: los tokens son
+        // capabilities y no pueden salir a un servicio externo que dibuje el QR.
+        assert!(preview.contains("Project Nayuki"));
+        assert!(preview.contains("qrcodegen.QrSegment.makeBytes"));
+        assert!(preview.contains("default-src 'none'"));
+        // Ningún recurso externo: el QR se dibuja con el encoder embebido, no con una imagen.
+        assert!(!preview.contains("<img"));
+        assert!(!preview.contains("src="));
+    }
+
+    #[test]
+    fn debug_preview_escapes_qr_payloads_instead_of_injecting_markup() {
+        let mut bytes = vec![0x1b, 0x40];
+        bytes.extend_from_slice(&qr_commands(r#""><script>alert(1)</script>"#));
+
+        let preview = render_debug_preview(&bytes);
+
+        assert!(!preview.contains("<script>alert(1)</script>"));
+        assert!(!preview.contains(r#""><script"#));
+        assert!(preview.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     }
 }
 

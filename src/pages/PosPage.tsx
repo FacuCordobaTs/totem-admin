@@ -328,6 +328,13 @@ export function PosPage() {
           {
             id: res.saleId,
             receiptToken: res.receiptToken ?? null,
+            // QR del pedido completo: sólo cuando la venta tiene productos. `receiptToken` es el
+            // token de la venta de productos (la carga de saldo no lo tiene), pero la venta mixta
+            // agrega una línea pseudo "Carga de saldo" al ticket, así que el discriminante se
+            // decide acá sobre el carrito real y no dentro del formatter.
+            orderQrToken: cart.some((c) => c.kind === "product")
+              ? res.receiptToken ?? null
+              : null,
             totalAmount: res.totalAmount,
             paymentMethod: mapPayment(paymentMethod),
             staffName,

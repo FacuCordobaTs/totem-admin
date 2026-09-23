@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `debug-preview-qr.js` es un asset vendorizado (encoder QR de Project Nayuki) que se embebe
+  // literal en la vista previa de debug de Tauri: no se lintea ni se formatea.
+  globalIgnores(['dist', 'src-tauri/src/debug-preview-qr.js']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
