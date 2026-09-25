@@ -27,6 +27,8 @@ import {
   X,
   AlertTriangle,
   Package,
+  EllipsisVertical,
+  LogOut,
 } from "lucide-react"
 import {
   Dialog,
@@ -40,6 +42,7 @@ import { cn } from "@/lib/utils"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { usePosSessionStore } from "@/stores/pos-session-store"
+import { usePosAssignmentStore } from "@/stores/pos-assignment-store"
 import type { ApiEvent } from "@/types/events"
 import { eventSupportsConsumptions } from "@/lib/event-operation-mode"
 import type { EventBarsResponse, EventSalesPageResponse } from "@/types/event-dashboard"
@@ -237,6 +240,15 @@ export function PosPage() {
         }
       : null
 
+  // Barra que el teléfono fijó a ESTA computadora al vincularla por QR. Persiste hasta reasignar,
+  // así que sobrevive al logout: si después entra un empleado con email y contraseña, el POS abre
+  // ya fijado a ese puesto.
+  const assignedShiftRaw = usePosAssignmentStore((s) => s.assignment)
+  const clearAssignment = usePosAssignmentStore((s) => s.clear)
+  const assignedShift: PosShift | null = assignedShiftRaw ? { ...assignedShiftRaw } : null
+  // Un puesto con PIN manda: mientras exista, la asignación por QR queda latente y no se valida.
+  const posSessionFixesBar = !!posSession?.barId
+
   const [shiftPhase, setShiftPhase] = useState<"idle" | "loading" | "ready">("idle")
   const [lockedShift, setLockedShift] = useState<PosShift | null>(null)
 
@@ -245,11 +257,14 @@ export function PosPage() {
   const [posBars, setPosBars] = useState<{ id: string; name: string }[]>([])
   const [posBarId, setPosBarId] = useState<string>("")
 
-  const hasDeviceShift = !!deviceShift
-  const boundShift = deviceShift ?? (isBartender ? lockedShift : null)
+  // Lo que fija ESTA computadora (puesto con PIN, o barra asignada por QR) manda sobre el turno
+  // propio del bartender.
+  const fixedShift = deviceShift ?? assignedShift
+  const hasFixedShift = !!fixedShift
+  const boundShift = fixedShift ?? (isBartender ? lockedShift : null)
   const hasBoundShift = !!boundShift
-  const shiftBound = hasDeviceShift || isBartender
-  const shiftResolving = isBartender && !deviceShift && shiftPhase !== "ready"
+  const shiftBound = hasFixedShift || isBartender
+  const shiftResolving = isBartender && !fixedShift && shiftPhase !== "ready"
 
   const activeEventId = boundShift ? boundShift.eventId : eventId
   const activeBarId = boundShift ? boundShift.barId : posBarId
@@ -283,6 +298,8 @@ export function PosPage() {
 
   const [chargeOpen, setChargeOpen] = useState(false)
   const [chargeAmount, setChargeAmount] = useState("")
+
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [historySales, setHistorySales] = useState<EventSalesPageResponse["sales"]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -386,7 +403,7 @@ export function PosPage() {
       setLockedShift(null)
       return
     }
-    if (!isBartender || hasDeviceShift) {
+    if (!isBartender || hasFixedShift) {
       setShiftPhase("ready")
       setLockedShift(null)
       return
@@ -403,10 +420,10 @@ export function PosPage() {
       .finally(() => {
         setShiftPhase("ready")
       })
-  }, [token, isBartender, hasDeviceShift])
+  }, [token, isBartender, hasFixedShift])
 
   useEffect(() => {
-    if (!token || isBartender || hasDeviceShift) {
+    if (!token || isBartender || hasFixedShift) {
       if (!token) setEvents([])
       return
     }
@@ -433,7 +450,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, isBartender, hasDeviceShift])
+  }, [token, isBartender, hasFixedShift])
 
   useEffect(() => {
     if (!token) return
@@ -502,7 +519,41 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, eventId, hasDeviceShift, isBartender, lockedShift])
+  }, [token, eventId, hasFixedShift, isBartender, lockedShift])
+
+  // La barra asignada por QR sobrevive al logout, así que puede quedar apuntando a un evento ya
+  // cerrado o a una barra desactivada: el POS quedaría fijo y sin selectores, sin salida salvo
+  // re-escanear. Se valida contra los mismos endpoints que usa el POS y, si el puesto ya no sirve,
+  // se libera avisando. Un fallo de red NO libera nada: no se desarma el puesto por un timeout.
+  useEffect(() => {
+    if (!token || !assignedShiftRaw || posSessionFixesBar) return
+    let cancelled = false
+    void (async () => {
+      let usable = false
+      try {
+        const evRes = await apiFetch<{ events: ApiEvent[] }>("/events", { method: "GET", token })
+        const ev = evRes.events.find((e) => e.id === assignedShiftRaw.eventId)
+        usable = !!ev && ev.status !== "closed" && eventSupportsConsumptions(ev.operationMode)
+        if (usable) {
+          const barsRes = await apiFetch<EventBarsResponse>(
+            `/events/${assignedShiftRaw.eventId}/bars`,
+            { method: "GET", token }
+          )
+          usable = barsRes.bars.some(
+            (b) => b.id === assignedShiftRaw.barId && b.isActive !== false
+          )
+        }
+      } catch {
+        return
+      }
+      if (cancelled || usable) return
+      clearAssignment()
+      toast.error("La barra asignada a esta computadora ya no está disponible")
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [token, assignedShiftRaw, posSessionFixesBar, clearAssignment])
 
   useEffect(() => {
     if (!token || !activeEventId || !activeBarId) {
@@ -857,6 +908,20 @@ export function PosPage() {
     if (posSession) navigate(`/pos/sesion/${posSession.token}`, { replace: true })
   }
 
+  // Cerrar sesión a diferencia de cerrar turno no conserva nada del puesto: la barra fijada a esta
+  // computadora por QR se olvida, porque la próxima cuenta que entre puede ser de otra productora
+  // y no debe heredar un puesto ajeno.
+  async function handleLogout() {
+    try {
+      await apiFetch("/staff/logout", { method: "POST", token })
+    } catch {
+      /* ignorar error de red */
+    }
+    clearAssignment()
+    logout()
+    window.location.assign("/login")
+  }
+
   const balanceAmount = useMemo(() => {
     if (customerBalance == null) return null
     const n = Number.parseFloat(customerBalance)
@@ -967,9 +1032,7 @@ export function PosPage() {
             Punto de venta
           </h1>
           <p className="truncate text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-            {posSession
-              ? `${staffName ?? "Staff"}${shiftLabel ? ` · ${shiftLabel}` : ""}`
-              : shiftLabel ?? staffName ?? "Staff"}
+            {staffName && shiftLabel ? `${staffName} · ${shiftLabel}` : shiftLabel ?? staffName ?? "Staff"}
           </p>
         </div>
 
@@ -999,6 +1062,14 @@ export function PosPage() {
             )}
           >
             {isOnline ? "Online" : "Offline"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-[#8E8E93] transition-opacity active:opacity-70 dark:text-[#98989D]"
+            aria-label="Opciones del puesto"
+          >
+            <EllipsisVertical className="h-5 w-5" />
           </button>
         </div>
       </header>
@@ -1107,6 +1178,57 @@ export function PosPage() {
             >
               <Plus className="h-4 w-4" />
               Agregar al pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Opciones del puesto</DialogTitle>
+            <DialogDescription>
+              Impresora de esta computadora y cierre de sesión.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                Impresora
+              </label>
+              <button
+                type="button"
+                onClick={() => void refreshPrinters()}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+                aria-label="Actualizar impresoras"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <Select
+              value={selectedPrinter ?? ""}
+              onValueChange={setSelectedPrinter}
+            >
+              <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
+                <SelectValue placeholder="Elegí impresora" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                {printers.map((p) => (
+                  <SelectItem key={p} value={p} className="rounded-lg py-2.5">
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleLogout()}
+              className="h-11 w-full gap-2 rounded-2xl border-red-200 text-[15px] font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+            >
+              <LogOut className="h-4 w-4" />
+              Cerrar sesión
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1390,37 +1512,6 @@ export function PosPage() {
                   {promoters.map((p) => (
                     <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
                       {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                  Impresora
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void refreshPrinters()}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
-                  aria-label="Actualizar impresoras"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <Select
-                value={selectedPrinter ?? ""}
-                onValueChange={setSelectedPrinter}
-              >
-                <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
-                  <SelectValue placeholder="Elegí impresora" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                  {printers.map((p) => (
-                    <SelectItem key={p} value={p} className="rounded-lg py-2.5">
-                      {p}
                     </SelectItem>
                   ))}
                 </SelectContent>

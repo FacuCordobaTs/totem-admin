@@ -29,6 +29,7 @@ import {
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { eventStatusLabel } from "@/lib/event-status"
 import { EVENT_OPERATION_MODE_OPTIONS } from "@/lib/event-operation-mode"
+import { isValidSlug, slugify } from "@/lib/event-slug"
 import type { EventSummaryResponse } from "@/types/event-dashboard"
 import { ArrowLeft, Boxes, Check, ChevronRight, Loader2, MapPin, Plus, Ticket, Trash2, Wine } from "lucide-react"
 import type { ApiEvent, EventOperationMode } from "@/types/events"
@@ -492,6 +493,9 @@ function DeleteEventButton({ onClick, compact = false }: { onClick: () => void; 
  * Si `source` existe, se ofrece "Partir de: [último evento]" (default ON): en vez de crear en
  * blanco, se golpea `POST /events/:id/duplicate` (clona entradas, menú, precios y equipo) pisando
  * nombre/fecha/lugar. Duplicar es el camino por defecto del segundo evento en adelante (spec §5.2).
+ *
+ * El slug (`crow.ar/{slug}`) se autocompleta desde el nombre y queda editable en el mismo paso:
+ * una vez que se escribe a mano, manda eso y el nombre deja de pisarlo.
  */
 function useCreateEvent(
   token: string | null,
@@ -499,6 +503,8 @@ function useCreateEvent(
   source?: ApiEvent | null,
 ) {
   const [name, setName] = useState("")
+  const [slug, setSlug] = useState("")
+  const [slugEdited, setSlugEdited] = useState(false)
   const [date, setDate] = useState("") // YYYY-MM-DD
   const [time, setTime] = useState("") // HH:mm (opcional)
   const [venue, setVenue] = useState("")
@@ -509,6 +515,22 @@ function useCreateEvent(
   const [error, setError] = useState<string | null>(null)
 
   const canDuplicate = source != null
+  const duplicating = canDuplicate && fromSource
+  // Al duplicar sin nombre el backend nombra "<origen> (copia)": el autocompletado sigue ese nombre.
+  const autoSlug = slugify(
+    name.trim() || (duplicating && source ? `${source.name} (copia)` : ""),
+  )
+  const effectiveSlug = slugEdited ? slug : autoSlug
+  const slugError =
+    effectiveSlug !== "" && !isValidSlug(effectiveSlug)
+      ? "Solo minúsculas, números y guiones (ej: fiesta-verano)"
+      : null
+
+  /** Edición manual del slug: sólo los cambios reales cortan el autocompletado. */
+  function updateSlug(next: string) {
+    setSlugEdited(true)
+    setSlug(next)
+  }
 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault()
@@ -520,6 +542,10 @@ function useCreateEvent(
     }
     if (!name.trim() && !(canDuplicate && fromSource)) {
       setError("Escribí el nombre del evento")
+      return
+    }
+    if (slugError) {
+      setError(slugError)
       return
     }
     if (!date) {
@@ -534,7 +560,6 @@ function useCreateEvent(
     }
     setLoading(true)
     try {
-      const duplicating = canDuplicate && fromSource
       const endpoint = duplicating ? `/events/${source!.id}/duplicate` : "/events"
       const res = await apiFetch<{ event: ApiEvent }>(endpoint, {
         method: "POST",
@@ -545,6 +570,7 @@ function useCreateEvent(
           venue: venue.trim() || undefined,
           location: location.trim() || undefined,
           operationMode,
+          slug: effectiveSlug.trim() || undefined,
         }),
       })
       navigate(`/eventos/${res.event.id}`)
@@ -557,6 +583,9 @@ function useCreateEvent(
   return {
     name,
     setName,
+    slug: effectiveSlug,
+    setSlug: updateSlug,
+    slugError,
     date,
     setDate,
     time,
@@ -745,6 +774,7 @@ function CreateFields({
         </button>
       ) : null}
       {step === 1 ? (
+      <>
       <div className="space-y-2">
         <label
           htmlFor={`${idPrefix}-name`}
@@ -763,6 +793,53 @@ function CreateFields({
           }
         />
       </div>
+      <div className="space-y-2">
+        <label
+          htmlFor={`${idPrefix}-slug`}
+          className="text-[13px] font-medium text-white/50"
+        >
+          URL de tu página (opcional)
+        </label>
+        <div
+          className={
+            "flex items-center rounded-xl " +
+            (borderless
+              ? "h-11 bg-white/[0.06]"
+              : "h-11 border border-zinc-800/50 bg-black transition-colors focus-within:border-white/25")
+          }
+        >
+          <span className="select-none whitespace-nowrap pl-3 text-[15px] text-white/40">
+            crow.ar/
+          </span>
+          <input
+            id={`${idPrefix}-slug`}
+            value={form.slug}
+            maxLength={100}
+            placeholder="mi-evento"
+            onChange={(e) => form.setSlug(e.target.value.toLowerCase())}
+            onBlur={() => {
+              // Al salir se limpia lo que no sea válido; si no cambió nada, sigue el autocompletado.
+              const cleaned = slugify(form.slug)
+              if (cleaned !== form.slug) form.setSlug(cleaned)
+            }}
+            className="h-full min-w-0 flex-1 bg-transparent pr-3 text-[15px] text-white outline-none placeholder:text-white/25"
+          />
+        </div>
+        {form.slugError ? (
+          <p className="text-[12px] text-red-400" role="alert">
+            {form.slugError}
+          </p>
+        ) : form.slug ? (
+          <p className="text-[12px] text-white/35">
+            Link público: <span className="font-mono">crow.ar/{form.slug}</span>
+          </p>
+        ) : (
+          <p className="text-[12px] text-white/35">
+            Sin URL propia: el link usa el ID del evento.
+          </p>
+        )}
+      </div>
+      </>
       ) : null}
       {step === 2 ? (
       <div className="flex gap-3">
@@ -928,9 +1005,15 @@ function EventCreationWizard({
       form.setError("Elegí cómo vas a operar este evento")
       return
     }
-    if (step === 1 && !form.name.trim() && !(form.canDuplicate && form.fromSource)) {
-      form.setError("Escribí el nombre del evento")
-      return
+    if (step === 1) {
+      if (!form.name.trim() && !(form.canDuplicate && form.fromSource)) {
+        form.setError("Escribí el nombre del evento")
+        return
+      }
+      if (form.slugError) {
+        form.setError(form.slugError)
+        return
+      }
     }
     if (step === 2 && !form.date) {
       form.setError("Elegí una fecha")

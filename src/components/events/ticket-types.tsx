@@ -5,6 +5,7 @@ import { ChevronDown, Plus, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { admissionInputToIso, formatAdmissionWindow } from "@/lib/ticket-admission"
 import { TicketAdmissionEditor, TicketAdmissionFields } from "./ticket-admission-fields"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -633,26 +634,32 @@ export function TicketTypes({ eventId, eventDate, refreshTrigger, onChanged, onC
 
   return (
     <section className="w-full">
-      <h2 className="mb-4 text-2xl font-medium tracking-tight text-foreground">
-        Tipos de entrada
-      </h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">
+          Tipos de entrada
+        </h2>
+        {canManage && onCreateTicketType ? (
+          <Button
+            type="button"
+            onClick={onCreateTicketType}
+            className="h-10 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Nuevo tipo
+          </Button>
+        ) : null}
+      </div>
 
       {error ? (
-        <p className="py-3 text-[15px] text-red-400">{error}</p>
+        <p className="mt-4 text-[15px] text-red-400">{error}</p>
       ) : loading ? (
-        <p className="py-3 text-[15px] text-white/40">Cargando tipos…</p>
+        <p className="mt-4 text-[15px] text-white/40">Cargando tipos…</p>
+      ) : types.length === 0 ? (
+        <p className="mt-4 text-[15px] text-white/40">
+          {canManage ? "Todavía no tienes tipos de entradas" : "No hay tipos de entrada."}
+        </p>
       ) : (
-        <div className="space-y-2">
-          {canManage && onCreateTicketType ? (
-            <button
-              type="button"
-              onClick={onCreateTicketType}
-              className="flex h-15 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.12] px-4 text-[15px] text-white/50 transition-colors hover:border-white/25 hover:text-white/80"
-            >
-              <Plus className="h-4 w-4 shrink-0" />
-              Nuevo tipo
-            </button>
-          ) : null}
+        <div className="mt-4 space-y-2">
           {types.map((t) => (
             <TypeRow
               key={t.id}
@@ -667,11 +674,6 @@ export function TicketTypes({ eventId, eventDate, refreshTrigger, onChanged, onC
               canManage={canManage}
             />
           ))}
-          {!canManage && types.length === 0 ? (
-            <p className="py-3 text-[15px] text-white/40">
-              No hay tipos de entrada.
-            </p>
-          ) : null}
         </div>
       )}
     </section>

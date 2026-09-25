@@ -409,19 +409,29 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">
             Asistentes
           </h2>
+          {showFilters && !hideExportButton && (
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={exportCsv}
+              disabled={loading || filtered.length === 0}
+              className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/40 hover:text-foreground"
+            >
+              Exportar CSV
+            </Button>
+          )}
+          {allowSale ? (
+            <Button
+              type="button"
+              onClick={openSale}
+              className="h-10 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              Nueva venta
+            </Button>
+          ) : null}
           {showFilters && (
             <>
-              {!hideExportButton && (
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={exportCsv}
-                  disabled={loading || filtered.length === 0}
-                  className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/40 hover:text-foreground"
-                >
-                  Exportar CSV
-                </Button>
-              )}
               <div className="relative basis-full">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
                 <Input
@@ -484,18 +494,8 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p>
         ) : null}
 
-        {/* Nueva venta */}
         {allowSale ? (
-          <>
-            <Button
-                type="button"
-                onClick={openSale}
-                className="ml-auto h-10 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
-              >
-                <Plus className="mr-1.5 h-4 w-4" />
-                Nueva venta
-            </Button>
-            <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
+          <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
               <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto rounded-2xl border-white/[0.10] bg-black p-0 text-white">
               <div className="space-y-4 p-5">
                 <p className="text-[15px] font-semibold text-white">Nueva venta</p>
@@ -594,7 +594,6 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               </div>
               </DialogContent>
             </Dialog>
-          </>
         ) : null}
 
         <div className="overflow-hidden rounded-2xl">

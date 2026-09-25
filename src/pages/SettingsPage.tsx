@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { isTauri } from "@tauri-apps/api/core"
 import { LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -12,6 +13,7 @@ import {
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
 import { CucuruConnectionCard } from "@/components/settings/cucuru-connection-card"
+import { DesktopAppCard } from "@/components/settings/desktop-app-card"
 import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 import { WhatsAppConnectionCard } from "@/components/settings/whatsapp-connection-card"
 
@@ -119,6 +121,20 @@ export function SettingsPage() {
               <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Rol</p><p className="mt-1 text-[17px] text-foreground">{staff ? staffRoleLabel(staff.role) : "—"}</p></div>
             </div>
           </Panel>
+
+          {/* En Tauri la app de escritorio ya está instalada: ahí sólo queda el updater. */}
+          {isTauri() ? null : (
+            <section className="space-y-4">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-foreground">App de escritorio</h2>
+                <p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">
+                  Si trabajás desde el navegador, instalala en la computadora de la caja, la
+                  barra o la puerta.
+                </p>
+              </div>
+              <DesktopAppCard />
+            </section>
+          )}
 
           {!restrictedSettings ? (
             <>

@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "process:default",
-    "updater:default"
+    "updater:default",
+    "core:webview:allow-set-webview-zoom"
   ]
 }

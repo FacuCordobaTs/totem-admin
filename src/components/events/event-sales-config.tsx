@@ -5,6 +5,7 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiEvent } from "@/types/events"
 import { eventSupportsConsumptions } from "@/lib/event-operation-mode"
+import { isValidSlug, slugify } from "@/lib/event-slug"
 
 /** Converts an ISO instant from the API to `datetime-local` value in the browser timezone. */
 function toDatetimeLocalValue(iso: string | null | undefined): string {
@@ -36,20 +37,6 @@ function splitDateTimeLocal(v: string): [string, string] {
   if (!v) return ["", ""]
   const [d, t = ""] = v.split("T")
   return [d ?? "", t.slice(0, 5)]
-}
-
-function slugify(raw: string): string {
-  return raw
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-|-$/g, "")
-}
-
-function isValidSlug(s: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s)
 }
 
 type Fields = {

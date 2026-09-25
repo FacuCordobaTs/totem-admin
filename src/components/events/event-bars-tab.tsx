@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
-import { Package, Plus, Settings, Users, Wine } from "lucide-react"
+import { ChevronRight, Package, Plus, Settings, Users, Wine } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventBarRow, EventBarsResponse } from "@/types/event-dashboard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -61,9 +62,27 @@ type Props = {
    * puestos" al pie. Cuando existen puestos, se muestra la grilla completa (default incluida).
    */
   puestosMode?: boolean
+  /** Al tocar una barra de la lista: abre su pantalla interna dentro de la sección. */
+  onBarOpen?: (bar: EventBarRow) => void
 }
 
-export function EventBarsTab({ eventId, embedded = false, trackStock = true, puestosMode = false }: Props) {
+const barBadgeClass =
+  "rounded-md bg-white/[0.07] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/40"
+
+/** Línea de contexto de cada barra en la lista: qué tiene adentro, sin abrirla. */
+function barSummary(bar: EventBarRow, trackStock: boolean): string {
+  const products = bar.productList.length
+  const staff = bar.staffList.length
+  const stock = bar.inventoryList.length
+  const parts = [
+    `${products} ${products === 1 ? "producto" : "productos"}`,
+    `${staff} ${staff === 1 ? "persona" : "personas"}`,
+  ]
+  if (trackStock) parts.push(`${stock} ${stock === 1 ? "insumo en stock" : "insumos en stock"}`)
+  return parts.join(" · ")
+}
+
+export function EventBarsTab({ eventId, embedded = false, trackStock = true, puestosMode = false, onBarOpen }: Props) {
   const token = useAuthStore((s) => s.token)
   const [bars, setBars] = useState<EventBarRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -374,14 +393,16 @@ export function EventBarsTab({ eventId, embedded = false, trackStock = true, pue
       {embedded ? (
         <div className="flex items-center justify-between gap-4">
           <h3 className="text-[18px] font-semibold text-white">Configurar Barras</h3>
-          <Button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Nueva barra
-          </Button>
+          {bars.length > 0 ? (
+            <Button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Nueva barra
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -417,23 +438,58 @@ export function EventBarsTab({ eventId, embedded = false, trackStock = true, pue
             <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-zinc-500/10">
               <Wine className="h-7 w-7 text-[#8E8E93]" />
             </span>
-            <p className="max-w-md text-[15px] text-[#8E8E93] dark:text-[#98989D]">
-              {trackStock
-                ? "Configurá las barras del evento para asignar productos, stock y personal a cada punto de venta."
-                : "Configurá las barras del evento para asignar productos y personal a cada punto de venta."}
-            </p>
+            <div className="space-y-1">
+              <p className="text-[15px] font-medium text-white">Todavía no tienes barras</p>
+              <p className="max-w-md text-[13px] text-[#8E8E93] dark:text-[#98989D]">
+                {trackStock
+                  ? "Creá la primera para asignar productos, stock y personal."
+                  : "Creá la primera para asignar productos y personal."}
+              </p>
+            </div>
             <Button
               type="button"
               onClick={() => setCreateOpen(true)}
               className="h-11 rounded-xl bg-[#FF9500] px-6 text-[15px] font-semibold text-white transition-all duration-200 hover:opacity-95 active:opacity-50"
             >
-              Configurar Barras
+              Nueva barra
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {bars.map(renderBarCard)}
+        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+          {bars.map((bar, index) => (
+            <button
+              key={bar.id}
+              type="button"
+              onClick={() => onBarOpen?.(bar)}
+              className={cn(
+                "flex w-full flex-wrap items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.04]",
+                index > 0 && "border-t border-white/[0.06]",
+                bar.isActive === false && "opacity-55"
+              )}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                <Wine className="h-4 w-4 text-white/30" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-[15px] font-medium text-white">{bar.name}</span>
+                  {bar.isDefault ? <span className={barBadgeClass}>General</span> : null}
+                  {bar.isActive === false ? <span className={barBadgeClass}>Inactiva</span> : null}
+                </span>
+                <span className="mt-0.5 block truncate text-[12px] text-white/35">
+                  {barSummary(bar, trackStock)}
+                </span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block text-[11px] lowercase text-white/35">ventas</span>
+                <span className="block text-[15px] font-semibold tabular-nums text-white">
+                  {formatCurrencyArs(bar.totalSales ?? "0")}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-white/25" />
+            </button>
+          ))}
         </div>
       )}
 

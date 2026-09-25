@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Plus } from "lucide-react"
+import { Package, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
@@ -12,6 +12,7 @@ import type { ApiInventoryItem } from "@/components/inventory/raw-materials"
 import { hasBottlePackage, stockBaseToBottleDraft } from "@/lib/inventory-units"
 import { ProductEditorDialog } from "@/components/inventory/product-editor-dialog"
 import { EventBarsTab } from "@/components/events/event-bars-tab"
+import { BarDetailView } from "@/components/events/bar-detail-view"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -123,8 +124,10 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
   // Menu inline editing
   const [priceDraft, setPriceDraft] = useState<Record<string, string>>({})
   const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [menuConfigOpen, setMenuConfigOpen] = useState(false)
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
+  const [productEditorOpen, setProductEditorOpen] = useState(false)
+  // Pantalla interna: al abrir una barra, su detalle reemplaza toda la sección.
+  const [openBarId, setOpenBarId] = useState<string | null>(null)
 
 
   const loadAll = useCallback(
@@ -182,10 +185,6 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
           menuRows.some((m) => m.id === p.id && m.isActiveForEvent)
       ),
     [catalogProducts, menuRows]
-  )
-  const activeMenuRows = useMemo(
-    () => menuRows.filter((row) => row.isActiveForEvent),
-    [menuRows]
   )
 
   async function toggleMenu(productId: string, next: boolean) {
@@ -257,6 +256,22 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
     }
   }
 
+  if (openBarId) {
+    return (
+      <BarDetailView
+        eventId={eventId}
+        barId={openBarId}
+        trackStock={trackStock}
+        onBack={() => setOpenBarId(null)}
+        onChanged={() => {
+          // Configurar la barra puede tocar el menú del evento o su stock: refrescamos la sección.
+          onLogisticsChange?.()
+          void loadAll({ silent: true })
+        }}
+      />
+    )
+  }
+
   if (loading) {
     return (
       <div className="space-y-10">
@@ -273,82 +288,162 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
   return (
     <div className="space-y-12">
       {/* ── Bloque A: Barras ──────────────────────────────────────── */}
-      <EventBarsTab eventId={eventId} embedded trackStock={trackStock} />
+      <EventBarsTab
+        eventId={eventId}
+        embedded
+        trackStock={trackStock}
+        onBarOpen={(bar) => setOpenBarId(bar.id)}
+      />
 
       {/* ── Bloque A: Menú del evento ─────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-[18px] font-semibold text-white">Menú del evento</h3>
-            <p className="mt-0.5 text-[13px] text-white/35">Productos activos y precio de venta del evento.</p>
+            <p className="mt-0.5 text-[13px] text-white/35">Activá productos y configurá su precio para este evento.</p>
           </div>
           {menuRows.length > 0 ? (
             <Button
               type="button"
-              onClick={() => setMenuConfigOpen(true)}
+              onClick={() => setProductEditorOpen(true)}
               className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
             >
               <Plus className="h-3.5 w-3.5" />
-              Configurar menú
+              Nuevo producto
             </Button>
           ) : null}
         </div>
 
         {menuRows.length === 0 ? (
-          <ProductEditorDialog
-            embedded
-            open
-            onOpenChange={() => {}}
-            product={null}
-            eventId={eventId}
-            trackStock={trackStock}
-            materials={materials}
-            token={token}
-            onSaved={() => void loadAll({ silent: true })}
-          />
+          <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-white/[0.12] bg-white/[0.015] px-6 py-12 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.05]">
+              <Package className="h-6 w-6 text-white/30" />
+            </span>
+            <div className="space-y-1">
+              <p className="text-[15px] font-medium text-white">Todavía no tienes productos</p>
+              <p className="text-[13px] text-white/35">Creá el primero para venderlo en el evento.</p>
+            </div>
+            <Button
+              type="button"
+              onClick={() => setProductEditorOpen(true)}
+              className="h-9 gap-1.5 rounded-xl bg-[#FF9500] px-5 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Nuevo producto
+            </Button>
+          </div>
         ) : (
-          <div className="divide-y divide-white/[0.06]">
-            {activeMenuRows.map((row) => {
-              const full = catalogById.get(row.id) ?? null
-              const availability =
-                trackStock && full && full.recipes.length > 0
-                  ? calcProductAvailability(full, eventStockMap)
-                  : null
-              return (
-                <div key={row.id} className="flex items-center gap-3 py-3">
-                  <button
-                    type="button"
-                    onClick={() => setMenuConfigOpen(true)}
-                    className={cn(
-                      "min-w-0 flex-1 text-left",
-                      row.isActiveForEvent ? "" : "opacity-45"
-                    )}
-                  >
-                    <p className="truncate text-[15px] font-medium text-white">{row.name}</p>
-                    <p className="text-[12px] text-white/35">Base {money(row.price)}</p>
-                  </button>
+          <div className="space-y-4">
+            {[
+              { title: "Activos para el evento", rows: menuRows.filter((r) => r.isActiveForEvent) },
+              { title: "No activos para el evento", rows: menuRows.filter((r) => !r.isActiveForEvent) },
+            ].map((group) =>
+              group.rows.length === 0 ? null : (
+                <div key={group.title}>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/35">
+                    {group.title}
+                  </p>
+                  <div className="divide-y divide-white/[0.06]">
+                    {group.rows.map((row) => {
+                      const full = catalogById.get(row.id) ?? null
+                      const availability =
+                        trackStock && full && full.recipes.length > 0
+                          ? calcProductAvailability(full, eventStockMap)
+                          : null
+                      const editingPrice = editingPriceId === row.id
+                      const priceValue =
+                        priceDraft[row.id] ??
+                        (row.priceOverride != null
+                          ? String(Number.parseFloat(row.priceOverride))
+                          : "")
+                      return (
+                        <div key={row.id} className="py-3">
+                          <div className="flex items-center gap-3">
+                            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={row.isActiveForEvent}
+                                disabled={togglingId !== null}
+                                onChange={() => void toggleMenu(row.id, !row.isActiveForEvent)}
+                                className="h-4 w-4 shrink-0 accent-[#FF9500]"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span
+                                  className={cn(
+                                    "block truncate text-[15px] font-medium",
+                                    row.isActiveForEvent ? "text-white" : "text-white/45"
+                                  )}
+                                >
+                                  {row.name}
+                                </span>
+                                <span className="block text-[12px] text-white/35">Base {money(row.price)}</span>
+                              </span>
+                            </label>
 
-                  {availability !== null && row.isActiveForEvent ? (
-                    <span className="shrink-0 text-[12px] text-white/30">
-                      ~{availability.toLocaleString("es-AR")}{" "}
-                      {(full?.saleType ?? "GLASS") === "BOTTLE" ? "botellas" : "tragos"}
-                    </span>
-                  ) : null}
+                            {availability !== null && row.isActiveForEvent ? (
+                              <span className="shrink-0 text-[12px] text-white/30">
+                                ~{availability.toLocaleString("es-AR")}{" "}
+                                {(full?.saleType ?? "GLASS") === "BOTTLE" ? "botellas" : "tragos"}
+                              </span>
+                            ) : null}
 
-                  <span className="shrink-0 text-sm font-semibold text-[#FF9500]">{money(row.priceOverride ?? row.price)}</span>
+                            <span className="shrink-0 text-sm font-semibold text-[#FF9500]">
+                              {money(row.priceOverride ?? row.price)}
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => setEditingPriceId(editingPrice ? null : row.id)}
+                              className="shrink-0 text-[13px] font-medium text-white/55 hover:text-white/90"
+                            >
+                              {editingPrice ? "Cerrar" : "Cambiar precio"}
+                            </button>
+                          </div>
+
+                          {editingPrice ? (
+                            <div className="mt-2.5 flex items-center gap-2 pl-7">
+                              <Input
+                                autoFocus
+                                inputMode="decimal"
+                                value={priceValue}
+                                placeholder={String(Number.parseFloat(row.price))}
+                                onChange={(e) =>
+                                  setPriceDraft((d) => ({ ...d, [row.id]: e.target.value }))
+                                }
+                                className={cn(inputClass, "max-w-36")}
+                              />
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  void persistOverride(row)
+                                  setEditingPriceId(null)
+                                }}
+                                className="h-9 shrink-0 rounded-lg bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90"
+                              >
+                                Guardar
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )
-            })}
+            )}
           </div>
         )}
-        <Dialog open={menuConfigOpen} onOpenChange={setMenuConfigOpen}>
-          <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto rounded-2xl border-white/[0.1] bg-black p-0 text-white">
-            <DialogHeader className="border-b border-white/[0.06] px-5 py-5 text-left"><DialogTitle className="text-xl text-white">Configurar menú</DialogTitle><DialogDescription className="text-sm text-white/45">Activá productos y configurá su precio para este evento.</DialogDescription></DialogHeader>
-            <div className="space-y-5 p-5">
-              {[{ title: "Activos para el evento", rows: menuRows.filter((r) => r.isActiveForEvent) }, { title: "No activos para el evento", rows: menuRows.filter((r) => !r.isActiveForEvent) }].map((group) => <div key={group.title}><p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/35">{group.title}</p><div className="overflow-hidden rounded-xl border border-white/[0.07]">{group.rows.map((row) => { const open = editingPriceId === row.id; const value = priceDraft[row.id] ?? (row.priceOverride != null ? String(Number.parseFloat(row.priceOverride)) : ""); return <div key={row.id} onClick={() => void toggleMenu(row.id, !row.isActiveForEvent)} className="cursor-pointer border-b border-white/[0.05] px-3 py-2.5 last:border-0 hover:bg-white/[0.04]"><div className="flex items-center gap-3"><input type="checkbox" checked={row.isActiveForEvent} readOnly className="pointer-events-none accent-[#FF9500]" /><span className="min-w-0 flex-1 truncate text-sm text-white/80">{row.name}</span><span className="text-sm text-[#FF9500]">{money(row.priceOverride ?? row.price)}</span><Button type="button" variant="outline" onClick={(e) => { e.stopPropagation(); setEditingPriceId(open ? null : row.id) }} className="h-8 border-white/[0.12] bg-transparent px-2.5 text-xs text-white/70">Cambiar precio</Button></div>{open ? <div className="mt-2 flex gap-2 pl-10" onClick={(e) => e.stopPropagation()}><Input autoFocus inputMode="decimal" value={value} placeholder={String(Number.parseFloat(row.price))} onChange={(e) => setPriceDraft((d) => ({ ...d, [row.id]: e.target.value }))} className="h-9 max-w-36 border-white/[0.1] bg-white/[0.04] text-sm" /><Button type="button" onClick={() => { void persistOverride(row); setEditingPriceId(null) }} className="h-9 bg-[#FF9500] text-xs text-white">Guardar</Button></div> : null}</div> })}</div></div>)}
-            </div>
-          </DialogContent>
-        </Dialog>
+
+        <ProductEditorDialog
+          open={productEditorOpen}
+          onOpenChange={setProductEditorOpen}
+          product={null}
+          eventId={eventId}
+          trackStock={trackStock}
+          materials={materials}
+          token={token}
+          onSaved={() => void loadAll({ silent: true })}
+        />
       </section>
 
       {/* ── Bloque C: Stock ───────────────────────────────────────── */}

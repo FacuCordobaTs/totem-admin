@@ -13,10 +13,35 @@ type DeviceLink = {
   url: string
 }
 
+/** Barra que quien aprobó (ADMIN/MANAGER) fijó a esta computadora desde el teléfono. */
+export type DeviceLinkAssignment = {
+  eventId: string
+  eventName: string
+  barId: string
+  barName: string
+}
+
+/** Lo que el teléfono decidió sobre la barra de ESTA computadora. */
+export type DeviceLinkDecision = {
+  assignment: DeviceLinkAssignment | null
+  /**
+   * False = quien aprobó no opinó (o no tenía potestad): la fijación local no se toca. Distinto de
+   * `assignment: null` con `decided: true`, que significa "quitar la barra de esta computadora".
+   */
+  decided: boolean
+}
+
 type ClaimResponse =
   | { status: "pending" }
   | { status: "expired" }
-  | { status: "approved"; token: string; staff: StaffProfile }
+  | {
+      status: "approved"
+      token: string
+      staff: StaffProfile
+      // Opcionales a propósito: toleran un backend previo durante un deploy solapado.
+      assignment?: DeviceLinkAssignment | null
+      assignmentDecided?: boolean
+    }
 
 /** Cada cuánto el equipo pregunta si el teléfono ya aprobó. */
 const POLL_MS = 2000
@@ -25,6 +50,9 @@ const POLL_MS = 2000
  * Vinculación de equipo por QR (estilo WhatsApp Web): la computadora muestra un código y el
  * teléfono que ya tiene sesión staff lo aprueba desde Crow web. Recién ahí el backend entrega la
  * sesión, que es la de esa persona: vincular no comparte contraseña ni agrega permisos.
+ *
+ * Si el módulo es el POS y quien aprueba es ADMIN o MANAGER, el teléfono puede además fijar qué
+ * barra es esta computadora; esa decisión llega en el claim y la aplica quien recibe `onLinked`.
  */
 export function DeviceLinkPanel({
   access,
@@ -37,7 +65,7 @@ export function DeviceLinkPanel({
   access: "pos" | "security"
   title: string
   icon: typeof Store
-  onLinked: (token: string, staff: StaffProfile) => void
+  onLinked: (token: string, staff: StaffProfile, decision: DeviceLinkDecision) => void
   onBack: () => void
   onUseThisDevice: () => void
 }) {
@@ -89,7 +117,10 @@ export function DeviceLinkPanel({
         if (data.status === "approved") {
           stopped = true
           clearInterval(timer)
-          onLinkedRef.current(data.token, data.staff)
+          onLinkedRef.current(data.token, data.staff, {
+            assignment: data.assignment ?? null,
+            decided: data.assignmentDecided === true,
+          })
           return
         }
         if (data.status === "expired") {
@@ -156,6 +187,12 @@ export function DeviceLinkPanel({
             Escaneá el código con tu teléfono desde Crow, con tu sesión ya iniciada. Esta computadora
             va a entrar con esa cuenta.
           </p>
+          {access === "pos" ? (
+            <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-white/35">
+              Si quien escanea es administrador o encargado, también elige qué barra es esta
+              computadora.
+            </p>
+          ) : null}
           <div className="mx-auto mt-7 flex h-[216px] w-[216px] items-center justify-center rounded-3xl bg-white p-4 shadow-2xl shadow-black/30">
             {link ? (
               <QRCodeSVG value={link.url} size={184} level="M" includeMargin />

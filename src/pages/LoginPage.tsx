@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
+import { usePosAssignmentStore } from "@/stores/pos-assignment-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
 import { DeviceLinkPanel } from "@/components/auth/device-link-panel"
 import { cn } from "@/lib/utils"
@@ -48,6 +49,8 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const setAuth = useAuthStore((s) => s.setAuth)
+  const setAssignment = usePosAssignmentStore((s) => s.setAssignment)
+  const clearAssignment = usePosAssignmentStore((s) => s.clear)
   const requestedAccess = searchParams.get("access")
   const requestedMode: Exclude<EntryMode, "admin"> | null =
     requestedAccess === "pos" || requestedAccess === "security" ? requestedAccess : null
@@ -166,9 +169,17 @@ export function LoginPage() {
               access={entryMode}
               title={roleHandoff[entryMode].title}
               icon={roleHandoff[entryMode].icon}
-              onLinked={(token, staff) => {
+              onLinked={(token, staff, decision) => {
+                // El teléfono puede haber fijado (o quitado) la barra de esta computadora. Sin
+                // decisión no se toca nada: un re-escaneo normal no borra la fijación vigente.
+                if (decision.decided) {
+                  if (decision.assignment) setAssignment(decision.assignment)
+                  else clearAssignment()
+                }
                 setAuth(token, staff)
-                navigate(homeForRole(staff.role), { replace: true })
+                navigate(decision.assignment ? "/pos/venta" : homeForRole(staff.role), {
+                  replace: true,
+                })
               }}
               onBack={goBackToModes}
               onUseThisDevice={() => setShowCredentials(true)}

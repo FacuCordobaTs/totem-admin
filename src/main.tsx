@@ -25,6 +25,8 @@ import { PromoterPage } from "@/pages/PromoterPage"
 import { RequireAuth } from "@/components/auth/RequireAuth"
 import { GuestRoute } from "@/components/auth/GuestRoute"
 import { PrinterProvider } from "@/context/PrinterContext"
+import { UpdateChecker } from "@/components/updater/update-checker"
+import { initWindowZoom } from "@/lib/window-zoom"
 import type { ReactElement } from "react"
 import { useParams, useSearchParams } from "react-router"
 
@@ -103,9 +105,13 @@ const router = createBrowserRouter([
   },
 ])
 
+// Antes de montar: el host Tauri restaura acá el zoom guardado de la ventana.
+initWindowZoom()
+
 createRoot(document.getElementById("root")!).render(
   <PrinterProvider>
     <RouterProvider router={router} />
+    <UpdateChecker />
     <Toaster position="top-center" richColors={false} closeButton theme="system" />
   </PrinterProvider>
 )

@@ -236,7 +236,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
 
       {/* Total (solo cuando ya hay gastos) */}
       <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] lg:max-w-md">
-          <div className="pb-2 md:p-6 md:pb-2">
+          <div className="p-6 pb-2">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.07]">
                 <Receipt className="h-5 w-5 text-white/30" />
@@ -246,7 +246,7 @@ export function EventExpensesTab({ eventId, embedded = false, onExpensesChanged 
               </CardTitle>
             </div>
           </div>
-          <div className="md:px-6 md:pb-6">
+          <div className="px-6 pb-6">
             <p className="text-[34px] font-bold tabular-nums tracking-tight text-black dark:text-white">
               {totalLabel}
             </p>

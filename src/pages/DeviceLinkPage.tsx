@@ -2,6 +2,15 @@ import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router"
 import { CheckCircle2, MonitorSmartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { apiFetch, ApiError, publicApiFetch } from "@/lib/api"
 import { useAuthStore, type StaffRole } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
@@ -12,6 +21,17 @@ type DeviceLinkInfo = {
   status: "pending" | "approved" | "claimed" | "expired"
   expiresAt: string
 }
+
+/** Evento con sus barras activas, tal como lo agrupa `GET /staff/device-links/:code/bars`. */
+type AssignableEvent = {
+  id: string
+  name: string
+  bars: { id: string; name: string; isDefault: boolean }[]
+}
+
+/** Estados del selector que no son "elegir una barra": no tocar la fijación, o quitarla. */
+const KEEP_ASSIGNMENT = "__keep__"
+const CLEAR_ASSIGNMENT = "__none__"
 
 const ACCESS_LABELS: Record<"pos" | "security", string> = {
   pos: "POS y barra",
@@ -30,6 +50,10 @@ const ROLE_LABELS: Record<StaffRole, string> = {
  * Pantalla que abre el teléfono al escanear el QR de vinculación de equipo. Es la mitad móvil del
  * flujo: acá la persona que YA tiene sesión aprueba que la computadora entre con su cuenta.
  * No pasa por `GuestRoute` a propósito: necesita la sesión iniciada para poder aprobar.
+ *
+ * Si el equipo está abriendo el POS y quien aprueba es ADMIN o MANAGER, además elige cuál barra ES
+ * esa computadora: el POS queda fijado a ese puesto hasta que se reasigne con otro QR. La potestad
+ * la valida el backend al aprobar; este selector sólo evita el viaje en vano.
  */
 export function DeviceLinkPage() {
   const { code } = useParams<{ code: string }>()
@@ -43,6 +67,15 @@ export function DeviceLinkPage() {
   const [approving, setApproving] = useState(false)
   const [linked, setLinked] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [events, setEvents] = useState<AssignableEvent[]>([])
+  const [loadingBars, setLoadingBars] = useState(false)
+  const [barsError, setBarsError] = useState<string | null>(null)
+  // Falla de la barra elegida, no del vínculo: el código sigue vivo y se puede reintentar.
+  const [assignError, setAssignError] = useState<string | null>(null)
+  const [choice, setChoice] = useState<string>(KEEP_ASSIGNMENT)
+
+  const canAssignBar =
+    info?.access === "pos" && (staff?.role === "ADMIN" || staff?.role === "MANAGER")
 
   useEffect(() => {
     const finish = () => setHydrated(true)
@@ -71,23 +104,71 @@ export function DeviceLinkPage() {
     })()
   }, [code, hydrated, token])
 
+  // Las barras se piden recién cuando ya se sabe que el vínculo es de POS, está pendiente y la
+  // cuenta puede asignar. Si falla, se avisa y se aprueba igual: sin elección, la computadora
+  // conserva la barra que ya tenía.
+  useEffect(() => {
+    if (!hydrated || !token || !code || !canAssignBar || info?.status !== "pending") return
+    let cancelled = false
+    setLoadingBars(true)
+    setBarsError(null)
+    void (async () => {
+      try {
+        const data = await apiFetch<{ events: AssignableEvent[] }>(
+          `/staff/device-links/${encodeURIComponent(code)}/bars`,
+          { token }
+        )
+        if (!cancelled) setEvents(data.events)
+      } catch (err) {
+        if (!cancelled) {
+          setBarsError(
+            err instanceof ApiError ? err.message : "No se pudieron cargar las barras"
+          )
+        }
+      } finally {
+        if (!cancelled) setLoadingBars(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [canAssignBar, code, hydrated, info?.status, token])
+
+  /** Cuerpo del approve: la elección del selector, o nada si se deja la barra como está. */
+  const assignmentBody = useCallback((): Record<string, unknown> => {
+    if (choice === KEEP_ASSIGNMENT) return {}
+    if (choice === CLEAR_ASSIGNMENT) return { assignment: null }
+    const event = events.find((e) => e.bars.some((b) => b.id === choice))
+    if (!event) return {}
+    return { assignment: { eventId: event.id, barId: choice } }
+  }, [choice, events])
+
   const approve = useCallback(async () => {
     if (!token || !code) return
     setApproving(true)
     setError(null)
+    setAssignError(null)
     try {
       await apiFetch(`/staff/device-links/${encodeURIComponent(code)}/approve`, {
         method: "POST",
         token,
-        body: JSON.stringify({}),
+        body: JSON.stringify(assignmentBody()),
       })
       setLinked(true)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo vincular la computadora")
+      const message = err instanceof ApiError ? err.message : "No se pudo vincular la computadora"
+      // La barra dejó de ser válida entre la lista y la aprobación (o nunca lo fue): el código
+      // sigue pendiente, así que se avisa acá y se deja elegir otra en vez de dar el vínculo por
+      // perdido. El resto de los errores sí son terminales para este código.
+      if (canAssignBar && err instanceof ApiError && err.status === 404) {
+        setAssignError(`${message} Elegí otra barra o dejá la que ya tenía.`)
+      } else {
+        setError(message)
+      }
     } finally {
       setApproving(false)
     }
-  }, [code, token])
+  }, [assignmentBody, canAssignBar, code, token])
 
   const unusable = error !== null || (info !== null && info.status !== "pending")
 
@@ -171,6 +252,69 @@ export function DeviceLinkPage() {
                 </p>
               ) : null}
             </div>
+
+            {canAssignBar ? (
+              <div className="mt-3 rounded-2xl bg-white/[0.08] p-4 text-left">
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[#FF9500]">
+                  Barra de esta computadora
+                </label>
+                {loadingBars ? (
+                  <p className="text-[13px] text-white/50">Buscando barras…</p>
+                ) : barsError ? (
+                  <p className="text-[13px] leading-relaxed text-amber-100/80">
+                    {barsError} Podés vincular igual: la computadora mantiene la barra que ya tenía.
+                  </p>
+                ) : events.length === 0 ? (
+                  <p className="text-[13px] leading-relaxed text-white/50">
+                    No hay barras activas para elegir en este momento.
+                  </p>
+                ) : (
+                  <>
+                    <Select
+                      value={choice}
+                      onValueChange={(value) => {
+                        setChoice(value)
+                        setAssignError(null)
+                      }}
+                    >
+                      <SelectTrigger className="h-11 w-full rounded-xl border-white/15 bg-black/30 text-sm text-white data-placeholder:text-white/40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value={KEEP_ASSIGNMENT} className="rounded-lg py-2.5">
+                          Dejar la barra como está
+                        </SelectItem>
+                        {events.map((event) => (
+                          <SelectGroup key={event.id}>
+                            <SelectLabel>{event.name}</SelectLabel>
+                            {event.bars.map((bar) => (
+                              <SelectItem key={bar.id} value={bar.id} className="rounded-lg py-2.5">
+                                {bar.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                        <SelectItem value={CLEAR_ASSIGNMENT} className="rounded-lg py-2.5">
+                          Quitar la barra asignada
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-2 text-xs leading-relaxed text-white/40">
+                      La computadora queda fijada a esa barra hasta que la reasignes con otro código.
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : null}
+
+            {assignError ? (
+              <p
+                className="mt-4 rounded-2xl border border-amber-200/40 bg-amber-50/10 px-4 py-3 text-sm leading-relaxed text-amber-100/90"
+                role="alert"
+              >
+                {assignError}
+              </p>
+            ) : null}
 
             <Button
               type="button"

@@ -355,24 +355,21 @@ export function EventDashboardPage() {
               onCountChange={setTicketTypeCount}
               onCreateTicketType={() => setTicketTypeDialogOpen(true)}
             />
-            {hasTicketTypes && (
-              <>
-                <CourtesiesPanel
-                  eventId={id}
-                  refreshTrigger={refreshTick}
-                  supportsConsumptions={supportsConsumptions}
-                  onChanged={bump}
-                />
-                <AttendeeTable
-                  ref={attendeeTableRef}
-                  eventId={id}
-                  refreshTrigger={refreshTick}
-                  layout="canvas"
-                  hideExportButton
-                  onSaleCompleted={bump}
-                />
-              </>
-            )}
+            <AttendeeTable
+              ref={attendeeTableRef}
+              eventId={id}
+              refreshTrigger={refreshTick}
+              layout="canvas"
+              hideExportButton
+              allowSale={hasTicketTypes}
+              onSaleCompleted={bump}
+            />
+            <CourtesiesPanel
+              eventId={id}
+              refreshTrigger={refreshTick}
+              supportsConsumptions={supportsConsumptions}
+              onChanged={bump}
+            />
           </SectionShell>
         )
       case "barra":
@@ -453,7 +450,7 @@ export function EventDashboardPage() {
               <EventSalesList eventId={id} supportsConsumptions={supportsConsumptions} onBack={() => setFinanceView("summary")} />
             ) : (
               <div className="space-y-10">
-                <EventIncomeSummary eventId={id} refreshTrigger={refreshTick} supportsConsumptions={supportsConsumptions} />
+                <EventIncomeSummary eventId={id} refreshTrigger={refreshTick} supportsConsumptions={supportsConsumptions} onNavigate={navigateToSection} />
                 <div className="flex items-center justify-between border-y border-white/[0.06] py-5">
                   <div>
                     <h2 className="text-lg font-semibold text-white">Últimas ventas</h2>

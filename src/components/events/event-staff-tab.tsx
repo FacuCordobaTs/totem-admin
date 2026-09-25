@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { QRCodeSVG } from "qrcode.react"
-import { Copy, ExternalLink, Loader2, Plus, UserPlus, Users } from "lucide-react"
+import { Copy, ExternalLink, Loader2, Plus, UserPlus } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventAssignmentStaffRow, EventBarRow, EventBarsResponse, EventStaffListResponse } from "@/types/event-dashboard"
@@ -46,7 +46,6 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [teamOpen, setTeamOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [invitationToShow, setInvitationToShow] = useState<Invitation | null>(null)
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
@@ -77,14 +76,6 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
 
   useEffect(() => { void load(true) }, [load])
 
-  const groupedAssigned = useMemo(() => {
-    const assigned = rows.filter((member) => member.isAssigned)
-    return ROLE_ORDER.map((staffRole) => ({
-      role: staffRole,
-      members: assigned.filter((member) => member.role === staffRole),
-    })).filter((group) => group.members.length > 0)
-  }, [rows])
-
   const invitationsByStaffId = useMemo(
     () => new Map(
       invitations
@@ -96,6 +87,20 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
 
   const assignedPromoters = useMemo(
     () => rows.filter((member) => member.isAssigned && member.role === "PROMOTER"),
+    [rows]
+  )
+
+  /** Primero por tipo de puesto, y adentro por asignación al evento. */
+  const roleGroups = useMemo(
+    () =>
+      ROLE_ORDER.map((staffRole) => {
+        const members = rows.filter((member) => member.role === staffRole)
+        return {
+          role: staffRole,
+          assigned: members.filter((member) => member.isAssigned),
+          unassigned: members.filter((member) => !member.isAssigned),
+        }
+      }).filter((group) => group.assigned.length > 0 || group.unassigned.length > 0),
     [rows]
   )
 
@@ -120,6 +125,92 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
         return next
       })
     }
+  }
+
+  function renderMemberRow(member: EventAssignmentStaffRow, index: number) {
+    const busy = pendingIds.has(member.id)
+    const invitation = invitationsByStaffId.get(member.id)
+    return (
+      <div
+        key={member.id}
+        className={`flex flex-wrap items-center gap-3 px-4 py-3 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] text-white/80">{member.name}</p>
+          <p className="text-[12px] text-white/40">{staffRoleLabel(member.role)}</p>
+        </div>
+        {member.role === "PROMOTER" && member.promoterId ? (
+          <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
+            <a
+              href={getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Ver link
+            </a>
+          </Button>
+        ) : null}
+        {canManage && member.role === "BARTENDER" ? (
+          <Select
+            value={member.barId ?? "unassigned"}
+            onValueChange={(value) =>
+              void setAssignment(member, true, value === "unassigned" ? null : value)
+            }
+            disabled={busy}
+          >
+            <SelectTrigger className="h-8 w-40 border-white/[0.14] bg-transparent text-xs text-white/70">
+              <SelectValue placeholder="Sin barra" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Sin barra</SelectItem>
+              {bars.map((bar) => (
+                <SelectItem key={bar.id} value={bar.id}>{bar.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {canInvite && invitation ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setInvitationToShow(invitation)
+              setInviteOpen(true)
+            }}
+            className="border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]"
+          >
+            Reinvitar
+          </Button>
+        ) : null}
+        {canManage ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={member.isAssigned ? "outline" : "default"}
+            disabled={busy}
+            onClick={() => void setAssignment(member, !member.isAssigned)}
+            className={
+              member.isAssigned
+                ? "border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]"
+                : "bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+            }
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : member.isAssigned ? (
+              "Quitar"
+            ) : (
+              <>
+                <Plus className="mr-1 h-4 w-4" />
+                Sumar
+              </>
+            )}
+          </Button>
+        ) : null}
+      </div>
+    )
   }
 
   if (loading) return <div className="h-36 animate-pulse rounded-2xl bg-white/[0.06]" />
@@ -229,94 +320,60 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[17px] font-medium text-foreground">Equipo asignado</p>
-          <p className="mt-1 text-[13px] text-white/40">Las personas que trabajan en este evento.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="mr-auto">
+          <p className="text-[17px] font-medium text-foreground">Equipo de la productora</p>
+          <p className="mt-1 text-[13px] text-white/40">Sumá al evento a las personas disponibles en tu equipo.</p>
         </div>
-        {canManage ? <Button type="button" onClick={() => setTeamOpen(true)} className="gap-2 rounded-lg bg-[#FF9500] text-white hover:bg-[#FF9500]/90"><Users className="h-4 w-4" />Gestionar equipo</Button> : null}
+        {canInvite ? (
+          <Button
+            type="button"
+            onClick={() => {
+              setInvitationToShow(null)
+              setInviteOpen(true)
+            }}
+            className="h-10 gap-2 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
+          >
+            <UserPlus className="h-4 w-4" />
+            Invitar empleado
+          </Button>
+        ) : null}
       </div>
 
-      {groupedAssigned.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center text-[15px] text-white/45">
-          No hay empleados asignados a este evento.
-        </div>
+      {roleGroups.length === 0 ? (
+        <p className="text-[15px] text-white/45">Todavía no hay empleados en la productora.</p>
       ) : (
-        <div className="space-y-5">
-          {groupedAssigned.map((group) => (
+        <div className="space-y-7">
+          {roleGroups.map((group) => (
             <section key={group.role}>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/35">{staffRoleLabel(group.role)} · {group.members.length}</p>
-              <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
-                {group.members.map((member, index) => (
-                  <div key={member.id} className={`px-4 py-3 text-[14px] text-white/80 ${index > 0 ? "border-t border-white/[0.06]" : ""}`}>
-                    <p>{member.name}</p>
-                    {member.role === "PROMOTER" && member.promoterId ? (
-                      <div className="mt-2">
-                        <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
-                          <a
-                            href={getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Ver link
-                          </a>
-                        </Button>
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/35">
+                {staffRoleLabel(group.role)} · {group.assigned.length + group.unassigned.length}
+              </p>
+              <div className="space-y-3">
+                {[
+                  { title: "Asignados al evento", members: group.assigned },
+                  { title: "Sin asignar", members: group.unassigned },
+                ].map((subgroup) =>
+                  subgroup.members.length === 0 ? null : (
+                    <div key={subgroup.title}>
+                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-white/25">
+                        {subgroup.title}
+                      </p>
+                      <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+                        {subgroup.members.map(renderMemberRow)}
                       </div>
-                    ) : null}
-                  </div>
-                ))}
+                    </div>
+                  )
+                )}
               </div>
             </section>
           ))}
         </div>
       )}
 
-      <TeamDialog
-        open={teamOpen}
-        onOpenChange={setTeamOpen}
-        rows={rows}
-        pendingIds={pendingIds}
-        canInvite={canInvite}
-        bars={bars}
-        invitationsByStaffId={invitationsByStaffId}
-        onToggle={setAssignment}
-        onAssignBar={(member, barId) => void setAssignment(member, true, barId)}
-        onInvite={() => {
-          setInvitationToShow(null)
-          setInviteOpen(true)
-        }}
-        onReinvite={(invitation) => {
-          setInvitationToShow(invitation)
-          setInviteOpen(true)
-        }}
-      />
       {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={load} accessHint={inviteAccessHint} initialInvitation={invitationToShow} /> : null}
     </div>
   )
-}
-
-function TeamDialog({ open, onOpenChange, rows, pendingIds, canInvite, bars, invitationsByStaffId, onToggle, onAssignBar, onInvite, onReinvite }: {
-  open: boolean; onOpenChange: (open: boolean) => void; rows: EventAssignmentStaffRow[]; pendingIds: Set<string>; canInvite: boolean
-  bars: EventBarRow[]
-  invitationsByStaffId: Map<string, Invitation>
-  onToggle: (member: EventAssignmentStaffRow, isAssigned: boolean) => void; onAssignBar: (member: EventAssignmentStaffRow, barId: string | null) => void; onInvite: () => void; onReinvite: (invitation: Invitation) => void
-}) {
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden rounded-2xl border-white/[0.1] bg-black p-0 text-white">
-      <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left">
-        <div className="flex items-start justify-between gap-8 pr-8"><div><DialogTitle className="text-xl">Equipo de la productora</DialogTitle><DialogDescription className="mt-1 text-white/45">Sumá al evento a las personas disponibles en tu equipo.</DialogDescription></div>{canInvite ? <Button type="button" size="sm" onClick={onInvite} className="shrink-0 gap-1.5 bg-[#FF9500] text-white hover:bg-[#FF9500]/90"><UserPlus className="h-4 w-4" />Invitar empleado</Button> : null}</div>
-      </DialogHeader>
-      <div className="overflow-y-auto p-4">
-        {rows.length === 0 ? <p className="py-10 text-center text-sm text-white/40">Todavía no hay empleados en la productora.</p> : <div className="space-y-1.5">{rows.map((member) => {
-          const assigned = member.isAssigned
-          const busy = pendingIds.has(member.id)
-          const invitation = invitationsByStaffId.get(member.id)
-          return <div key={member.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.07] px-4 py-3"><div className="min-w-0 flex-1"><p className="truncate text-[15px] font-medium">{member.name}</p><p className="text-[12px] text-white/40">{staffRoleLabel(member.role)}</p></div>{member.role === "BARTENDER" ? <Select value={member.barId ?? "unassigned"} onValueChange={(value) => onAssignBar(member, value === "unassigned" ? null : value)} disabled={busy}><SelectTrigger className="h-8 w-40 border-white/[0.14] bg-transparent text-xs text-white/70"><SelectValue placeholder="Sin barra" /></SelectTrigger><SelectContent><SelectItem value="unassigned">Sin barra</SelectItem>{bars.map((bar) => <SelectItem key={bar.id} value={bar.id}>{bar.name}</SelectItem>)}</SelectContent></Select> : null}<div className="flex shrink-0 items-center gap-2">{canInvite && invitation ? <Button type="button" size="sm" variant="outline" onClick={() => onReinvite(invitation)} className="border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]">Reinvitar</Button> : null}<Button type="button" size="sm" variant={assigned ? "outline" : "default"} disabled={busy} onClick={() => onToggle(member, !assigned)} className={assigned ? "border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]" : "bg-[#FF9500] text-white hover:bg-[#FF9500]/90"}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : assigned ? "Quitar" : <><Plus className="mr-1 h-4 w-4" />Sumar</>}</Button></div></div>
-        })}</div>}
-      </div>
-    </DialogContent>
-  </Dialog>
 }
 
 function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHint, initialInvitation, promoterOnly = false }: { eventId: string; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void; accessHint?: string; initialInvitation: Invitation | null; promoterOnly?: boolean }) {
