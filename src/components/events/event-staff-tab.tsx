@@ -33,8 +33,10 @@ type Invitation = {
 
 type InvitationsResponse = { invitations: Invitation[] }
 
-const INVITE_ROLES: StaffRole[] = ["PROMOTER", "BARTENDER", "SECURITY", "MANAGER"]
-const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "BARTENDER", "SECURITY", "ADMIN"]
+const INVITE_ROLES: StaffRole[] = ["PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "MANAGER"]
+// `ROLE_ORDER` gobierna los grupos que ve el admin: un rol ausente acá no se dibuja nunca, así
+// que todo rol nuevo que se pueda invitar desde la pestaña tiene que entrar también en esta lista.
+const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "ADMIN"]
 
 type Props = {
   eventId: string
