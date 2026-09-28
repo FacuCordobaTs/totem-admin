@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { Header } from "@/components/dashboard/header"
 import { EventStaffTab } from "@/components/events/event-staff-tab"
+import { GeneralPromoterSalesPanel } from "@/components/events/general-promoter-sales"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { eventStatusLabel } from "@/lib/event-status"
@@ -15,10 +16,11 @@ function formatEventDate(iso: string): string {
 }
 
 /**
- * Evento visto por el promotor general: el encabezado del evento y su sección de staff, reducida
- * a la cartera de promotores que él mismo invitó. No reusa `EventDashboardPage` a propósito: esa
- * página trae la caja, las métricas y la máquina de estados del evento (incluido el avance
- * automático a "En vivo" por hora de puertas), que no le corresponden a este rol.
+ * Evento visto por el promotor general: el tablero de ventas de su cartera (entradas vendidas y
+ * recaudado, por promotor y en total) y, debajo, la gestión de esos promotores. No reusa
+ * `EventDashboardPage` a propósito: esa página trae la caja, las métricas de la productora y la
+ * máquina de estados del evento (incluido el avance automático a "En vivo" por hora de puertas),
+ * que no le corresponden a este rol.
  */
 export function GeneralPromoterEventPage() {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +30,8 @@ export function GeneralPromoterEventPage() {
   const [event, setEvent] = useState<ApiEvent | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Cambia cuando la cartera cambia (alta o baja de un promotor) para que el tablero se rehaga.
+  const [salesRefresh, setSalesRefresh] = useState(0)
 
   const load = useCallback(async () => {
     if (!token || !id) return
@@ -56,7 +60,7 @@ export function GeneralPromoterEventPage() {
     <div className="flex min-h-screen flex-col bg-black text-white">
       <Header />
       <main className="flex-1">
-        <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
+        <div className="mx-auto max-w-4xl px-5 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
           <button
             type="button"
             onClick={() => navigate("/eventos")}
@@ -74,23 +78,28 @@ export function GeneralPromoterEventPage() {
             <p className="text-[15px] text-red-400/80">{error}</p>
           ) : id ? (
             <>
-              <header className="mb-8">
+              <header className="mb-7">
                 <p className="text-[12px] uppercase tracking-[0.18em] text-white/40">
                   {event ? eventStatusLabel(event.status) : ""}
                 </p>
-                <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-white">
+                <h1 className="mt-2 text-[28px] font-extrabold leading-tight tracking-tight text-white sm:text-3xl">
                   {event?.name}
                 </h1>
                 {subtitle ? <p className="mt-1.5 text-[15px] text-white/45">{subtitle}</p> : null}
               </header>
 
-              <section className="rounded-3xl border border-white/[0.08] bg-white/[0.02] px-6 py-6">
-                <EventStaffTab
-                  eventId={id}
-                  eventLinkId={event?.slug ?? id}
-                  inviteAccessHint="El enlace inicia sesión directamente y sirve para volver a entrar, sin nombre ni PIN."
-                />
-              </section>
+              <div className="space-y-6">
+                <GeneralPromoterSalesPanel eventId={id} refreshToken={salesRefresh} />
+
+                <section className="rounded-3xl border border-white/[0.08] bg-white/[0.02] px-5 py-6 sm:px-6">
+                  <EventStaffTab
+                    eventId={id}
+                    eventLinkId={event?.slug ?? id}
+                    inviteAccessHint="El enlace inicia sesión directamente y sirve para volver a entrar, sin nombre ni PIN."
+                    onTeamChange={() => setSalesRefresh((n) => n + 1)}
+                  />
+                </section>
+              </div>
             </>
           ) : null}
         </div>

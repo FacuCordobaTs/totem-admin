@@ -45,9 +45,17 @@ type Props = {
   inviteAccessHint?: string
   /** En eventos de solo entradas, Equipo se reduce a la gestión de promotores. */
   promotersOnly?: boolean
+  /** Avisa que cambió la cartera (alta o baja de un promotor) para refrescar lo que la muestre. */
+  onTeamChange?: () => void
 }
 
-export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promotersOnly = false }: Props) {
+export function EventStaffTab({
+  eventId,
+  eventLinkId,
+  inviteAccessHint,
+  promotersOnly = false,
+  onTeamChange,
+}: Props) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   // El promotor general administra únicamente su cartera: ve, suma al evento, invita y elimina
@@ -93,6 +101,12 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
   }, [canInvite, eventId, promotersView, token])
 
   useEffect(() => { void load(true) }, [load])
+
+  /** Recarga la tabla y avisa hacia afuera: un alta o una baja cambia la cartera que otros paneles muestran. */
+  const reloadTeam = useCallback(() => {
+    void load()
+    onTeamChange?.()
+  }, [load, onTeamChange])
 
   const invitationsByStaffId = useMemo(
     () => new Map(
@@ -153,6 +167,8 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
       await apiFetch(`/staff/team/${promoterToDelete.id}`, { method: "DELETE", token })
       setRows((current) => current.filter((row) => row.id !== promoterToDelete.id))
       setPromoterToDelete(null)
+      // La baja conserva sus ventas históricas: el panel de ventas se refresca para mostrarlas.
+      onTeamChange?.()
       toast.success("Promotor eliminado")
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo eliminar al promotor")
@@ -319,7 +335,7 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
           eventId={eventId}
           open={inviteOpen}
           onOpenChange={setInviteOpen}
-          onCreated={load}
+          onCreated={reloadTeam}
           accessHint={inviteAccessHint}
           initialInvitation={invitationToShow}
           promoterOnly
@@ -450,7 +466,7 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
             eventId={eventId}
             open={inviteOpen}
             onOpenChange={setInviteOpen}
-            onCreated={load}
+            onCreated={reloadTeam}
             accessHint={inviteAccessHint}
             initialInvitation={invitationToShow}
             promoterOnly
@@ -513,7 +529,7 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
         </div>
       )}
 
-      {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={load} accessHint={inviteAccessHint} initialInvitation={invitationToShow} /> : null}
+      {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reloadTeam} accessHint={inviteAccessHint} initialInvitation={invitationToShow} /> : null}
     </div>
   )
 }
