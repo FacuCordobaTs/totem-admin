@@ -33,7 +33,8 @@ export function SettingsPage() {
   const [savingProductora, setSavingProductora] = useState(false)
   const role = staff?.role
   const isAdmin = role === "ADMIN"
-  const restrictedSettings = role === "BARTENDER" || role === "SECURITY"
+  const restrictedSettings =
+    role === "BARTENDER" || role === "SECURITY" || role === "GENERAL_PROMOTER"
   const hasTenant = tenantId != null && tenantId !== ""
 
   useEffect(() => {

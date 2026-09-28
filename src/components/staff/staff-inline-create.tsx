@@ -14,7 +14,13 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "PROMOTER", "BARTENDER", "SECURITY"]
+const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY"]
+
+/**
+ * Promotores y promotores generales entran por link de invitación, igual que el resto del equipo
+ * de puerta: no se les carga correo ni contraseña.
+ */
+const isInviteRole = (role: StaffRole) => role === "PROMOTER" || role === "GENERAL_PROMOTER"
 
 type Props = {
   onCreated: (keepOpen?: boolean) => void
@@ -52,14 +58,14 @@ export function StaffInlineCreate({ onCreated, className }: Props) {
       setError("Completá el nombre.")
       return
     }
-    if (role !== "PROMOTER" && (email.trim() === "" || password.length < 8)) {
+    if (!isInviteRole(role) && (email.trim() === "" || password.length < 8)) {
       setError("Completá nombre, correo y una contraseña de 8+ caracteres.")
       return
     }
     setError(null)
     setSaving(true)
     try {
-      if (role === "PROMOTER") {
+      if (isInviteRole(role)) {
         const data = await apiFetch<{ invitation: { url: string } }>("/staff/invitations", {
           method: "POST",
           token,
@@ -67,7 +73,11 @@ export function StaffInlineCreate({ onCreated, className }: Props) {
         })
         setInvitationUrl(data.invitation.url)
         onCreated(true)
-        toast.success("Promotor creado. Compartí su link de acceso.")
+        toast.success(
+          role === "GENERAL_PROMOTER"
+            ? "Promotor general creado. Compartí su link de acceso."
+            : "Promotor creado. Compartí su link de acceso."
+        )
         return
       }
       const data = await apiFetch<{ staff: StaffProfile; imported?: boolean }>("/staff/team", {
@@ -110,11 +120,11 @@ export function StaffInlineCreate({ onCreated, className }: Props) {
         <label htmlFor="new-staff-name" className="text-[13px] text-white/60">Nombre</label>
         <Input id="new-staff-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre y apellido" className={inputClass} />
       </div>
-      {role !== "PROMOTER" ? <div className="space-y-2">
+      {!isInviteRole(role) ? <div className="space-y-2">
         <label htmlFor="new-staff-email" className="text-[13px] text-white/60">Correo</label>
         <Input id="new-staff-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nombre@correo.com" autoComplete="off" className={inputClass} />
       </div> : null}
-      {role !== "PROMOTER" ? <div className="space-y-2">
+      {!isInviteRole(role) ? <div className="space-y-2">
         <label htmlFor="new-staff-password" className="text-[13px] text-white/60">Contraseña</label>
         <Input id="new-staff-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 8 caracteres" autoComplete="new-password" minLength={8} className={inputClass} />
       </div> : null}
@@ -128,9 +138,9 @@ export function StaffInlineCreate({ onCreated, className }: Props) {
         </Select>
       </div>
       <Button type="submit" disabled={saving || name.trim() === "" || invitationUrl != null} className="h-11 w-full rounded-xl bg-[#FF9500] text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40">
-        {saving ? "Agregando…" : role === "PROMOTER" ? "Crear link de acceso" : "Agregar"}
+        {saving ? "Agregando…" : isInviteRole(role) ? "Crear link de acceso" : "Agregar"}
       </Button>
-      {invitationUrl ? <div className="space-y-2 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-3"><p className="text-sm font-medium text-emerald-300">Link personal del promotor</p><p className="text-xs text-white/55">Después asignalo al evento desde Equipo para que pueda vender.</p><Input readOnly value={invitationUrl} className="h-9 border-white/[0.12] bg-black text-xs text-white/70" /><Button type="button" variant="outline" className="h-9 w-full border-white/[0.15]" onClick={() => { void navigator.clipboard.writeText(invitationUrl); toast.success("Link copiado") }}>Copiar link</Button></div> : null}
+      {invitationUrl ? <div className="space-y-2 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-3"><p className="text-sm font-medium text-emerald-300">{role === "GENERAL_PROMOTER" ? "Link personal del promotor general" : "Link personal del promotor"}</p><p className="text-xs text-white/55">{role === "GENERAL_PROMOTER" ? "Después asignalo al evento desde Equipo para que pueda invitar y gestionar sus promotores." : "Después asignalo al evento desde Equipo para que pueda vender."}</p><Input readOnly value={invitationUrl} className="h-9 border-white/[0.12] bg-black text-xs text-white/70" /><Button type="button" variant="outline" className="h-9 w-full border-white/[0.15]" onClick={() => { void navigator.clipboard.writeText(invitationUrl); toast.success("Link copiado") }}>Copiar link</Button></div> : null}
       {error ? (
         <p className="text-[12px] text-red-400">{error}</p>
       ) : null}

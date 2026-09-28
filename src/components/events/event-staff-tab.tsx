@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { QRCodeSVG } from "qrcode.react"
-import { Copy, ExternalLink, Loader2, Plus, UserPlus } from "lucide-react"
+import { Copy, ExternalLink, Loader2, Plus, Trash2, UserPlus } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventAssignmentStaffRow, EventBarRow, EventBarsResponse, EventStaffListResponse } from "@/types/event-dashboard"
@@ -10,6 +10,15 @@ import { getPromoterEventShopUrl } from "@/lib/client-app-url"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 type StaffRole = EventAssignmentStaffRow["role"]
@@ -39,8 +48,13 @@ type Props = {
 export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promotersOnly = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
-  const canManage = role === "ADMIN" || role === "MANAGER"
-  const canInvite = role === "ADMIN"
+  // El promotor general administra únicamente su cartera: ve, suma al evento, invita y elimina
+  // promotores propios (`promoters.owner_staff_id`). Es su única superficie, así que ve la
+  // sección reducida a promotores y no la del equipo de la productora.
+  const isGeneralPromoter = role === "GENERAL_PROMOTER"
+  const canManage = role === "ADMIN" || role === "MANAGER" || isGeneralPromoter
+  const canInvite = role === "ADMIN" || isGeneralPromoter
+  const promotersView = promotersOnly || isGeneralPromoter
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
   const [bars, setBars] = useState<EventBarRow[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
@@ -49,6 +63,8 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
   const [inviteOpen, setInviteOpen] = useState(false)
   const [invitationToShow, setInvitationToShow] = useState<Invitation | null>(null)
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
+  const [promoterToDelete, setPromoterToDelete] = useState<EventAssignmentStaffRow | null>(null)
+  const [deletingPromoter, setDeletingPromoter] = useState(false)
 
   const load = useCallback(async (showLoading = false) => {
     if (!token) return
@@ -60,7 +76,7 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
         canInvite
           ? apiFetch<InvitationsResponse>("/staff/invitations", { method: "GET", token })
           : Promise.resolve(null),
-        promotersOnly
+        promotersView
           ? Promise.resolve(null)
           : apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, { method: "GET", token }),
       ])
@@ -72,7 +88,7 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [canInvite, eventId, promotersOnly, token])
+  }, [canInvite, eventId, promotersView, token])
 
   useEffect(() => { void load(true) }, [load])
 
@@ -124,6 +140,22 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
         next.delete(member.id)
         return next
       })
+    }
+  }
+
+  /** Baja lógica de la cuenta (`DELETE /staff/team/:id`): el backend valida que sea un promotor suyo. */
+  async function deletePromoter() {
+    if (!token || !promoterToDelete) return
+    setDeletingPromoter(true)
+    try {
+      await apiFetch(`/staff/team/${promoterToDelete.id}`, { method: "DELETE", token })
+      setRows((current) => current.filter((row) => row.id !== promoterToDelete.id))
+      setPromoterToDelete(null)
+      toast.success("Promotor eliminado")
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "No se pudo eliminar al promotor")
+    } finally {
+      setDeletingPromoter(false)
     }
   }
 
@@ -209,6 +241,19 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
             )}
           </Button>
         ) : null}
+        {isGeneralPromoter ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => setPromoterToDelete(member)}
+            className="gap-1.5 border-red-500/25 bg-transparent text-red-300/90 hover:bg-red-500/10 hover:text-red-200"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Eliminar
+          </Button>
+        ) : null}
       </div>
     )
   }
@@ -216,7 +261,102 @@ export function EventStaffTab({ eventId, eventLinkId, inviteAccessHint, promoter
   if (loading) return <div className="h-36 animate-pulse rounded-2xl bg-white/[0.06]" />
   if (error) return <div className="rounded-2xl border border-red-900/50 bg-red-950/40 px-5 py-4 text-[15px] text-red-300">{error}</div>
 
-  if (promotersOnly) {
+  // Sección del promotor general: su cartera dentro del evento, con los que todavía no sumó a la
+  // vista para poder sumarlos. La lista ya viene acotada por el backend a sus propios promotores.
+  if (isGeneralPromoter) {
+    const promoterRows = rows.filter((member) => member.role === "PROMOTER")
+    const groups = [
+      { title: "Asignados al evento", members: promoterRows.filter((member) => member.isAssigned) },
+      { title: "Sin asignar", members: promoterRows.filter((member) => !member.isAssigned) },
+    ]
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[17px] font-medium text-foreground">Mis promotores</p>
+            <p className="mt-1 text-[13px] text-white/40">
+              Invitá promotores y sumalos al evento para que vendan entradas.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => {
+              setInvitationToShow(null)
+              setInviteOpen(true)
+            }}
+            className="gap-2 rounded-lg bg-[#FF9500] text-white hover:bg-[#FF9500]/90"
+          >
+            <UserPlus className="h-4 w-4" />
+            Invitar promotor
+          </Button>
+        </div>
+
+        {promoterRows.length === 0 ? (
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center text-[15px] text-white/45">
+            Todavía no invitaste promotores. Creá su link de invitación y compartilo.
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {groups.map((group) =>
+              group.members.length === 0 ? null : (
+                <div key={group.title}>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-white/25">
+                    {group.title}
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
+                    {group.members.map(renderMemberRow)}
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        <InviteEmployeeDialog
+          eventId={eventId}
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          onCreated={load}
+          accessHint={inviteAccessHint}
+          initialInvitation={invitationToShow}
+          promoterOnly
+        />
+
+        <AlertDialog
+          open={promoterToDelete != null}
+          onOpenChange={(open) => !open && !deletingPromoter && setPromoterToDelete(null)}
+        >
+          <AlertDialogContent className="border-zinc-800 bg-zinc-950 text-white">
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Eliminar a {promoterToDelete?.name}?</AlertDialogTitle>
+              <AlertDialogDescription className="text-white/60">
+                Se da de baja su cuenta y su perfil de promotor: deja de aparecer en tu lista y no
+                puede volver a entrar con su link.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={deletingPromoter}
+                className="border-zinc-700 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              >
+                Cancelar
+              </AlertDialogCancel>
+              <Button
+                disabled={deletingPromoter}
+                onClick={() => void deletePromoter()}
+                className="bg-red-600 text-white hover:bg-red-500"
+              >
+                {deletingPromoter ? "Eliminando…" : "Eliminar promotor"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    )
+  }
+
+  if (promotersView) {
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">

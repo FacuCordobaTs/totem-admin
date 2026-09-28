@@ -2,7 +2,13 @@ import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import { apiFetch, ApiError } from "@/lib/api"
 
-export type StaffRole = "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "PROMOTER"
+export type StaffRole =
+  | "ADMIN"
+  | "MANAGER"
+  | "BARTENDER"
+  | "SECURITY"
+  | "PROMOTER"
+  | "GENERAL_PROMOTER"
 
 export type StaffProfile = {
   id: string

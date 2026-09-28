@@ -4,8 +4,7 @@ import "./index.css"
 import { createBrowserRouter, Navigate } from "react-router"
 import { RouterProvider } from "react-router/dom"
 import { RoleAccessGate } from "@/components/auth/RoleAccessGate"
-import { EventsListPage } from "@/pages/EventsListPage"
-import { EventDashboardPage } from "@/pages/EventDashboardPage"
+import { EventRoute, EventsRoute } from "@/components/events/event-route"
 import { InventoryPage } from "@/pages/InventoryPage"
 import { StaffPage } from "@/pages/StaffPage"
 import { SettingsPage } from "@/pages/SettingsPage"
@@ -83,8 +82,8 @@ const router = createBrowserRouter([
     element: withAuth(<RoleAccessGate />),
     children: [
       { index: true, element: <Navigate to="/eventos" replace /> },
-      { path: "eventos", element: <EventsListPage /> },
-      { path: "eventos/:id", element: <EventDashboardPage /> },
+      { path: "eventos", element: <EventsRoute /> },
+      { path: "eventos/:id", element: <EventRoute /> },
       { path: "catalogo", element: <InventoryPage /> },
       { path: "staff", element: <StaffPage /> },
       { path: "configuracion", element: <SettingsPage /> },
