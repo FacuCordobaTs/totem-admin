@@ -40,6 +40,7 @@ function splitDateTimeLocal(v: string): [string, string] {
 }
 
 type Fields = {
+  description: string
   ticketsLocal: string
   consumptionsLocal: string
   slug: string
@@ -122,6 +123,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
+  const [description, setDescription] = useState("")
   const [slug, setSlug] = useState("")
   const [designType, setDesignType] = useState<"GLASS" | "MINIMAL">("MINIMAL")
   const [saving, setSaving] = useState(false)
@@ -140,16 +142,19 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   useEffect(() => {
     const tickets = toDatetimeLocalValue(event.ticketsAvailableFrom)
     const consumptions = toDatetimeLocalValue(event.consumptionsAvailableFrom)
+    const desc = event.description ?? ""
     const s = event.slug ?? ""
     const design = event.designType ?? "MINIMAL"
     setTicketsLocal(tickets)
     setConsumptionsLocal(consumptions)
+    setDescription(desc)
     setSlug(s)
     setDesignType(design)
     setError(null)
-    lastSavedRef.current = JSON.stringify([tickets, consumptions, s, design])
+    lastSavedRef.current = JSON.stringify([desc, tickets, consumptions, s, design])
   }, [
     event.id,
+    event.description,
     event.ticketsAvailableFrom,
     event.consumptionsAvailableFrom,
     event.slug,
@@ -175,6 +180,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const persist = useCallback(
     async (override?: Partial<Fields>) => {
       if (!token) return
+      const desc = (override?.description ?? description).trim()
       const tickets = override?.ticketsLocal ?? ticketsLocal
       const consumptions = override?.consumptionsLocal ?? consumptionsLocal
       const rawSlug = override?.slug ?? slug
@@ -183,7 +189,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
       const trimmed = rawSlug.trim()
       if (trimmed !== "" && !isValidSlug(trimmed)) return // el error ya se muestra
 
-      const signature = JSON.stringify([tickets, consumptions, trimmed, design])
+      const signature = JSON.stringify([desc, tickets, consumptions, trimmed, design])
       if (signature === lastSavedRef.current) return // sin cambios reales
 
       const ticketsPayload = tickets.trim() === "" ? null : fromDatetimeLocalToIso(tickets)
@@ -206,6 +212,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
           method: "PATCH",
           token,
           body: JSON.stringify({
+            description: desc === "" ? null : desc,
             ticketsAvailableFrom: ticketsPayload,
             ...(supportsConsumptions
               ? { consumptionsAvailableFrom: consumptionsPayload }
@@ -227,7 +234,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setSaving(false)
       }
     },
-    [token, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
+    [token, description, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
   )
 
   return (
@@ -315,6 +322,30 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
 
       {!onlySlug ? (
         <>
+          {/* Descripcion publica: texto libre de la pagina de venta. Persiste al perder el foco,
+              sin "Guardar" global, igual que el resto de la seccion. */}
+          <div className="mt-8 space-y-2">
+            <label
+              htmlFor={`event-description-${event.id}`}
+              className="block text-md font-medium text-[#98989D]"
+            >
+              Descripci{"\u00f3"}n
+            </label>
+            <textarea
+              id={`event-description-${event.id}`}
+              value={description}
+              placeholder={"Cont\u00e1 de qu\u00e9 se trata el evento: artistas, horarios, qu\u00e9 incluye\u2026"}
+              maxLength={500}
+              rows={4}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={() => void persist()}
+              className="w-full resize-y rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] transition-shadow placeholder:text-[#8E8E93] focus:ring-white/25 dark:placeholder:text-[#98989D]"
+            />
+            <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
+              Se muestra en la p{"\u00e1"}gina p{"\u00fa"}blica, debajo del nombre del evento. {description.length}/500
+            </p>
+          </div>
+
           {/* Link de acceso del cliente (`crow.ar/{slug}/acceso`): es el que se imprime para la
               barra. El cliente lo escanea, entra con su DNI o celular y recibe un código por
               WhatsApp — sin depender del link que le llegó al mail. */}

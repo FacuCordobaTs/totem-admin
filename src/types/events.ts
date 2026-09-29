@@ -103,6 +103,8 @@ export type ApiEvent = {
   id: string
   tenantId: string
   name: string
+  /** Descripcion publica del evento que muestra la pagina de venta. null = sin descripcion. */
+  description?: string | null
   /** URL-friendly identifier: crow.ar/e/{slug}. null = sin slug personalizado. */
   slug: string | null
   date: string
