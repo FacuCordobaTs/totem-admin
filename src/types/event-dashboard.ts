@@ -64,6 +64,35 @@ export type EventPromoterSalesResponse = {
   promoters: EventPromoterSalesRow[]
 }
 
+/** Una entrada vendida por el propio promotor (`GET /promoters/me/events/:eventId`). */
+export type PromoterOwnTicketRow = {
+  id: string
+  status: "PENDING" | "USED" | "CANCELLED"
+  buyerName: string | null
+  buyerEmail: string | null
+  createdAt: string | null
+  ticketTypeName: string
+  price: string
+}
+
+/**
+ * Espacio de venta propio de un promotor —lo usa el rol `PROMOTER` y también el
+ * `GENERAL_PROMOTER`, que además de su cartera vende con su propio link—. Trae su identidad
+ * comercial (`promoter.id`, con la que se arma el link), sus números y sus entradas.
+ */
+export type PromoterOwnEventResponse = {
+  promoter: { id: string; name: string }
+  event: {
+    id: string
+    slug: string | null
+    name: string
+    date: string
+    status: "draft" | "on_sale" | "live" | "closed"
+  }
+  stats: { ticketsCount: number; ticketRevenue: string }
+  tickets: PromoterOwnTicketRow[]
+}
+
 export type StaffTeamMember = {
   id: string
   tenantId: string | null

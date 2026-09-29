@@ -189,17 +189,21 @@ export function EventStaffTab({
           <p className="truncate text-[14px] text-white/80">{member.name}</p>
           <p className="text-[12px] text-white/40">{staffRoleLabel(member.role)}</p>
         </div>
-        {member.role === "PROMOTER" && member.promoterId ? (
-          <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
-            <a
-              href={getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Ver link
-            </a>
-          </Button>
+        {/* Los dos roles de promotor venden con link propio: el general también, además de
+            coordinar los de su cartera. */}
+        {member.role === "PROMOTER" || member.role === "GENERAL_PROMOTER" ? (
+          member.promoterId ? (
+            <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
+              <a
+                href={getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Ver link
+              </a>
+            </Button>
+          ) : null
         ) : null}
         {canManage && member.role === "BARTENDER" ? (
           <Select
