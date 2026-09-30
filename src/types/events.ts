@@ -119,6 +119,11 @@ export type ApiEvent = {
   designType?: "GLASS" | "MINIMAL"
   /** Tarea 3.1 — Edad mínima para entrar (+18: 18). null = sin restricción. La lee el escáner de DNI. */
   ageRestriction?: number | null
+  /**
+   * Recordatorio de WhatsApp a quienes ya tienen entrada: `false` (default) = no sale; `true` = lo
+   * activó el administrador. El resto de su configuración se lee de `GET /events/:id/whatsapp-reminder`.
+   */
+  whatsappReminderEnabled?: boolean
   /** Estado del ciclo de vida (máquina de 4 estados). Fuente de verdad del header/Resumen. */
   status: EventStatus
   /** ISO 8601 — hora de puertas programada (trigger automático on_sale→live). */

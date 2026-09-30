@@ -7,6 +7,10 @@ import {
 } from "@/components/events/ticket-types"
 import { CourtesiesPanel } from "@/components/events/courtesies-panel"
 import {
+  EventMessagesEntry,
+  EventMessagesPanel,
+} from "@/components/events/event-messages-panel"
+import {
   AttendeeTable,
   type AttendeeTableHandle,
 } from "@/components/events/attendee-table"
@@ -115,12 +119,16 @@ export function EventDashboardPage() {
 
   const [activeSection, setActiveSection] = useState<SectionId>("resumen")
   const [financeView, setFinanceView] = useState<"summary" | "sales">("summary")
+  // Entradas tiene una pantalla interna, "Mensajes" (recordatorio de WhatsApp), que reemplaza todo el
+  // contenido de la sección hasta que se vuelve con el botón.
+  const [ticketsView, setTicketsView] = useState<"main" | "messages">("main")
   const [refreshTick, setRefreshTick] = useState(0)
   // En vivo (spec §5): la app cambia de piel al panel de la noche. "Intervenir" abre el
   // workspace por debajo del panel (única puerta a los formularios de config).
   const [intervening, setIntervening] = useState(false)
-  // Ceremonia de cierre (spec §5 / 4.4): el único flujo por pasos. "Cerrar el evento" la abre;
-  // reemplaza el panel/workspace mientras dura y termina transicionando el evento a closed.
+  // Ceremonia de cierre (spec §5 / 4.4): el único flujo por pasos. Hoy nada la abre (se quitó el
+  // botón "Cerrar el evento" para que no se apriete sin querer); al abrirse reemplaza el
+  // panel/workspace mientras dura y termina transicionando el evento a closed.
   const [closing, setClosing] = useState(false)
   // Cerrado (spec §5 / 4.5): el reporte compartible por link. Copiado con confirmación efímera.
   const [reportCopied, setReportCopied] = useState(false)
@@ -145,6 +153,7 @@ export function EventDashboardPage() {
   const navigateToSection = useCallback((section: SectionId) => {
     setActiveSection(section)
     if (section === "finanzas") setFinanceView("summary")
+    if (section === "entradas") setTicketsView("main")
   }, [])
 
   const status: EventStatus = event?.status ?? "draft"
@@ -302,7 +311,6 @@ export function EventDashboardPage() {
                   busy={transitioning}
                   error={actionError}
                   onTransition={transition}
-                  onStartClosing={() => setClosing(true)}
                 />
               ) : undefined
             }
@@ -318,6 +326,34 @@ export function EventDashboardPage() {
           </SectionShell>
         )
       case "entradas":
+        if (ticketsView === "messages") {
+          return (
+            <SectionShell
+              title="Mensajes"
+              action={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTicketsView("main")}
+                  className="cursor-pointer gap-1.5 border border-white/[0.10] bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Volver a entradas
+                </Button>
+              }
+            >
+              <EventMessagesPanel
+                event={event}
+                onEnabledChange={(enabled) =>
+                  setEvent((prev) =>
+                    prev ? { ...prev, whatsappReminderEnabled: enabled } : prev
+                  )
+                }
+              />
+            </SectionShell>
+          )
+        }
         return (
           <SectionShell
             title="Entradas"
@@ -369,6 +405,10 @@ export function EventDashboardPage() {
               refreshTrigger={refreshTick}
               supportsConsumptions={supportsConsumptions}
               onChanged={bump}
+            />
+            <EventMessagesEntry
+              enabled={event.whatsappReminderEnabled ?? false}
+              onOpen={() => setTicketsView("messages")}
             />
           </SectionShell>
         )
@@ -498,7 +538,6 @@ export function EventDashboardPage() {
                 busy={transitioning}
                 error={actionError}
                 onTransition={transition}
-                onStartClosing={() => setClosing(true)}
               />
             )}
             {status === "closed" && event.closingReport && (
@@ -613,7 +652,8 @@ export function EventDashboardPage() {
 
 /**
  * Acción primaria contextual del header (spec §4 / §5). El productor solo empuja dos
- * transiciones: "Abrir venta" (borrador) y "Cerrar el evento" (en venta / en vivo).
+ * transiciones: "Abrir venta" (borrador) y "Arrancar ahora" (en venta). En vivo no hay botón
+ * de cierre: se quitó para que nadie lo apriete sin querer.
  * En borrador, si falta algo esencial el botón va atenuado y al lado —en una sola línea, sin
  * modal ni lista— dice exactamente qué falta.
  */
@@ -623,14 +663,12 @@ function PrimaryStateAction({
   busy,
   error,
   onTransition,
-  onStartClosing,
 }: {
   status: EventStatus
   readiness: Readiness | null
   busy: boolean
   error: string | null
   onTransition: (to: EventStatus) => void
-  onStartClosing: () => void
 }) {
   const token = useAuthStore((s) => s.token)
   const tenantId = useAuthStore((s) => s.staff?.tenantId ?? null)
@@ -663,7 +701,7 @@ function PrimaryStateAction({
   }
 
   // En venta: la única acción manual es arrancar la noche (override de lo automático a la hora
-  // de puertas). Cerrar el evento se hace desde En vivo.
+  // de puertas).
   if (status === "on_sale") {
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -680,28 +718,6 @@ function PrimaryStateAction({
         >
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
           Arrancar ahora
-        </Button>
-      </div>
-    )
-  }
-
-  if (status === "live") {
-    return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {error && (
-          <span className="order-2 text-[13px] text-red-400/80 sm:order-1">
-            {error}
-          </span>
-        )}
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={busy}
-          onClick={onStartClosing}
-          className="order-1 h-9 gap-2 border border-white/[0.15] bg-white/[0.05] px-4 text-[14px] font-semibold text-white/80 hover:bg-white/[0.10] sm:order-2"
-        >
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-          Cerrar el evento
         </Button>
       </div>
     )
