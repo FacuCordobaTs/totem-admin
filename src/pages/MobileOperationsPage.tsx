@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Navigate, useNavigate } from "react-router"
 import { CreditCard, ScanLine } from "lucide-react"
+import { LogoutButton } from "@/components/auth/logout-button"
 import { useAuthStore } from "@/stores/auth-store"
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)"
@@ -86,6 +87,8 @@ export function MobileOperationsPage() {
             </span>
           </button>
         </div>
+
+        <LogoutButton variant="ghost" className="mt-6 h-11 self-center px-4" />
       </div>
     </main>
   )

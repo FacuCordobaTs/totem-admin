@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { isTauri } from "@tauri-apps/api/core"
-import { LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { LogoutButton } from "@/components/auth/logout-button"
 import { Header } from "@/components/dashboard/header"
 import { useAuthStore } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
@@ -28,7 +28,6 @@ export function SettingsPage() {
   const staff = useAuthStore((s) => s.staff)
   const token = useAuthStore((s) => s.token)
   const updateStaff = useAuthStore((s) => s.updateStaff)
-  const logoutStore = useAuthStore((s) => s.logout)
   const [productoraName, setProductoraName] = useState(tenantName ?? "")
   const [savingProductora, setSavingProductora] = useState(false)
   const role = staff?.role
@@ -64,16 +63,6 @@ export function SettingsPage() {
     window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`)
   }, [])
 
-  async function handleLogout() {
-    try {
-      await apiFetch("/staff/logout", { method: "POST", token })
-    } catch {
-      /* ignorar error de red */
-    }
-    logoutStore()
-    window.location.assign("/login")
-  }
-
   async function saveProductoraName(e: React.FormEvent) {
     e.preventDefault()
     if (!token || !staff || !hasTenant) return
@@ -100,7 +89,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
-      <Header />
+      <Header showLogout={false} />
       <main className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
         <div className="mx-auto max-w-2xl space-y-8">
           <header className="space-y-1">
@@ -161,7 +150,7 @@ export function SettingsPage() {
             </>
           ) : null}
 
-          <Button type="button" variant="outline" className="h-11 w-full gap-2 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30" onClick={() => void handleLogout()}><LogOut className="h-4 w-4" />Cerrar sesión</Button>
+          <LogoutButton className="h-11 w-full rounded-xl" />
         </div>
       </main>
     </div>

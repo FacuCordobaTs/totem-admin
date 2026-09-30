@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
-import { Copy, LogOut, TrendingUp, Users } from "lucide-react"
+import { Copy, TrendingUp, Users } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { getPromoterEventShopUrl } from "@/lib/client-app-url"
+import { LogoutButton } from "@/components/auth/logout-button"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -32,7 +33,6 @@ function eventDate(value: string) {
 export function PromoterPage() {
   const token = useAuthStore((state) => state.token)
   const staff = useAuthStore((state) => state.staff)
-  const logout = useAuthStore((state) => state.logout)
   const [events, setEvents] = useState<PromoterEvent[]>([])
   const [eventId, setEventId] = useState("")
   const [detail, setDetail] = useState<DetailResponse | null>(null)
@@ -87,7 +87,7 @@ export function PromoterPage() {
       <header className="border-b border-zinc-200/60 bg-white/80 px-5 py-4 backdrop-blur dark:border-zinc-800 dark:bg-black/80 sm:px-8">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
           <div><p className="text-xs font-semibold uppercase tracking-widest text-[#FF9500]">Crow · Promotores</p><h1 className="mt-1 text-xl font-bold">Hola, {staff?.name ?? "promotor"}</h1></div>
-          <Button type="button" variant="ghost" onClick={logout} className="gap-2 text-zinc-500"><LogOut className="h-4 w-4" />Salir</Button>
+          <LogoutButton variant="ghost" className="shrink-0" />
         </div>
       </header>
 

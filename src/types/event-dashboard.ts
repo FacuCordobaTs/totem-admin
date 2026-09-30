@@ -58,6 +58,11 @@ export type EventPromoterSalesRow = {
   barRevenue: string
   /** Entradas + barra. */
   totalRevenue: string
+  /**
+   * Promotor general al que pertenece (`promoters.owner_staff_id`); null = promotor de la
+   * productora. Ausente en el reporte congelado del cierre y en la vista del promotor general.
+   */
+  generalPromoterName?: string | null
 }
 
 export type EventPromoterSalesResponse = {
@@ -156,6 +161,8 @@ export type EventAssignmentStaffRow = {
   barId: string | null
   /** Perfil comercial para construir su link público en este evento. */
   promoterId: string | null
+  /** Promotor general al que pertenece el promotor; null = de la productora. Ausente en la vista del promotor general. */
+  generalPromoterName?: string | null
 }
 
 export type EventStaffListResponse = {

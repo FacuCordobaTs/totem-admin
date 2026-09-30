@@ -52,6 +52,11 @@ export type ApiTicketRow = {
   customerId: string | null
   promoterId: string | null
   promoterName: string | null
+  /**
+   * Si la entrada cambió de mano por "compartir entradas": quién la pasó y cuándo. El titular actual
+   * ya figura en `buyerName`; la venta y el promotor siguen siendo los de la compra original.
+   */
+  transferredFrom?: { name: string; at: string | null } | null
 }
 
 type TicketsResponse = { tickets: ApiTicketRow[] }
@@ -663,6 +668,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                       </TableCell>
                       <TableCell className="py-3.5 pr-4 text-[12px] text-white/45">
                         {t.promoterName ? `Promotor · ${t.promoterName}` : t.customerId ? "Web" : "Directa"}
+                        {t.transferredFrom ? " · traspasada" : ""}
                       </TableCell>
                     </TableRow>
                   ))
@@ -733,6 +739,17 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                           {formatShortDate(detail.createdAt)}
                         </span>
                       </DetailRow>
+
+                      {detail.transferredFrom ? (
+                        <DetailRow label="traspasada por">
+                          <span className="text-[15px] text-foreground">
+                            {detail.transferredFrom.name}
+                          </span>
+                          <span className="ml-2 text-[12px] text-white/35">
+                            {formatShortDate(detail.transferredFrom.at)}
+                          </span>
+                        </DetailRow>
+                      ) : null}
 
                       <DetailRow label="fecha de uso">
                         <span className="text-[15px] text-foreground">

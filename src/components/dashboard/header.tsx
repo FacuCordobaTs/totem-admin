@@ -1,9 +1,14 @@
 import { Link, useLocation } from "react-router"
 import { cn } from "@/lib/utils"
+import { LogoutButton } from "@/components/auth/logout-button"
 import { globalNav, isNavItemActive } from "@/components/dashboard/global-nav"
 import { useAuthStore } from "@/stores/auth-store"
 
-export function Header() {
+/**
+ * `showLogout={false}` es para la página que ya trae su propio botón de salida (Cuenta): así un rol
+ * sin navegación global no ve dos.
+ */
+export function Header({ showLogout = true }: { showLogout?: boolean }) {
   const pathname = useLocation().pathname
   const staff = useAuthStore((s) => s.staff)
   // Barra global permanente sólo para el productor; barra/puerta se rutean a POS/escáner.
@@ -43,6 +48,8 @@ export function Header() {
         ) : null}
       </div>
 
+      {/* El productor sale desde Cuenta; el resto del personal no tiene esa navegación. */}
+      {showLogout && !showGlobalNav ? <LogoutButton variant="ghost" className="shrink-0" /> : null}
     </header>
   )
 }

@@ -28,7 +28,6 @@ import {
   AlertTriangle,
   Package,
   EllipsisVertical,
-  LogOut,
 } from "lucide-react"
 import {
   Dialog,
@@ -40,6 +39,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { apiFetch, ApiError } from "@/lib/api"
+import { LogoutButton } from "@/components/auth/logout-button"
 import { useAuthStore } from "@/stores/auth-store"
 import { usePosSessionStore } from "@/stores/pos-session-store"
 import { usePosAssignmentStore } from "@/stores/pos-assignment-store"
@@ -911,16 +911,12 @@ export function PosPage() {
   // Cerrar sesión a diferencia de cerrar turno no conserva nada del puesto: la barra fijada a esta
   // computadora por QR se olvida, porque la próxima cuenta que entre puede ser de otra productora
   // y no debe heredar un puesto ajeno.
-  async function handleLogout() {
-    try {
-      await apiFetch("/staff/logout", { method: "POST", token })
-    } catch {
-      /* ignorar error de red */
-    }
-    clearAssignment()
-    logout()
-    window.location.assign("/login")
-  }
+  const logoutButton = (
+    <LogoutButton
+      onBeforeLogout={clearAssignment}
+      className="h-11 w-full rounded-2xl text-[15px] font-semibold"
+    />
+  )
 
   const balanceAmount = useMemo(() => {
     if (customerBalance == null) return null
@@ -980,6 +976,7 @@ export function PosPage() {
             <p className="mt-6 text-[15px] leading-relaxed text-[#8E8E93] dark:text-[#98989D]">
               Sin turno asignado. Consultá con el encargado.
             </p>
+            <div className="mt-8">{logoutButton}</div>
           </div>
         </div>
       </div>
@@ -1220,17 +1217,7 @@ export function PosPage() {
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void handleLogout()}
-              className="h-11 w-full gap-2 rounded-2xl border-red-200 text-[15px] font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
-            >
-              <LogOut className="h-4 w-4" />
-              Cerrar sesión
-            </Button>
-          </DialogFooter>
+          <DialogFooter>{logoutButton}</DialogFooter>
         </DialogContent>
       </Dialog>
 

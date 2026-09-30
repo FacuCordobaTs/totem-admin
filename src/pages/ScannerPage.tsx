@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { BrandLockup } from "@/components/auth/brand-lockup"
+import { LogoutButton } from "@/components/auth/logout-button"
 import { apiFetch, ApiError } from "@/lib/api"
 import { parseQrHash } from "@/lib/parse-qr-hash"
 import { parseDniBarcode } from "@/lib/dni-barcode"
@@ -576,13 +577,15 @@ export function ScannerPage() {
             ))
           )}
         </div>
+
+        <LogoutButton variant="ghost" className="mt-8 h-11 w-full hover:bg-white/5 hover:text-white" />
       </section>
     </main>
   )
 
   const scannerMain = (
     <div className="flex min-h-svh flex-col bg-black text-white">
-      <div className="mx-auto flex w-full max-w-lg items-center justify-between px-3 pt-4 sm:px-4">
+      <div className="mx-auto flex w-full max-w-lg items-center px-3 pt-4 sm:px-4">
         <button
           type="button"
           onClick={() => setSelectedEventId("")}
@@ -595,7 +598,7 @@ export function ScannerPage() {
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex h-10 w-10 items-center justify-center rounded-xl text-[#98989D] transition-colors hover:bg-white/5 hover:text-white active:opacity-70"
+              className="ml-auto flex h-10 w-10 items-center justify-center rounded-xl text-[#98989D] transition-colors hover:bg-white/5 hover:text-white active:opacity-70"
               aria-label="Opciones de cámara"
             >
               <EllipsisVertical className="h-5 w-5" />
@@ -627,6 +630,11 @@ export function ScannerPage() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <LogoutButton
+          variant="ghost"
+          iconOnly
+          className="h-10 w-10 rounded-xl hover:bg-white/5 hover:text-white active:opacity-70"
+        />
       </div>
 
       {/* Tarea 3.1 — Alternar QR de entrada / DNI físico. */}

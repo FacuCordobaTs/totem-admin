@@ -8,6 +8,7 @@ import type {
   EventPromoterSalesRow,
 } from "@/types/event-dashboard"
 import type { ApiTicketType } from "@/components/events/ticket-types"
+import { GeneralPromoterLine } from "@/components/events/general-promoter-line"
 import { Lock, Loader2, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -521,6 +522,7 @@ export function PromoterSalesBlock({ rows, supportsConsumptions = true }: { rows
                   <> · {formatInt(p.barItemsCount)} consumo{p.barItemsCount === 1 ? "" : "s"}</>
                 ) : null}
               </p>
+              <GeneralPromoterLine name={p.generalPromoterName} />
             </div>
             <p className="shrink-0 text-[15px] font-semibold tabular-nums text-foreground">
               {formatMoney(p.totalRevenue)}

@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/auth-store"
 import type { EventAssignmentStaffRow, EventBarRow, EventBarsResponse, EventStaffListResponse } from "@/types/event-dashboard"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { getPromoterEventShopUrl } from "@/lib/client-app-url"
+import { GeneralPromoterLine } from "@/components/events/general-promoter-line"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -188,6 +189,7 @@ export function EventStaffTab({
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] text-white/80">{member.name}</p>
           <p className="text-[12px] text-white/40">{staffRoleLabel(member.role)}</p>
+          <GeneralPromoterLine name={member.generalPromoterName} />
         </div>
         {/* Los dos roles de promotor venden con link propio: el general también, además de
             coordinar los de su cartera. */}
@@ -418,6 +420,7 @@ export function EventStaffTab({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[14px] text-white/80">{member.name}</p>
                     <p className="text-[12px] text-white/40">Promotor</p>
+                    <GeneralPromoterLine name={member.generalPromoterName} />
                     {member.promoterId ? (
                       <div className="mt-2">
                         <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
