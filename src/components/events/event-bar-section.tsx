@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { useProductCategories } from "@/hooks/useProductCategories"
 
 const inputClass =
   "h-9 rounded-lg border-white/[0.1] bg-white/[0.05] px-3 text-[14px] transition-all duration-200 focus-visible:border-white/20 focus-visible:ring-0"
@@ -114,6 +115,7 @@ type Props = {
 
 export function EventBarSection({ eventId, trackStock = true, onLogisticsChange }: Props) {
   const token = useAuthStore((s) => s.token)
+  const { categories, refresh: refreshCategories } = useProductCategories(token)
 
   const [menuRows, setMenuRows] = useState<EventMenuProductRow[]>([])
   const [catalogProducts, setCatalogProducts] = useState<ApiProduct[]>([])
@@ -126,6 +128,7 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
   const [productEditorOpen, setProductEditorOpen] = useState(false)
+  const [editorProduct, setEditorProduct] = useState<ApiProduct | null>(null)
   // Pantalla interna: al abrir una barra, su detalle reemplaza toda la sección.
   const [openBarId, setOpenBarId] = useState<string | null>(null)
 
@@ -305,7 +308,7 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
           {menuRows.length > 0 ? (
             <Button
               type="button"
-              onClick={() => setProductEditorOpen(true)}
+              onClick={() => { setEditorProduct(null); setProductEditorOpen(true) }}
               className="h-8 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -325,7 +328,7 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
             </div>
             <Button
               type="button"
-              onClick={() => setProductEditorOpen(true)}
+              onClick={() => { setEditorProduct(null); setProductEditorOpen(true) }}
               className="h-9 gap-1.5 rounded-xl bg-[#FF9500] px-5 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90 active:opacity-70"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -358,7 +361,7 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
                           : "")
                       return (
                         <div key={row.id} className="py-3">
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-3">
                             <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                               <input
                                 type="checkbox"
@@ -376,14 +379,14 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
                                 >
                                   {row.name}
                                 </span>
-                                <span className="block text-[12px] text-white/35">Base {money(row.price)}</span>
+                                <span className="block text-[12px] text-white/35">{categories.find((c) => c.id === full?.categoryId)?.name ?? "Sin categoría"} · Base {money(row.price)}</span>
                               </span>
                             </label>
 
                             {availability !== null && row.isActiveForEvent ? (
                               <span className="shrink-0 text-[12px] text-white/30">
                                 ~{availability.toLocaleString("es-AR")}{" "}
-                                {(full?.saleType ?? "GLASS") === "BOTTLE" ? "botellas" : "tragos"}
+                                {(full?.saleType ?? "GLASS") === "BOTTLE" ? "botellas" : "unidades"}
                               </span>
                             ) : null}
 
@@ -398,6 +401,7 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
                             >
                               {editingPrice ? "Cerrar" : "Cambiar precio"}
                             </button>
+                            <button type="button" disabled={!full} onClick={() => { setEditorProduct(full); setProductEditorOpen(true) }} className="shrink-0 text-[13px] font-medium text-white/55 hover:text-white/90 disabled:opacity-30">Editar producto</button>
                           </div>
 
                           {editingPrice ? (
@@ -437,12 +441,15 @@ export function EventBarSection({ eventId, trackStock = true, onLogisticsChange 
         <ProductEditorDialog
           open={productEditorOpen}
           onOpenChange={setProductEditorOpen}
-          product={null}
+          product={editorProduct}
+          priceOverride={menuRows.find((r) => r.id === editorProduct?.id)?.priceOverride}
           eventId={eventId}
           trackStock={trackStock}
           materials={materials}
           token={token}
-          onSaved={() => void loadAll({ silent: true })}
+          onSaved={() => { void loadAll({ silent: true }); void refreshCategories(); onLogisticsChange?.() }}
+          onRemovedFromMenu={() => { void loadAll({ silent: true }); onLogisticsChange?.() }}
+          onDeletedFromCatalog={() => { void loadAll({ silent: true }); onLogisticsChange?.() }}
         />
       </section>
 

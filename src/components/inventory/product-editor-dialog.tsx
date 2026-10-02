@@ -15,6 +15,7 @@ import {
 import { RecipeIngredientRow } from "@/components/inventory/recipe-ingredient-row"
 import { RecipeYieldEditor } from "@/components/inventory/recipe-yield-editor"
 import { ProductImageUploader } from "@/components/inventory/product-image-uploader"
+import { ProductCategoryField } from "@/components/inventory/product-category-field"
 import {
   draftLineQuantityForApi,
   draftLineYieldForApi,
@@ -44,8 +45,8 @@ function packageLabel(kind: MaterialKind): string {
 const SALE_TYPE_OPTIONS: { value: ProductSaleType; label: string; desc: string }[] = [
   {
     value: "GLASS",
-    label: "Por unidad / trago",
-    desc: "Cada venta descuenta una cantidad fija de insumos según la receta. Ideal para tragos, vasos o porciones.",
+    label: "Por unidad / porción",
+    desc: "Para comidas, tragos o vasos. Podés vender sin receta o descontar insumos por unidad según la receta.",
   },
   {
     value: "BOTTLE",
@@ -114,6 +115,8 @@ export function ProductEditorDialog({
   const [basePrice, setBasePrice] = useState("")
   const [eventPrice, setEventPrice] = useState("")
   const [saleType, setSaleType] = useState<ProductSaleType>("GLASS")
+  const [categoryId, setCategoryId] = useState<string | null>(null)
+  const [categorySaving, setCategorySaving] = useState(false)
   const [recipeDraftLines, setRecipeDraftLines] = useState<RecipeDraftLine[]>([])
   const [saving, setSaving] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
@@ -150,6 +153,7 @@ export function ProductEditorDialog({
       setBasePrice(product.price)
       setEventPrice(priceOverride ?? "")
       setSaleType(product.saleType ?? "GLASS")
+      setCategoryId(product.categoryId ?? null)
       setRecipeDraftLines(
         (product.recipes ?? []).map((r) =>
           recipeApiLineToDraft(r, materials.find((m) => m.id === r.inventoryItemId))
@@ -160,6 +164,7 @@ export function ProductEditorDialog({
       setBasePrice("")
       setEventPrice("")
       setSaleType("GLASS")
+      setCategoryId(null)
       setRecipeDraftLines([])
     }
   }, [open, product, priceOverride, materials])
@@ -214,7 +219,7 @@ export function ProductEditorDialog({
   }
 
   async function handleSave() {
-    if (!token || !name.trim() || !basePrice.trim()) return
+    if (!token || !name.trim() || !basePrice.trim() || saving || categorySaving) return
     setSaving(true)
     try {
       const effectiveMaterials = [...localMaterials]
@@ -269,6 +274,7 @@ export function ProductEditorDialog({
             name: name.trim(),
             price: basePrice,
             saleType,
+            categoryId,
             recipes,
           }),
         })
@@ -289,6 +295,7 @@ export function ProductEditorDialog({
             name: name.trim(),
             price: basePrice,
             saleType,
+            categoryId,
             recipes,
           }),
         })
@@ -424,7 +431,7 @@ export function ProductEditorDialog({
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       className={inputClass}
-                      placeholder="Ej. Fernet con Coca"
+                      placeholder="Ej. Hamburguesa o Fernet con Coca"
                       autoFocus
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && step1Valid && trackStock) setWizardStep(2)
@@ -451,6 +458,8 @@ export function ProductEditorDialog({
                       Precio en el catálogo. Se usa si no definís un precio específico para el evento.
                     </p>
                   </div>
+
+                  <ProductCategoryField token={token} value={categoryId} onChange={setCategoryId} disabled={saving} onBusyChange={setCategorySaving} />
 
                   {eventId ? (
                     <div className="space-y-2">
@@ -705,7 +714,7 @@ export function ProductEditorDialog({
               {!trackStock ? (
                 <Button
                   type="button"
-                  disabled={saving || !step1Valid}
+                  disabled={saving || categorySaving || !step1Valid}
                   onClick={() => void handleSave()}
                   className="h-11 rounded-xl bg-[#FF9500] px-6 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
                 >
@@ -714,7 +723,7 @@ export function ProductEditorDialog({
               ) : wizardStep < 3 ? (
                 <Button
                   type="button"
-                  disabled={wizardStep === 1 && !step1Valid}
+                  disabled={categorySaving || (wizardStep === 1 && !step1Valid)}
                   onClick={() => setWizardStep((s) => (s + 1) as 1 | 2 | 3)}
                   className="flex items-center gap-1.5 rounded-xl bg-[#FF9500] px-5 py-2 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
                 >
@@ -724,7 +733,7 @@ export function ProductEditorDialog({
               ) : (
                 <Button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || categorySaving}
                   onClick={() => void handleSave()}
                   className="h-11 rounded-xl bg-[#FF9500] px-6 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
                 >
@@ -803,10 +812,12 @@ export function ProductEditorDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className={inputClass}
-                placeholder="Ej. Fernet con Coca"
+                placeholder="Ej. Hamburguesa o Fernet con Coca"
                 required
               />
             </div>
+
+            <ProductCategoryField token={token} value={categoryId} onChange={setCategoryId} disabled={saving} onBusyChange={setCategorySaving} />
 
             {/* Precio base */}
             <div className="space-y-2">
@@ -993,7 +1004,7 @@ export function ProductEditorDialog({
               </button>
               <Button
                 type="button"
-                disabled={saving || !name.trim() || !basePrice.trim()}
+                disabled={saving || categorySaving || !name.trim() || !basePrice.trim()}
                 onClick={() => void handleSave()}
                 className="h-11 rounded-xl bg-[#FF9500] px-6 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
               >

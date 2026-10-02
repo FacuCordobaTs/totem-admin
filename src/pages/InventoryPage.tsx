@@ -9,6 +9,8 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { useProductCategories } from "@/hooks/useProductCategories"
+import { ProductCategoriesDialog } from "@/components/inventory/product-categories-dialog"
 
 type ItemsResponse = { items: ApiInventoryItem[] }
 type ProductsResponse = { products: ApiProduct[] }
@@ -36,16 +38,18 @@ function recipeSummary(product: ApiProduct): string {
   if (yields.length > 0) {
     return yields
       .map((recipe, index) =>
-        `${index === 0 ? "Rinde " : ""}${recipe.yieldPerPackage}${index === 0 ? " tragos" : ""} por botella de ${recipe.inventoryItemName}`
+        `${index === 0 ? "Rinde " : ""}${recipe.yieldPerPackage}${index === 0 ? " unidades" : ""} por envase de ${recipe.inventoryItemName}`
       )
       .join(" y ")
   }
 
-  return `Trago de ${recipes.map((recipe) => recipe.inventoryItemName).join(" y ")}`
+  return `Insumos: ${recipes.map((recipe) => recipe.inventoryItemName).join(" y ")}`
 }
 
 export function InventoryPage() {
   const token = useAuthStore((s) => s.token)
+  const { categories, error: categoriesError, refresh: refreshCategories } = useProductCategories(token)
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
 
   const [items, setItems] = useState<ApiInventoryItem[]>([])
   const [products, setProducts] = useState<ApiProduct[]>([])
@@ -91,6 +95,7 @@ export function InventoryPage() {
   function bumpAll() {
     void refreshItems()
     void refreshProducts()
+    void refreshCategories()
   }
 
   function openCreate() {
@@ -107,18 +112,21 @@ export function InventoryPage() {
     ? products.filter((p) => p.name.toLowerCase().includes(productSearch.trim().toLowerCase()))
     : products
 
-  const productGroups = useMemo(() => [
-    {
-      id: "GLASS",
-      name: "Tragos",
-      products: filteredProducts.filter((product) => (product.saleType ?? "GLASS") === "GLASS"),
-    },
-    {
-      id: "BOTTLE",
-      name: "Botellas",
-      products: filteredProducts.filter((product) => product.saleType === "BOTTLE"),
-    },
-  ].filter((group) => group.products.length > 0), [filteredProducts])
+  const productGroups = useMemo(() => {
+    const categoryById = new Map(categories.map((c) => [c.id, c]))
+    const groups = new Map<string, { id: string; name: string; order: number; products: ApiProduct[] }>()
+    for (const product of filteredProducts) {
+      const category = product.categoryId ? categoryById.get(product.categoryId) : null
+      const id = product.categoryId ?? "__none__"
+      const group = groups.get(id) ?? {
+        id, name: category?.name ?? (product.categoryId ? "Categoría" : "Sin categoría"),
+        order: category?.sortOrder ?? Number.MAX_SAFE_INTEGER, products: [],
+      }
+      group.products.push(product)
+      groups.set(id, group)
+    }
+    return [...groups.values()].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "es"))
+  }, [filteredProducts, categories])
 
   return (
     <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
@@ -143,11 +151,11 @@ export function InventoryPage() {
                 Inventario
               </h1>
               <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-                Productos organizados por tipo de venta.
+                Comida, bebidas y otros productos organizados por categoría.
               </p>
-              {loadError ? (
+              {loadError || categoriesError ? (
                 <p className="pt-2 text-[15px] text-red-600 dark:text-red-400" role="alert">
-                  {loadError}
+                  {loadError ?? categoriesError}
                 </p>
               ) : null}
             </div>
@@ -156,6 +164,8 @@ export function InventoryPage() {
                 <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
                   Productos
                 </h2>
+                <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setCategoriesOpen(true)}>Categorías</Button>
                 <Button
                   type="button"
                   onClick={openCreate}
@@ -164,6 +174,7 @@ export function InventoryPage() {
                   <Plus className="h-3.5 w-3.5" />
                   Nuevo producto
                 </Button>
+                </div>
               </div>
 
               <div className="relative">
@@ -225,6 +236,7 @@ export function InventoryPage() {
         </div>
       </main>
 
+      <ProductCategoriesDialog open={categoriesOpen} onOpenChange={setCategoriesOpen} token={token} categories={categories} onChanged={bumpAll} />
       <ProductEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}

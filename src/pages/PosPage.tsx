@@ -278,6 +278,7 @@ export function PosPage() {
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [tracksStock, setTracksStock] = useState(true)
   const [productSearch, setProductSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState<{ eventId: string; barId: string; id: string } | null>(null)
   const [eventStockOpen, setEventStockOpen] = useState(false)
 
   const [cart, setCart] = useState<CartItem[]>([])
@@ -712,11 +713,30 @@ export function PosPage() {
     })
   }, [catalogProducts, eventStock, posReady])
 
+  const catalogCategories = useMemo(() => {
+    const categories = new Map<string, { id: string; name: string; sortOrder: number; count: number }>()
+    for (const p of catalogProducts) {
+      const id = p.categoryId ?? "__uncat__"
+      const category = categories.get(id) ?? {
+        id, name: p.categoryName ?? "Sin categoría",
+        sortOrder: p.categoryId ? p.categorySortOrder ?? 0 : Number.MAX_SAFE_INTEGER, count: 0,
+      }
+      category.count++
+      categories.set(id, category)
+    }
+    return [...categories.values()].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "es"))
+  }, [catalogProducts])
+  const selectedCategory = categoryFilter?.eventId === activeEventId && categoryFilter?.barId === activeBarId && catalogCategories.some((c) => c.id === categoryFilter.id)
+    ? categoryFilter.id : "__all__"
+
   const filteredCatalog = useMemo(() => {
-    const q = productSearch.trim().toLowerCase()
-    if (!q) return catalogProducts
-    return catalogProducts.filter((p) => p.name.toLowerCase().includes(q))
-  }, [catalogProducts, productSearch])
+    const normalize = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    const q = normalize(productSearch.trim())
+    return catalogProducts.filter((p) =>
+      (selectedCategory === "__all__" || (p.categoryId ?? "__uncat__") === selectedCategory) &&
+      (!q || normalize(`${p.name} ${p.categoryName ?? ""}`).includes(q))
+    )
+  }, [catalogProducts, productSearch, selectedCategory])
 
   const catalogGroups = useMemo(() => {
     const byCat = new Map<
@@ -730,7 +750,7 @@ export function PosPage() {
         existing.products.push(p)
       } else {
         byCat.set(key, {
-          name: p.categoryId ? p.categoryName ?? "Categoría" : null,
+          name: p.categoryId ? p.categoryName ?? "Categoría" : "Sin categoría",
           sortOrder: p.categoryId ? p.categorySortOrder ?? 0 : Number.MAX_SAFE_INTEGER,
           products: [p],
         })
@@ -1002,7 +1022,7 @@ export function PosPage() {
   return (
     <div
       className={cn(
-        "flex h-[calc(100svh-1rem)] min-h-0 flex-col overflow-hidden sm:h-svh",
+        "flex min-h-svh flex-col lg:h-svh lg:min-h-0 lg:overflow-hidden",
         shell
       )}
     >
@@ -1274,7 +1294,7 @@ export function PosPage() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-3 lg:grid-cols-12 lg:gap-5 lg:p-5">
+      <div className="grid flex-1 grid-cols-1 items-start gap-4 p-3 lg:min-h-0 lg:grid-cols-12 lg:items-stretch lg:gap-5 lg:p-5">
         
         {/* Columna 1: Catálogo (lg:col-span-5) */}
         <section className={cn(panelClass, "lg:col-span-5")}>
@@ -1305,6 +1325,15 @@ export function PosPage() {
                 disabled={!posReady}
               />
             </div>
+            {catalogCategories.some((c) => c.id !== "__uncat__") ? (
+              <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Filtrar productos por categoría">
+                {[{ id: "__all__", name: "Todos", count: catalogProducts.length }, ...catalogCategories].map((category) => (
+                  <Button key={category.id} type="button" variant={selectedCategory === category.id ? "default" : "outline"} aria-pressed={selectedCategory === category.id} disabled={!posReady || catalogLoading} onClick={() => setCategoryFilter({ eventId: activeEventId, barId: activeBarId, id: category.id })} className="h-11 shrink-0 rounded-xl px-4">
+                    {category.name} <span className="ml-1 text-xs opacity-60">{category.count}</span>
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 md:p-5">
             {!posReady ? (
@@ -1319,7 +1348,7 @@ export function PosPage() {
               <p className="py-10 text-center text-base text-zinc-500 dark:text-zinc-400">
                 {catalogProducts.length === 0
                   ? "No hay productos activos en este evento."
-                  : "Nada coincide con la búsqueda."}
+                  : "Nada coincide con la categoría y la búsqueda."}
               </p>
             ) : (
               <div className="space-y-6">

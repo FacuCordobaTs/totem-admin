@@ -177,6 +177,15 @@ export function EventsListPage() {
       <div className="flex min-h-screen flex-col bg-black text-white">
         <Header />
         <main className="flex-1">
+          <div className="mx-auto flex max-w-4xl justify-end px-6 pt-10 lg:px-8 lg:pt-14">
+            <Button
+              className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+              Crear evento
+            </Button>
+          </div>
           <EventLivePanel
             eventId={liveEvent.id}
             eventName={liveEvent.name}
@@ -184,6 +193,13 @@ export function EventsListPage() {
             onIntervene={() => navigate(`/eventos/${liveEvent.id}`)}
           />
         </main>
+        <CreateDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          token={token}
+          navigate={navigate}
+          source={duplicateSource}
+        />
       </div>
     )
   }
