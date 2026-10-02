@@ -65,11 +65,8 @@ function int(n: number): string {
 }
 
 /**
- * Spec §3 — la Home responde una sola pregunta: ¿en qué estado está mi operación ahora?
- * Tres formas excluyentes, gobernadas por `event.status` (la máquina de 4 estados):
- *   1. Sin eventos           → la creación ES el empty state (los tres campos, centrados).
- *   2. Con un evento en vivo  → ese evento toma la Home completa (panel de la noche).
- *   3. Forma normal           → próximo evento protagonista + futuros en tono menor + historial.
+ * Sin eventos, la Home muestra el formulario de creación. Con eventos, muestra los
+ * paneles en vivo, el próximo evento, los demás próximos y el historial juntos.
  */
 export function EventsListPage() {
   const navigate = useNavigate()
@@ -114,8 +111,8 @@ export function EventsListPage() {
   }, [token, hasTenant, load])
 
   // ── Buckets según estado ──────────────────────────────────────────────────────────────
-  const { liveEvent, protagonist, upcomingRest, history } = useMemo(() => {
-    const live = events.find((e) => e.status === "live") ?? null
+  const { liveEvents, protagonist, upcomingRest, history } = useMemo(() => {
+    const live = events.filter((e) => e.status === "live")
     const closed = events
       .filter((e) => e.status === "closed")
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -127,7 +124,7 @@ export function EventsListPage() {
     const future = openish.filter((e) => new Date(e.date).getTime() >= now)
     const proto = future[0] ?? openish[openish.length - 1] ?? null
     const rest = proto ? openish.filter((e) => e.id !== proto.id) : openish
-    return { liveEvent: live, protagonist: proto, upcomingRest: rest, history: closed }
+    return { liveEvents: live, protagonist: proto, upcomingRest: rest, history: closed }
   }, [events])
 
   // "Partir de: [último evento]" (spec §3 / §5.2): el duplicado es el camino por defecto del
@@ -171,39 +168,6 @@ export function EventsListPage() {
     )
   }
 
-  // ── Forma 2: evento en vivo toma la Home completa (spec §3) ──────────────────────────
-  if (liveEvent) {
-    return (
-      <div className="flex min-h-screen flex-col bg-black text-white">
-        <Header />
-        <main className="flex-1">
-          <div className="mx-auto flex max-w-4xl justify-end px-6 pt-10 lg:px-8 lg:pt-14">
-            <Button
-              className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
-              onClick={() => setCreateOpen(true)}
-            >
-              <Plus className="h-4 w-4" />
-              Crear evento
-            </Button>
-          </div>
-          <EventLivePanel
-            eventId={liveEvent.id}
-            eventName={liveEvent.name}
-            operationMode={liveEvent.operationMode}
-            onIntervene={() => navigate(`/eventos/${liveEvent.id}`)}
-          />
-        </main>
-        <CreateDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          token={token}
-          navigate={navigate}
-          source={duplicateSource}
-        />
-      </div>
-    )
-  }
-
   const empty = !loading && !error && events.length === 0
 
   return (
@@ -236,6 +200,16 @@ export function EventsListPage() {
                   Crear evento
                 </Button>
               </div>
+
+              {liveEvents.map((event) => (
+                <EventLivePanel
+                  key={event.id}
+                  eventId={event.id}
+                  eventName={event.name}
+                  operationMode={event.operationMode}
+                  onIntervene={() => navigate(`/eventos/${event.id}`)}
+                />
+              ))}
 
               {/* Protagonista: el próximo evento con su señal vital según estado */}
               {protagonist ? (
