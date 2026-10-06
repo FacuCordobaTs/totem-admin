@@ -126,9 +126,7 @@ export function EventDashboardPage() {
   // En vivo (spec §5): la app cambia de piel al panel de la noche. "Intervenir" abre el
   // workspace por debajo del panel (única puerta a los formularios de config).
   const [intervening, setIntervening] = useState(false)
-  // Ceremonia de cierre (spec §5 / 4.4): el único flujo por pasos. Hoy nada la abre (se quitó el
-  // botón "Cerrar el evento" para que no se apriete sin querer); al abrirse reemplaza el
-  // panel/workspace mientras dura y termina transicionando el evento a closed.
+  // Vista previa del recorrido de cierre: reemplaza el panel sin guardar ni cambiar el estado.
   const [closing, setClosing] = useState(false)
   // Cerrado (spec §5 / 4.5): el reporte compartible por link. Copiado con confirmación efímera.
   const [reportCopied, setReportCopied] = useState(false)
@@ -531,6 +529,17 @@ export function EventDashboardPage() {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
+            {status !== "closed" && !closing && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setClosing(true)}
+                className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]"
+              >
+                Ver cierre
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
             {status !== "draft" && (
               <PrimaryStateAction
                 status={status}
@@ -571,6 +580,7 @@ export function EventDashboardPage() {
             eventName={event.name}
             supportsConsumptions={supportsConsumptions}
             trackStock={tracksStock}
+            previewOnly
             onClosed={() => {
               setClosing(false)
               void loadEvent()

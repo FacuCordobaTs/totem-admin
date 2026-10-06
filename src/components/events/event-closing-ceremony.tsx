@@ -99,6 +99,7 @@ type Props = {
   eventName: string
   supportsConsumptions?: boolean
   trackStock?: boolean
+  previewOnly?: boolean
   onClosed: () => void
   onCancel: () => void
 }
@@ -108,6 +109,7 @@ export function EventClosingCeremony({
   eventName,
   supportsConsumptions = true,
   trackStock = true,
+  previewOnly = false,
   onClosed,
   onCancel,
 }: Props) {
@@ -205,6 +207,7 @@ export function EventClosingCeremony({
   }, [prep, counts])
 
   const submit = useCallback(async () => {
+    if (previewOnly) return
     if (!token || !prep) return
     setSubmitting(true)
     setSubmitError(null)
@@ -267,7 +270,7 @@ export function EventClosingCeremony({
       setSubmitError(e instanceof ApiError ? e.message : "No se pudo cerrar el evento")
       setSubmitting(false)
     }
-  }, [token, prep, counts, cashCounts, eventId, onClosed, printRaw, eventName])
+  }, [previewOnly, token, prep, counts, cashCounts, eventId, onClosed, printRaw, eventName])
 
   if (loading) {
     return (
@@ -298,8 +301,13 @@ export function EventClosingCeremony({
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
       <div className="mb-8">
         <p className="text-[12px] uppercase tracking-[0.2em] text-white/30">
-          {eventName} · cierre
+          {eventName} · {previewOnly ? "vista previa del cierre" : "cierre"}
         </p>
+        {previewOnly && (
+          <p className="mt-2 text-[14px] text-white/50">
+            El evento conserva su estado. Los conteos son de prueba y no se guardan.
+          </p>
+        )}
         <div className="mt-3 flex items-center gap-2">
           {steps.map((s, i) => (
             <div
@@ -351,14 +359,14 @@ export function EventClosingCeremony({
           className="gap-2 text-white/50 hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" />
-          {stepIdx === 0 ? "Cancelar" : "Atrás"}
+          {stepIdx === 0 ? (previewOnly ? "Volver al evento" : "Cancelar") : "Atrás"}
         </Button>
 
         {isLast ? (
           <Button
             type="button"
             disabled={submitting}
-            onClick={submit}
+            onClick={previewOnly ? onCancel : submit}
             className="h-11 gap-2 bg-[#FF9500] px-6 text-[15px] font-semibold text-white hover:bg-[#FF9500]/90"
           >
             {submitting ? (
@@ -366,7 +374,7 @@ export function EventClosingCeremony({
             ) : (
               <Check className="h-4 w-4" />
             )}
-            Cerrar el evento
+            {previewOnly ? "Volver al evento" : "Cerrar el evento"}
           </Button>
         ) : (
           <Button
