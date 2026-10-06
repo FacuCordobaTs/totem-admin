@@ -12,6 +12,8 @@
 // Comandos ESC/POS de control
 // ---------------------------------------------------------------------------
 
+import Decimal from "decimal.js";
+
 const ESC = 0x1b;
 const GS = 0x1d;
 
@@ -177,6 +179,7 @@ export interface SalePrintData {
     staffName?: string | null;
     customerName?: string | null;
     createdAt?: Date | string | null;
+    pendingSync?: boolean;
 }
 
 export interface CajaSalePrintData {
@@ -265,25 +268,29 @@ export function formatReciboVentaBarra(
     cmds.push(...row('Fecha:', formatDate(sale.createdAt)));
     if (sale.staffName) cmds.push(...row('Cajero:', sale.staffName));
     if (sale.customerName) cmds.push(...row('Cliente:', sale.customerName));
+    if (sale.pendingSync) {
+        cmds.push(...line('Guardado en este equipo'));
+        if (sale.orderQrToken) cmds.push(...line('QR habilitado al sincronizar'));
+    }
 
     cmds.push(...separator());
 
     // Detalle de items
-    let calcTotal = 0;
+    let calcTotal = new Decimal(0);
     for (const item of saleItems) {
-        const unit = typeof item.priceAtTime === 'string' ? parseFloat(item.priceAtTime) : item.priceAtTime;
-        const lineTotal = (Number.isFinite(unit) ? unit : 0) * item.quantity;
-        calcTotal += lineTotal;
+        const unit = new Decimal(item.priceAtTime);
+        const lineTotal = unit.times(item.quantity);
+        calcTotal = calcTotal.plus(lineTotal);
         // Línea 1: nombre del producto
         cmds.push(...line(item.name));
         // Línea 2: cantidad x precio ...... total
-        cmds.push(...row(`  ${item.quantity} x ${money(unit)}`, money(lineTotal)));
+        cmds.push(...row(`  ${item.quantity} x ${money(unit.toFixed(2))}`, money(lineTotal.toFixed(2))));
     }
 
     cmds.push(...separator());
 
     // Total
-    const total = sale.totalAmount != null && sale.totalAmount !== '' ? sale.totalAmount : calcTotal;
+    const total = sale.totalAmount != null && sale.totalAmount !== '' ? sale.totalAmount : calcTotal.toFixed(2);
     cmds.push(...CMD.SIZE_DOUBLE_HEIGHT, ...CMD.BOLD_ON);
     cmds.push(...row('TOTAL', money(total)));
     cmds.push(...CMD.BOLD_OFF, ...CMD.SIZE_NORMAL);

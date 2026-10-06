@@ -46,6 +46,7 @@ export const useAuthStore = create<AuthState>()(
           const data = await apiFetch<{ staff: StaffProfile }>("/staff/me", {
             method: "GET",
             token,
+            signal: AbortSignal.timeout(3000),
           })
           set({
             staff: {

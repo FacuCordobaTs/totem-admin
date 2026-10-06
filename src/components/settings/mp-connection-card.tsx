@@ -174,6 +174,10 @@ export function MpConnectionCard({
             <p className="text-[15px] leading-relaxed text-zinc-300">
               Conectá Mercado Pago para recibir los cobros directo en tu cuenta.
             </p>
+            <p className="text-sm leading-relaxed text-zinc-500">
+              Al conectar, se cerrará la sesión de Mercado Pago y Mercado Libre en este navegador
+              para que puedas ingresar con la cuenta que querés vincular.
+            </p>
             <Button
               type="button"
               disabled={!token || connecting}

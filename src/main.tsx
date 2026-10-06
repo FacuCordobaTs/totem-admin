@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client"
+import { isTauri } from "@tauri-apps/api/core"
 import { Toaster } from "sonner"
 import "./index.css"
 import { createBrowserRouter, Navigate } from "react-router"
@@ -10,6 +11,7 @@ import { StaffPage } from "@/pages/StaffPage"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { GlobalMetricsPage } from "@/pages/GlobalMetricsPage"
 import { PosPage } from "@/pages/PosPage"
+import { PosQueueWorker } from "@/components/pos/PosQueueWorker"
 import { MobileOperationsPage } from "@/pages/MobileOperationsPage"
 import { ScannerPage } from "@/pages/ScannerPage"
 import { LoginPage } from "@/pages/LoginPage"
@@ -107,8 +109,15 @@ const router = createBrowserRouter([
 // Antes de montar: el host Tauri restaura acá el zoom guardado de la ventana.
 initWindowZoom()
 
+if (import.meta.env.PROD && !isTauri() && "serviceWorker" in navigator && ["https:", "http:"].includes(location.protocol)) {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}pos-sw.js`).catch(() => {})
+  })
+}
+
 createRoot(document.getElementById("root")!).render(
   <PrinterProvider>
+    <PosQueueWorker />
     <RouterProvider router={router} />
     <UpdateChecker />
     <Toaster position="top-center" richColors={false} closeButton theme="system" />

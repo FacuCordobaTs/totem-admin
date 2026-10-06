@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Decimal from "decimal.js"
 import { Link, useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,7 +25,6 @@ import {
   Store,
   RefreshCw,
   Wallet,
-  X,
   AlertTriangle,
   Package,
   EllipsisVertical,
@@ -38,7 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { apiFetch, ApiError } from "@/lib/api"
+import { apiFetch } from "@/lib/api"
 import { LogoutButton } from "@/components/auth/logout-button"
 import { useAuthStore } from "@/stores/auth-store"
 import { usePosSessionStore } from "@/stores/pos-session-store"
@@ -46,7 +46,6 @@ import { usePosAssignmentStore } from "@/stores/pos-assignment-store"
 import type { ApiEvent } from "@/types/events"
 import { eventSupportsConsumptions } from "@/lib/event-operation-mode"
 import type { EventBarsResponse, EventSalesPageResponse } from "@/types/event-dashboard"
-import type { ApiPromoter } from "@/components/events/promoters-panel"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { PosScannerModal } from "@/components/pos/PosScannerModal"
@@ -54,16 +53,13 @@ import { SaleDetailsDialog } from "@/components/pos/SaleDetailsDialog"
 import { useEventStock } from "@/hooks/useEventStock"
 import type { RecipeLine } from "@/lib/product-availability"
 import { usePrinter } from "@/context/PrinterContext"
-import {
-  commandsToBytes,
-  formatReciboVentaBarra,
-  formatTicketCanjeable,
-} from "@/lib/printerUtils"
+import { usePosOffline } from "@/hooks/usePosOffline"
+import { buildPosDocuments, enqueuePosSale, posCachedFetch, printPosSale, updatePosSale, type PosQueuedSale, type PosSaleBody } from "@/lib/pos-offline"
 
 interface CatalogProduct {
   id: string
   name: string
-  price: number
+  price: string
   categoryId: string | null
   categoryName: string | null
   categorySortOrder: number | null
@@ -81,7 +77,7 @@ interface ProductCartItem {
 /** Ítem virtual: se muestra y se cobra como parte del pedido, pero no descuenta stock. */
 interface BalanceChargeCartItem {
   kind: "balance-charge"
-  amount: number
+  amount: string
 }
 
 type CartItem = ProductCartItem | BalanceChargeCartItem
@@ -95,23 +91,6 @@ type PosShift = {
 
 type StaffShiftApi = {
   shift: PosShift | null
-}
-
-// Tarea 5.2 — Respuesta de POST /inventory/sales: el backend devuelve el token del recibo
-// y los QRs canjeables (uno por consumición) para imprimir el ticket en caja.
-type SaleChargeResponse = {
-  message: string
-  saleId: string
-  receiptToken?: string
-  totalAmount: string
-  /** Importe de productos; `totalAmount` incluye también la carga de saldo si la hubo. */
-  productTotalAmount?: string
-  customerId?: string | null
-  consumptions?: { productName: string; qrHash: string }[]
-  depositSaleId?: string
-  balanceCharge?: string
-  /** Tarea 6.3 — Saldo resultante tras cobrar contra saldo (solo `paymentMethod === "SALDO"`). */
-  balance?: string
 }
 
 // Tarea 6.3 — Consulta de saldo por DNI en la caja (GET /events/:id/balance).
@@ -223,6 +202,12 @@ export function PosPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const token = useAuthStore((s) => s.token)
+  const { owner, sales: localSales, online: isOnline, syncing, storageError, sync } = usePosOffline()
+  const checkoutLock = useRef(false)
+  const cachedFetch = useCallback(<T,>(path: string, options: { token?: string | null; method?: string }) => {
+    if (!owner || !options.token) return apiFetch<T>(path, { ...options, signal: AbortSignal.timeout(3000) })
+    return posCachedFetch<T>(path, owner, options.token)
+  }, [owner])
   const staffName = useAuthStore((s) => s.staff?.name)
   const role = useAuthStore((s) => s.staff?.role)
   const logout = useAuthStore((s) => s.logout)
@@ -230,7 +215,7 @@ export function PosPage() {
 
   // Sesión de puesto
   const posSession = usePosSessionStore((s) => s.session)
-  const deviceShift: PosShift | null =
+  const deviceShift = useMemo<PosShift | null>(() =>
     posSession && posSession.barId
       ? {
           eventId: posSession.eventId,
@@ -238,14 +223,14 @@ export function PosPage() {
           eventName: posSession.eventName,
           barName: posSession.barName ?? "",
         }
-      : null
+      : null, [posSession])
 
   // Barra que el teléfono fijó a ESTA computadora al vincularla por QR. Persiste hasta reasignar,
   // así que sobrevive al logout: si después entra un empleado con email y contraseña, el POS abre
   // ya fijado a ese puesto.
   const assignedShiftRaw = usePosAssignmentStore((s) => s.assignment)
   const clearAssignment = usePosAssignmentStore((s) => s.clear)
-  const assignedShift: PosShift | null = assignedShiftRaw ? { ...assignedShiftRaw } : null
+  const assignedShift: PosShift | null = assignedShiftRaw
   // Un puesto con PIN manda: mientras exista, la asignación por QR queda latente y no se valida.
   const posSessionFixesBar = !!posSession?.barId
 
@@ -268,6 +253,7 @@ export function PosPage() {
 
   const activeEventId = boundShift ? boundShift.eventId : eventId
   const activeBarId = boundShift ? boundShift.barId : posBarId
+  const syncedSalesCount = localSales.filter((sale) => sale.body.eventId === activeEventId && sale.body.barId === activeBarId && sale.syncStatus === "synced").length
 
   const posEventName =
     boundShift?.eventName ?? events.find((e) => e.id === activeEventId)?.name ?? null
@@ -290,8 +276,6 @@ export function PosPage() {
 
   const [customerDni, setCustomerDni] = useState("")
   const [customerName, setCustomerName] = useState("")
-  const [promoters, setPromoters] = useState<ApiPromoter[]>([])
-  const [promoterId, setPromoterId] = useState("")
 
   const [customerBalance, setCustomerBalance] = useState<string | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
@@ -306,7 +290,6 @@ export function PosPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyNonce, setHistoryNonce] = useState(0)
 
-  const [isOnline, setIsOnline] = useState(true)
   const isScannerRoute = location.pathname === "/pos/escaner"
   const [scannerOpen, setScannerOpen] = useState(isScannerRoute)
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null)
@@ -329,75 +312,6 @@ export function PosPage() {
   const { printers, selectedPrinter, setSelectedPrinter, refreshPrinters, printRaw } =
     usePrinter()
 
-  const printSaleDocuments = useCallback(
-    async (res: SaleChargeResponse) => {
-      const printDoc = async (label: string, build: () => number[]) => {
-        try {
-          await printRaw(commandsToBytes(build()))
-        } catch (err) {
-          toast.error(
-            `${label}: ${err instanceof Error ? err.message : "no se pudo imprimir"}`
-          )
-        }
-      }
-
-      await printDoc("Recibo", () =>
-        formatReciboVentaBarra(
-          {
-            id: res.saleId,
-            receiptToken: res.receiptToken ?? null,
-            // QR del pedido completo: sólo cuando la venta tiene productos. `receiptToken` es el
-            // token de la venta de productos (la carga de saldo no lo tiene), pero la venta mixta
-            // agrega una línea pseudo "Carga de saldo" al ticket, así que el discriminante se
-            // decide acá sobre el carrito real y no dentro del formatter.
-            orderQrToken: cart.some((c) => c.kind === "product")
-              ? res.receiptToken ?? null
-              : null,
-            totalAmount: res.totalAmount,
-            paymentMethod: mapPayment(paymentMethod),
-            staffName,
-            customerName:
-              customerDni.trim() !== "" ? customerName.trim() || "Cliente" : null,
-            createdAt: new Date(),
-          },
-          cart.map((c) =>
-            c.kind === "product"
-              ? { name: c.product.name, quantity: c.quantity, priceAtTime: c.product.price }
-              : { name: "Carga de saldo", quantity: 1, priceAtTime: c.amount }
-          ),
-          posBarName ?? "—",
-          posEventName ?? "Evento"
-        )
-      )
-
-      const consumptions = res.consumptions
-      if (
-        customerDni.trim() !== "" &&
-        consumptions &&
-        consumptions.length > 0
-      ) {
-        await printDoc("Ticket", () =>
-          formatTicketCanjeable(
-            consumptions,
-            posEventName ?? "Evento",
-            posBarName ?? "—",
-            customerName.trim() || null
-          )
-        )
-      }
-    },
-    [
-      printRaw,
-      paymentMethod,
-      staffName,
-      customerDni,
-      customerName,
-      cart,
-      posBarName,
-      posEventName,
-    ]
-  )
-
   useEffect(() => {
     if (!token) {
       setShiftPhase("idle")
@@ -411,7 +325,7 @@ export function PosPage() {
     }
     setShiftPhase("loading")
     setLockedShift(null)
-    void apiFetch<StaffShiftApi>("/staff/me/shift", { method: "GET", token })
+    void cachedFetch<StaffShiftApi>("/staff/me/shift", { method: "GET", token })
       .then((res) => {
         setLockedShift(res.shift)
       })
@@ -421,7 +335,7 @@ export function PosPage() {
       .finally(() => {
         setShiftPhase("ready")
       })
-  }, [token, isBartender, hasFixedShift])
+  }, [token, isBartender, hasFixedShift, cachedFetch])
 
   useEffect(() => {
     if (!token || isBartender || hasFixedShift) {
@@ -431,7 +345,7 @@ export function PosPage() {
     let cancelled = false
     void (async () => {
       try {
-        const evRes = await apiFetch<{ events: ApiEvent[] }>("/events", {
+        const evRes = await cachedFetch<{ events: ApiEvent[] }>("/events", {
           method: "GET",
           token,
         })
@@ -451,33 +365,14 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, isBartender, hasFixedShift])
-
-  useEffect(() => {
-    if (!token) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const res = await apiFetch<{ promoters: ApiPromoter[] }>("/promoters", {
-          method: "GET",
-          token,
-        })
-        if (!cancelled) setPromoters(res.promoters.filter((p) => p.isActive))
-      } catch {
-        if (!cancelled) setPromoters([])
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [token])
+  }, [token, isBartender, hasFixedShift, cachedFetch])
 
   useEffect(() => {
     if (!boundShift) return
     setEventId(boundShift.eventId)
     setPosBars([{ id: boundShift.barId, name: boundShift.barName }])
     setPosBarId(boundShift.barId)
-  }, [boundShift?.eventId, boundShift?.barId, boundShift?.barName])
+  }, [boundShift])
 
   useEffect(() => {
     if (!token) {
@@ -497,7 +392,7 @@ export function PosPage() {
     let cancelled = false
     void (async () => {
       try {
-        const res = await apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, {
+        const res = await cachedFetch<EventBarsResponse>(`/events/${eventId}/bars`, {
           method: "GET",
           token,
         })
@@ -520,7 +415,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, eventId, hasFixedShift, isBartender, lockedShift])
+  }, [token, eventId, boundShift, cachedFetch])
 
   // La barra asignada por QR sobrevive al logout, así que puede quedar apuntando a un evento ya
   // cerrado o a una barra desactivada: el POS quedaría fijo y sin selectores, sin salida salvo
@@ -532,11 +427,11 @@ export function PosPage() {
     void (async () => {
       let usable = false
       try {
-        const evRes = await apiFetch<{ events: ApiEvent[] }>("/events", { method: "GET", token })
+        const evRes = await cachedFetch<{ events: ApiEvent[] }>("/events", { method: "GET", token })
         const ev = evRes.events.find((e) => e.id === assignedShiftRaw.eventId)
         usable = !!ev && ev.status !== "closed" && eventSupportsConsumptions(ev.operationMode)
         if (usable) {
-          const barsRes = await apiFetch<EventBarsResponse>(
+          const barsRes = await cachedFetch<EventBarsResponse>(
             `/events/${assignedShiftRaw.eventId}/bars`,
             { method: "GET", token }
           )
@@ -554,7 +449,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, assignedShiftRaw, posSessionFixesBar, clearAssignment])
+  }, [token, assignedShiftRaw, posSessionFixesBar, clearAssignment, cachedFetch])
 
   useEffect(() => {
     if (!token || !activeEventId || !activeBarId) {
@@ -575,7 +470,7 @@ export function PosPage() {
     setCatalogLoading(true)
     void (async () => {
       try {
-        const res = await apiFetch<{ products: BarCatalogRowApi[]; tracksStock?: boolean }>(
+        const res = await cachedFetch<{ products: BarCatalogRowApi[]; tracksStock?: boolean }>(
           `/bars/${activeBarId}/products?eventId=${encodeURIComponent(activeEventId)}`,
           { method: "GET", token }
         )
@@ -584,7 +479,7 @@ export function PosPage() {
         const rows = res.products.map((p) => ({
             id: p.id,
             name: p.name,
-            price: Number.parseFloat(p.price),
+            price: p.price,
             categoryId: p.categoryId ?? null,
             categoryName: p.categoryName ?? null,
             categorySortOrder: p.categorySortOrder ?? null,
@@ -604,7 +499,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, activeEventId, activeBarId, shiftResolving, shiftBound, hasBoundShift])
+  }, [token, activeEventId, activeBarId, shiftResolving, shiftBound, hasBoundShift, cachedFetch, isOnline, syncedSalesCount])
 
   const bumpHistory = useCallback(() => {
     setHistoryNonce((n) => n + 1)
@@ -626,7 +521,7 @@ export function PosPage() {
     setHistoryLoading(true)
     void (async () => {
       try {
-        const res = await apiFetch<EventSalesPageResponse>(
+        const res = await cachedFetch<EventSalesPageResponse>(
           `/events/${activeEventId}/sales?barId=${encodeURIComponent(activeBarId)}&limit=15&offset=0`,
           { method: "GET", token }
         )
@@ -643,7 +538,7 @@ export function PosPage() {
     return () => {
       cancelled = true
     }
-  }, [token, activeEventId, activeBarId, historyNonce, shiftResolving, shiftBound, hasBoundShift])
+  }, [token, activeEventId, activeBarId, historyNonce, shiftResolving, shiftBound, hasBoundShift, cachedFetch, isOnline, syncedSalesCount])
 
   useEffect(() => {
     const dni = customerDni.trim()
@@ -658,7 +553,7 @@ export function PosPage() {
     const t = setTimeout(() => {
       apiFetch<BalanceLookupResponse>(
         `/events/${activeEventId}/balance?dni=${encodeURIComponent(dni)}`,
-        { method: "GET", token }
+        { method: "GET", token, signal: AbortSignal.timeout(3000) }
       )
         .then((res) => {
           if (cancelled) return
@@ -782,11 +677,11 @@ export function PosPage() {
     () =>
       cart.reduce(
         (sum, item) =>
-          sum +
+          sum.plus(
           (item.kind === "product"
-            ? item.product.price * item.quantity
-            : item.amount),
-        0
+            ? new Decimal(item.product.price).times(item.quantity)
+            : item.amount)),
+        new Decimal(0)
       ),
     [cart]
   )
@@ -794,8 +689,8 @@ export function PosPage() {
   const balanceChargeAmount = useMemo(
     () =>
       cart.reduce(
-        (sum, item) => sum + (item.kind === "balance-charge" ? item.amount : 0),
-        0
+        (sum, item) => sum.plus(item.kind === "balance-charge" ? item.amount : 0),
+        new Decimal(0)
       ),
     [cart]
   )
@@ -852,14 +747,22 @@ export function PosPage() {
 
   const clearCart = useCallback(() => setCart([]), [])
 
+  const relevantLocalSales = localSales.filter((sale) => sale.body.eventId === activeEventId && sale.body.barId === activeBarId)
+  const pendingSales = localSales.filter((sale) => sale.syncStatus === "pending")
+  const blockedSales = localSales.filter((sale) => sale.syncStatus === "blocked")
+  const recentLocalSales = relevantLocalSales.filter((sale, index) => sale.syncStatus !== "synced" || sale.printStatus !== "printed" || index >= relevantLocalSales.length - 15).reverse()
+
   const handleCobrar = useCallback(async () => {
-    if (!token || !activeEventId || !activeBarId || cart.length === 0) return
+    if (!token || !owner || !activeEventId || !activeBarId || cart.length === 0 || checkoutLock.current) return
+    checkoutLock.current = true
     setCheckoutSubmitting(true)
     try {
-      const res = await apiFetch<SaleChargeResponse>("/inventory/sales", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
+      if (customerDni.trim() && customerDni.trim().length < 6) throw new Error("El DNI debe tener al menos seis dígitos")
+      if (cartTotal.gt("99999999.99")) throw new Error("El importe del pedido supera el máximo permitido")
+      if (cart.filter((item) => item.kind === "product").length > 100 || cart.some((item) => item.kind === "product" && item.quantity > 1000)) throw new Error("El pedido supera el máximo de productos por venta")
+      const body: PosSaleBody = {
+          requestId: crypto.randomUUID(),
+          expectedTotalAmount: cartTotal.toFixed(2),
           eventId: activeEventId,
           barId: activeBarId,
           allowNegativeStock: true,
@@ -867,32 +770,71 @@ export function PosPage() {
           items: cart
             .filter((c): c is ProductCartItem => c.kind === "product")
             .map((c) => ({ productId: c.product.id, quantity: c.quantity })),
-          ...(balanceChargeAmount > 0
+          ...(balanceChargeAmount.gt(0)
             ? { balanceCharge: balanceChargeAmount.toFixed(2) }
             : {}),
           ...(customerDni.trim() !== "" ? { customerDni: customerDni.trim() } : {}),
           ...(customerName.trim() !== "" ? { customerName: customerName.trim() } : {}),
-          ...(promoterId !== "" ? { promoterId } : {}),
-        }),
-      })
-      toast.success("Venta registrada")
-      void printSaleDocuments(res)
+      }
+      if (paymentMethod === "saldo" && !isOnline) throw new Error("Cobrar con saldo requiere conexión")
+      const productItems = cart.filter((item): item is ProductCartItem => item.kind === "product")
+      const createdAt = new Date().toISOString()
+      if (paymentMethod !== "saldo") body.clientSale = {
+        receiptToken: crypto.randomUUID(), createdAt,
+        lines: productItems.map((item) => ({
+          productId: item.product.id, priceAtTime: new Decimal(item.product.price).toFixed(2),
+          qrHashes: Array.from({ length: item.quantity }, () => crypto.randomUUID()),
+        })),
+      }
+      const sale: PosQueuedSale = {
+        id: body.requestId, owner, body, createdAt,
+        totalAmount: cartTotal.toFixed(2), eventName: posEventName ?? "Evento", barName: posBarName ?? "—",
+        documents: [], printedDocuments: 0, printStatus: "pending", syncStatus: "pending",
+        printSnapshot: {
+          staffName, customerName: body.customerDni ? body.customerName || "Cliente" : null,
+          hasCustomer: !!body.customerDni, hasProducts: !!body.items.length,
+          items: cart.map((item) => item.kind === "product"
+            ? { name: item.product.name, quantity: item.quantity, priceAtTime: item.product.price }
+            : { name: "Carga de saldo", quantity: 1, priceAtTime: item.amount }),
+        },
+      }
+      if (body.clientSale) sale.documents = buildPosDocuments(sale, sale.printSnapshot!, {
+        message: "Venta guardada", saleId: sale.id, receiptToken: body.clientSale.receiptToken,
+        totalAmount: sale.totalAmount,
+        consumptions: body.clientSale.lines.flatMap((line, index) => line.qrHashes.map((qrHash) => ({
+          qrHash, productName: productItems[index].product.name,
+        }))),
+      }, true)
+      await enqueuePosSale(sale)
+      if (sale.documents.length) void printPosSale(sale, printRaw).catch((error) => toast.error(
+        "Venta guardada. No se pudo imprimir: " + (error instanceof Error ? error.message : String(error)),
+      ))
+      void sync()
+      toast.success(paymentMethod === "saldo" ? "Pedido guardado; el ticket se imprime al confirmar el saldo" : "Venta guardada en este equipo; imprimiendo ticket")
       clearCart()
       setCustomerDni("")
       setCustomerName("")
-      setPromoterId("")
       if (paymentMethod === "saldo") setPaymentMethod("cash")
       bumpHistory()
-      void refreshSnapshot()
+      void refreshSnapshot().catch(() => {})
     } catch (err) {
       toast.error(
-        err instanceof ApiError ? err.message : "No se pudo registrar la venta"
+        err instanceof Error ? err.message : "No se pudo guardar la venta"
       )
     } finally {
       setCheckoutSubmitting(false)
+      checkoutLock.current = false
     }
   }, [
     token,
+    owner,
+    isOnline,
+    cartTotal,
+    staffName,
+    posBarName,
+    posEventName,
+    printRaw,
+    sync,
     activeEventId,
     activeBarId,
     cart,
@@ -900,23 +842,25 @@ export function PosPage() {
     paymentMethod,
     customerDni,
     customerName,
-    promoterId,
     clearCart,
     bumpHistory,
     refreshSnapshot,
-    printSaleDocuments,
   ])
 
   const handleAddBalanceCharge = useCallback(() => {
     if (customerDni.trim().length < 6) return
-    const amount = Number.parseFloat(chargeAmount)
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!/^\d{1,8}(\.\d{1,2})?$/.test(chargeAmount)) {
+      toast.error("Ingresá un monto válido con hasta dos decimales")
+      return
+    }
+    const amount = new Decimal(chargeAmount || 0)
+    if (!amount.isFinite() || amount.lte(0)) {
       toast.error("Ingresá un monto válido")
       return
     }
     setCart((prev) => [
       ...prev.filter((item) => item.kind !== "balance-charge"),
-      { kind: "balance-charge", amount },
+      { kind: "balance-charge", amount: amount.toFixed(2) },
     ])
     setChargeOpen(false)
     setChargeAmount("")
@@ -940,8 +884,8 @@ export function PosPage() {
 
   const balanceAmount = useMemo(() => {
     if (customerBalance == null) return null
-    const n = Number.parseFloat(customerBalance)
-    return Number.isFinite(n) ? n : null
+    const n = new Decimal(customerBalance)
+    return n.isFinite() ? n : null
   }, [customerBalance])
 
   if (shiftResolving) {
@@ -1004,20 +948,22 @@ export function PosPage() {
   }
 
   const showSelectors = !shiftBound
-  const shiftLabel = boundShift
-    ? `${boundShift.eventName} — ${boundShift.barName}`
+  const shiftLabel = posEventName && posBarName
+    ? `${posEventName} — ${posBarName}`
     : null
 
   const canCharge =
     posReady &&
     cart.length > 0 &&
     !checkoutSubmitting &&
-    (balanceChargeAmount === 0 ||
+    !storageError &&
+    !!owner &&
+    (balanceChargeAmount.isZero() ||
       (customerDni.trim().length >= 6 && paymentMethod !== "saldo")) &&
     (paymentMethod !== "saldo" ||
       (customerDni.trim() !== "" &&
         balanceAmount != null &&
-        balanceAmount >= cartTotal))
+        isOnline && balanceAmount.gte(cartTotal)))
 
   return (
     <div
@@ -1070,7 +1016,7 @@ export function PosPage() {
           </button>
           <button
             type="button"
-            onClick={() => setIsOnline(!isOnline)}
+            onClick={() => void sync()}
             className={cn(
               "flex h-11 max-w-[4.5rem] items-center justify-center rounded-xl px-2 text-[10px] font-medium leading-tight sm:max-w-none sm:text-[11px]",
               isOnline
@@ -1078,7 +1024,7 @@ export function PosPage() {
                 : "text-red-600 dark:text-red-400"
             )}
           >
-            {isOnline ? "Online" : "Offline"}
+            {syncing ? "Enviando…" : isOnline ? "Online" : "Offline"}
           </button>
           <button
             type="button"
@@ -1204,9 +1150,38 @@ export function PosPage() {
           <DialogHeader>
             <DialogTitle>Opciones del puesto</DialogTitle>
             <DialogDescription>
-              Impresora de esta computadora y cierre de sesión.
+              Barra, impresora de esta computadora y cierre de sesión.
             </DialogDescription>
           </DialogHeader>
+          <div>
+            <label
+              htmlFor="pos-bar"
+              className="mb-2 block text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400"
+            >
+              Barra
+            </label>
+            <Select
+              value={activeBarId}
+              onValueChange={setPosBarId}
+              disabled={shiftBound || !posBars.length || checkoutSubmitting}
+            >
+              <SelectTrigger id="pos-bar" className={cn(selectTriggerClass, "h-11")}>
+                <SelectValue placeholder="Elegí barra" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
+                {posBars.map((b) => (
+                  <SelectItem key={b.id} value={b.id} className="rounded-lg py-2.5">
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {shiftBound ? (
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                La barra está fijada al puesto o al turno asignado.
+              </p>
+            ) : null}
+          </div>
           <div>
             <div className="mb-2 flex items-center justify-between">
               <label className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
@@ -1260,32 +1235,44 @@ export function PosPage() {
               </SelectContent>
             </Select>
           </div>
-          {eventId && posBars.length > 0 ? (
-            <div className="min-w-[200px] flex-1">
-              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[#8E8E93] dark:text-[#98989D]">
-                Barra
-              </label>
-              <Select value={posBarId} onValueChange={setPosBarId}>
-                <SelectTrigger className={selectTriggerClass}>
-                  <SelectValue placeholder="Elegí barra" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                  {posBars.map((b) => (
-                    <SelectItem key={b.id} value={b.id} className="rounded-lg py-2.5">
-                      {b.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
       {!isOnline && (
         <div className="shrink-0 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-800 dark:bg-red-950/40 dark:text-red-200">
-          Modo sin conexión simulado — en producción sincronizar ventas al volver la red
+          Sin conexión al servidor — podés cobrar e imprimir. Las ventas se enviarán automáticamente. Saldo requiere conexión.
         </div>
+      )}
+
+      {storageError && <div role="alert" className="shrink-0 bg-red-50 p-3 text-center text-sm text-red-800">{storageError}</div>}
+      {(pendingSales.length > 0 || blockedSales.length > 0) && (
+        <div role="status" className="flex shrink-0 flex-wrap items-center justify-center gap-3 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <span>{pendingSales.length} venta(s) por enviar · {blockedSales.length} requieren revisión. No vuelvas a cobrar estos pedidos.</span>
+          <Button variant="outline" size="sm" disabled={syncing} onClick={() => void sync()}>{syncing ? "Enviando…" : "Enviar ahora"}</Button>
+        </div>
+      )}
+      {localSales.length > 0 && (
+        <details className="shrink-0 border-b border-zinc-200 bg-background px-4 py-2 dark:border-zinc-800">
+          <summary className="cursor-pointer text-sm font-semibold">Ventas de este equipo · pendientes y reimpresión</summary>
+          <div className="max-h-52 overflow-y-auto py-2">
+            {recentLocalSales.length === 0 && <p className="text-sm text-zinc-500">No hay ventas locales en este puesto.</p>}
+            {recentLocalSales.map((sale) => (
+              <div key={sale.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 py-2 text-sm dark:border-zinc-800">
+                <div>
+                  <p>{formatSaleTime(sale.createdAt)} · ${sale.response?.totalAmount ?? sale.totalAmount} · {formatPaymentLabel(sale.body.paymentMethod)}</p>
+                  <p className="text-xs text-zinc-500">{sale.id} · {sale.syncStatus === "synced" ? "Enviada" : sale.syncStatus === "blocked" ? "Requiere revisión" : "Por enviar"} · {sale.printStatus === "printed" ? "Impresa" : sale.printStatus === "printing" ? "Impresión iniciada" : "Impresión pendiente"}</p>
+                  {sale.syncError && <p className="text-xs text-amber-700 dark:text-amber-300">{sale.syncError}</p>}
+                  {sale.syncStatus === "blocked" && <p className="text-xs text-zinc-500">{sale.printSnapshot?.items.map((item) => `${item.quantity} × ${item.name}`).join(" · ")}{sale.body.customerDni ? ` · DNI ${sale.body.customerDni}` : ""}</p>}
+                  {sale.printError && <p className="text-xs text-red-600">{sale.printError}</p>}
+                </div>
+                <div className="flex gap-2">
+                  {sale.syncStatus === "blocked" && <Button size="sm" variant="outline" onClick={() => void updatePosSale(sale.id, { syncStatus: "pending", syncError: undefined }).then(sync).catch(() => toast.error("No se pudo actualizar la cola"))}>Reintentar envío</Button>}
+                  {!!sale.documents.length && <Button size="sm" variant="outline" onClick={() => void printPosSale(sale, printRaw, true).catch((error) => toast.error(error instanceof Error ? error.message : String(error)))}>Reimprimir</Button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {posReady && connectionStatus === "closed" && (
@@ -1409,7 +1396,7 @@ export function PosPage() {
                               <p
                                 className="text-lg font-black tabular-nums tracking-tight text-[#FF9500]"
                               >
-                                ${product.price.toFixed(2)}
+                                ${new Decimal(product.price).toFixed(2)}
                               </p>
                             </CardContent>
                           </Card>
@@ -1461,6 +1448,7 @@ export function PosPage() {
                 />
                 <Input
                   placeholder="Nombre (si no está registrado)"
+                  maxLength={255}
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   className={cn(searchInputClass, "py-0")}
@@ -1476,7 +1464,7 @@ export function PosPage() {
                     <p className="text-[15px] font-black tabular-nums text-zinc-950 dark:text-white">
                       {balanceLoading && balanceAmount == null
                         ? "…"
-                        : `$${(balanceAmount ?? 0).toFixed(2)}`}
+                        : `$${(balanceAmount ?? new Decimal(0)).toFixed(2)}`}
                     </p>
                     {knownCustomerName ? (
                       <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
@@ -1496,42 +1484,6 @@ export function PosPage() {
                   </Button>
                 </div>
               ) : null}
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                  Promotor
-                </p>
-                {promoterId !== "" ? (
-                  <button
-                    type="button"
-                    onClick={() => setPromoterId("")}
-                    className="flex h-6 items-center gap-1 text-xs text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Quitar
-                  </button>
-                ) : null}
-              </div>
-              <Select
-                value={promoterId === "" ? "none" : promoterId}
-                onValueChange={(v) => setPromoterId(v === "none" ? "" : v)}
-              >
-                <SelectTrigger className={cn(selectTriggerClass, "h-11")}>
-                  <SelectValue placeholder="Sin promotor" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl border-zinc-200/50 dark:border-zinc-800/50">
-                  <SelectItem value="none" className="rounded-lg py-2.5">
-                    Sin promotor
-                  </SelectItem>
-                  {promoters.map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
             <div>
@@ -1628,7 +1580,7 @@ export function PosPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={customerDni.trim() === ""}
+                  disabled={customerDni.trim() === "" || !isOnline}
                   onClick={() => setPaymentMethod("saldo")}
                   className={cn(
                     "flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-3 text-xs font-bold transition-all duration-300 active:scale-[0.98] sm:text-sm",
@@ -1662,8 +1614,8 @@ export function PosPage() {
               {paymentMethod === "saldo" &&
               customerDni.trim() !== "" &&
               balanceAmount != null &&
-              cartTotal > 0 &&
-              balanceAmount < cartTotal ? (
+              cartTotal.gt(0) &&
+              balanceAmount.lt(cartTotal) ? (
                 <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-400">
                   Saldo insuficiente — disponible ${balanceAmount.toFixed(2)}
                 </p>
@@ -1747,7 +1699,7 @@ export function PosPage() {
                               Se acredita al cobrar
                             </p>
                             <p className="mt-1 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                              ${item.amount.toFixed(2)}
+                              ${item.amount}
                             </p>
                           </div>
                           <button
@@ -1786,7 +1738,7 @@ export function PosPage() {
                           ) : null}
                           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                             <span className="font-bold text-zinc-900 dark:text-zinc-100">
-                              ${(item.product.price * item.quantity).toFixed(2)}
+                              ${new Decimal(item.product.price).times(item.quantity).toFixed(2)}
                             </span>
                           </p>
                         </div>
