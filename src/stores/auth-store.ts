@@ -16,6 +16,7 @@ export type StaffProfile = {
   name: string
   email: string
   role: StaffRole
+  roles?: StaffRole[]
   tenantId: string | null
   /** Nombre de la productora (solo UI; el backend usa `tenant`). */
   tenantName?: string | null
@@ -26,6 +27,9 @@ export type StaffProfile = {
 type AuthState = {
   token: string | null
   staff: StaffProfile | null
+  roleChosen: boolean
+  chooseRole: (role: StaffRole) => Promise<void>
+  showRolePicker: () => void
   setAuth: (token: string, staff: StaffProfile) => void
   updateStaff: (staff: StaffProfile) => void
   logout: () => void
@@ -37,9 +41,19 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       token: null,
       staff: null,
-      setAuth: (token, staff) => set({ token, staff }),
+      roleChosen: false,
+      setAuth: (token, staff) => set({ token, staff, roleChosen: false }),
+      showRolePicker: () => set({ roleChosen: false }),
+      chooseRole: async (role) => {
+        const token = get().token
+        const data = await apiFetch<{ token: string; staff: StaffProfile }>("/staff/me/role", {
+          method: "POST", token, body: JSON.stringify({ role }),
+        })
+        if (get().token !== token) throw new Error("La sesión cambió. Volvé a ingresar.")
+        set({ ...data, roleChosen: true })
+      },
       updateStaff: (staff) => set({ staff }),
-      logout: () => set({ token: null, staff: null }),
+      logout: () => set({ token: null, staff: null, roleChosen: false }),
       fetchSession: async () => {
         const token = get().token
         if (!token) return
@@ -49,6 +63,7 @@ export const useAuthStore = create<AuthState>()(
             token,
             signal: AbortSignal.timeout(3000),
           })
+          if (get().token !== token) return
           set({
             staff: {
               ...data.staff,
@@ -58,8 +73,8 @@ export const useAuthStore = create<AuthState>()(
             },
           })
         } catch (err) {
-          if (err instanceof ApiError && err.status === 401) {
-            set({ token: null, staff: null })
+          if (get().token === token && err instanceof ApiError && err.status === 401) {
+            set({ token: null, staff: null, roleChosen: false })
           }
         }
       },

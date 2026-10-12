@@ -8,6 +8,7 @@ import type { EventAssignmentStaffRow, EventBarRow, EventBarsResponse, EventStaf
 import { staffRoleLabel } from "@/lib/role-labels"
 import { getPromoterEventShopUrl } from "@/lib/client-app-url"
 import { GeneralPromoterLine } from "@/components/events/general-promoter-line"
+import { RoleCheckboxes } from "@/components/staff/role-checkboxes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -28,13 +29,13 @@ type Invitation = {
   id: string
   name: string
   role: StaffRole
+  roles?: StaffRole[]
   url: string
   acceptedStaffId: string | null
 }
 
 type InvitationsResponse = { invitations: Invitation[] }
 
-const INVITE_ROLES: StaffRole[] = ["PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "TRANSPORTER", "MANAGER"]
 // `ROLE_ORDER` gobierna los grupos que ve el admin: un rol ausente acá no se dibuja nunca, así
 // que todo rol nuevo que se pueda invitar desde la pestaña tiene que entrar también en esta lista.
 const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "TRANSPORTER", "ADMIN"]
@@ -64,7 +65,7 @@ export function EventStaffTab({
   // sección reducida a promotores y no la del equipo de la productora.
   const isGeneralPromoter = role === "GENERAL_PROMOTER"
   const canManage = role === "ADMIN" || role === "MANAGER" || isGeneralPromoter
-  const canInvite = role === "ADMIN" || isGeneralPromoter
+  const canInvite = role === "ADMIN" || role === "MANAGER" || isGeneralPromoter
   const promotersView = isGeneralPromoter
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
   const [bars, setBars] = useState<EventBarRow[]>([])
@@ -76,6 +77,10 @@ export function EventStaffTab({
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
   const [promoterToDelete, setPromoterToDelete] = useState<EventAssignmentStaffRow | null>(null)
   const [deletingPromoter, setDeletingPromoter] = useState(false)
+  const [editingRoles, setEditingRoles] = useState<EventAssignmentStaffRow | null>(null)
+  const [selectedRoles, setSelectedRoles] = useState<StaffRole[]>([])
+  const [savingRoles, setSavingRoles] = useState(false)
+  const [rolesError, setRolesError] = useState<string | null>(null)
 
   const load = useCallback(async (showLoading = false) => {
     if (!token) return
@@ -160,6 +165,24 @@ export function EventStaffTab({
     }
   }
 
+  async function saveRoles() {
+    if (!token || !editingRoles || savingRoles || selectedRoles.length === 0) return
+    setSavingRoles(true)
+    setRolesError(null)
+    try {
+      await apiFetch(`/events/${eventId}/staff/${editingRoles.id}/roles`, {
+        method: "PATCH", token, body: JSON.stringify({ roles: selectedRoles }),
+      })
+      setEditingRoles(null)
+      await load()
+      await useAuthStore.getState().fetchSession()
+      onTeamChange?.()
+      toast.success("Roles actualizados")
+    } catch (err) {
+      setRolesError(err instanceof Error ? err.message : "No se pudieron guardar los roles.")
+    } finally { setSavingRoles(false) }
+  }
+
   /** Baja lógica de la cuenta (`DELETE /staff/team/:id`): el backend valida que sea un promotor suyo. */
   async function deletePromoter() {
     if (!token || !promoterToDelete) return
@@ -188,12 +211,12 @@ export function EventStaffTab({
       >
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] text-white/80">{member.name}</p>
-          <p className="text-[12px] text-white/40">{staffRoleLabel(member.role)}</p>
+          <p className="text-[12px] text-white/40">{(member.roles ?? [member.role]).map(staffRoleLabel).join(" · ")}</p>
           <GeneralPromoterLine name={member.generalPromoterName} />
         </div>
         {/* Los dos roles de promotor venden con link propio: el general también, además de
             coordinar los de su cartera. */}
-        {member.role === "PROMOTER" || member.role === "GENERAL_PROMOTER" ? (
+        {(member.roles ?? [member.role]).some((role) => role === "PROMOTER" || role === "GENERAL_PROMOTER") ? (
           member.promoterId ? (
             <Button asChild type="button" size="sm" variant="outline" className="gap-1.5 border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08] hover:text-white">
               <a
@@ -207,7 +230,7 @@ export function EventStaffTab({
             </Button>
           ) : null
         ) : null}
-        {canManage && member.role === "BARTENDER" ? (
+        {canManage && (member.roles ?? [member.role]).includes("BARTENDER") ? (
           <Select
             value={member.barId ?? "unassigned"}
             onValueChange={(value) =>
@@ -226,6 +249,11 @@ export function EventStaffTab({
             </SelectContent>
           </Select>
         ) : null}
+        {role === "ADMIN" || role === "MANAGER" ? <Button type="button" size="sm" variant="outline" disabled={busy} className="border-white/[0.14] bg-transparent text-white/70 hover:bg-white/[0.08]" onClick={() => {
+          setEditingRoles(member)
+          setSelectedRoles(member.roles ?? [member.role])
+          setRolesError(null)
+        }}>Editar roles</Button> : null}
         {canInvite && invitation ? (
           <Button
             type="button"
@@ -537,6 +565,17 @@ export function EventStaffTab({
       )}
 
       {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reloadTeam} accessHint={inviteAccessHint} initialInvitation={invitationToShow} ticketsOnly={promotersOnly} /> : null}
+      <Dialog open={editingRoles !== null} onOpenChange={(open) => { if (!open && !savingRoles) setEditingRoles(null) }}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Roles de {editingRoles?.name}</DialogTitle>
+            <DialogDescription>Elegí una o varias funciones para esta persona en la productora. Los roles de administrador y gerente permiten gestionar la productora. La asignación al evento se conserva.</DialogDescription>
+          </DialogHeader>
+          <RoleCheckboxes roles={selectedRoles} onChange={setSelectedRoles} disabled={savingRoles} />
+          {rolesError ? <p role="alert" className="text-sm text-red-500">{rolesError}</p> : null}
+          <Button disabled={savingRoles || selectedRoles.length === 0} onClick={() => void saveRoles()}>{savingRoles ? "Guardando…" : "Guardar roles"}</Button>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -545,6 +584,7 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
   const token = useAuthStore((s) => s.token)
   const [name, setName] = useState("")
   const [role, setRole] = useState<StaffRole>(promoterOnly ? "PROMOTER" : ticketsOnly ? "TRANSPORTER" : "BARTENDER")
+  const [roles, setRoles] = useState<StaffRole[]>([promoterOnly ? "PROMOTER" : ticketsOnly ? "TRANSPORTER" : "BARTENDER"])
   const [invitation, setInvitation] = useState<Invitation | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -562,6 +602,7 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
       setError(null)
       setName("")
       setRole(promoterOnly ? "PROMOTER" : ticketsOnly ? "TRANSPORTER" : "BARTENDER")
+      setRoles([promoterOnly ? "PROMOTER" : ticketsOnly ? "TRANSPORTER" : "BARTENDER"])
     }
     onOpenChange(nextOpen)
   }
@@ -569,10 +610,11 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
   async function create() {
     if (!token || saving) return
     if (!name.trim()) return setError("Completá el nombre del empleado.")
+    if (roles.length === 0) return setError("Elegí al menos un rol.")
     setSaving(true)
     setError(null)
     try {
-      const data = await apiFetch<{ invitation: Invitation }>("/staff/invitations", { method: "POST", token, body: JSON.stringify({ name: name.trim(), role, eventId }) })
+      const data = await apiFetch<{ invitation: Invitation }>("/staff/invitations", { method: "POST", token, body: JSON.stringify({ name: name.trim(), role: roles.includes(role) ? role : roles[0], roles, eventId }) })
       setInvitation(data.invitation)
       onCreated()
     } catch (e) {
@@ -589,13 +631,13 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
   }
 
   return <Dialog open={open} onOpenChange={close}>
-    <DialogContent className="max-w-lg rounded-2xl border-white/[0.1] bg-black p-0 text-white">
+    <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] overflow-y-auto rounded-2xl border-white/[0.1] bg-black p-0 text-white sm:max-w-lg">
       <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left"><DialogTitle className="text-xl">Invitar {promoterOnly ? "promotor" : "empleado"}</DialogTitle><DialogDescription className="mt-1 text-white/45">La invitación crea el acceso al equipo de tu productora.</DialogDescription></DialogHeader>
       <div className="space-y-4 px-6 py-5">
         {invitation ? (
           <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-4">
             <p className="font-medium text-emerald-300">Link de invitación</p>
-            <p className="mt-1 text-sm text-white/55">{invitation.name} · {staffRoleLabel(invitation.role)}</p>
+            <p className="mt-1 text-sm text-white/55">{invitation.name} · {(invitation.roles ?? [invitation.role]).map(staffRoleLabel).join(" · ")}</p>
             <div className="mt-4 flex flex-col items-center gap-4">
               <div className="rounded-xl bg-white p-3"><QRCodeSVG value={invitation.url} size={144} level="M" includeMargin /></div>
               <div className="min-w-0 self-stretch">
@@ -613,12 +655,11 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
               <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nombre y apellido" className="border-white/[0.1] bg-white/[0.04]" />
             </Field>
             {!promoterOnly ? (
-              <Field label="Rol">
-                <Select value={role} onValueChange={(value) => setRole(value as StaffRole)}>
-                  <SelectTrigger className="border-white/[0.1] bg-white/[0.04]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{INVITE_ROLES.filter((item) => !ticketsOnly || item !== "BARTENDER").map((item) => <SelectItem key={item} value={item}>{staffRoleLabel(item)}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-white/70">Roles</p>
+                <RoleCheckboxes roles={roles} onChange={setRoles} disabled={saving} />
+                <p className="text-xs text-white/45">Podés elegir varias funciones. Administrador y gerente dan acceso a la gestión de la productora.</p>
+              </div>
             ) : null}
             <Button type="submit" disabled={saving} className="w-full bg-[#FF9500] text-white hover:bg-[#FF9500]/90">{saving ? "Creando…" : "Crear invitación"}</Button>
           </form>
@@ -628,6 +669,7 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
     </DialogContent>
   </Dialog>
 }
+
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block space-y-1.5"><span className="text-sm font-medium text-white/70">{label}</span>{children}</label>

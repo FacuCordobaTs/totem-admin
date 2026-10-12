@@ -158,6 +158,7 @@ export type EventAssignmentStaffRow = {
   name: string
   email: string
   role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER"
+  roles?: EventAssignmentStaffRow["role"][]
   isAssigned: boolean
   barId: string | null
   /** Perfil comercial para construir su link público en este evento. */

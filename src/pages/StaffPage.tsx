@@ -12,13 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { RoleCheckboxes } from "@/components/staff/role-checkboxes"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile, type StaffRole } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
@@ -52,7 +46,7 @@ export function StaffPage() {
 
   const [editing, setEditing] = useState<StaffProfile | null>(null)
   const [editName, setEditName] = useState("")
-  const [editRole, setEditRole] = useState<StaffRole>("BARTENDER")
+  const [editRoles, setEditRoles] = useState<StaffRole[]>(["BARTENDER"])
   const [editPassword, setEditPassword] = useState("")
   const [editError, setEditError] = useState<string | null>(null)
   const [editLoading, setEditLoading] = useState(false)
@@ -99,7 +93,7 @@ export function StaffPage() {
   function openEdit(member: StaffProfile) {
     setEditing(member)
     setEditName(member.name)
-    setEditRole(member.role)
+    setEditRoles(member.roles ?? [member.role])
     setEditPassword("")
     setEditError(null)
   }
@@ -110,9 +104,9 @@ export function StaffPage() {
     setEditError(null)
     setEditLoading(true)
     try {
-      const body: { name?: string; role?: StaffRole; password?: string } = {
+      const body: { name?: string; roles?: StaffRole[]; password?: string } = {
         name: editName,
-        role: editRole,
+        roles: editRoles,
       }
       if (editPassword.trim().length > 0) {
         body.password = editPassword
@@ -245,6 +239,7 @@ export function StaffPage() {
                         <>
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-semibold text-foreground">{member.name}</p>
+                            <p className="text-xs text-muted-foreground">{(member.roles ?? [member.role]).map(staffRoleLabel).join(" · ")}</p>
                             <p className="mt-0.5 text-[13px] text-[#8E8E93] dark:text-[#98989D]">Alta {formatDateShort(member.createdAt)}</p>
                           </div>
                           {inactive ? <span className="text-[11px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">Inactiva</span> : null}
@@ -268,7 +263,7 @@ export function StaffPage() {
       </main>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="max-w-md rounded-2xl border-white/[0.1] bg-black text-white">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] overflow-y-auto rounded-2xl border-white/[0.1] bg-black text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold tracking-tight">Editar</DialogTitle>
             <DialogDescription className="text-sm text-white/45">
@@ -295,19 +290,8 @@ export function StaffPage() {
                 />
               </div>
               <div className="space-y-2">
-                <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Rol</span>
-                <Select value={editRole} onValueChange={(v) => setEditRole(v as StaffRole)}>
-                  <SelectTrigger className="h-11 rounded-xl border-white/[0.12] bg-white/[0.04] text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    {ROLES.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {staffRoleLabel(r)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <span className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">Roles</span>
+                <RoleCheckboxes roles={editRoles} onChange={setEditRoles} disabled={editLoading} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="ed-pass" className="text-[13px] text-[#8E8E93] dark:text-[#98989D]">
@@ -355,7 +339,7 @@ export function StaffPage() {
                 <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setEditing(null)}>
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={editLoading} className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90">
+                <Button type="submit" disabled={editLoading || editRoles.length === 0} className="rounded-xl bg-[#FF9500] font-semibold text-white hover:bg-[#FF9500]/90">
                   {editLoading ? "Guardando…" : "Guardar"}
                 </Button>
               </DialogFooter>
