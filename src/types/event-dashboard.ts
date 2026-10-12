@@ -7,6 +7,7 @@ export type EventSummaryResponse = {
   ticketCapacity: number | null
   /** Ingresos por entradas (suma de precios de tipo por ticket no cancelado). */
   ticketRevenue: string
+  transportRevenue?: string
   /** Suma de `sales.totalAmount` del evento (ventas completadas). */
   barSalesRevenue: string
   /** Entradas + ventas POS/app/web del evento. */

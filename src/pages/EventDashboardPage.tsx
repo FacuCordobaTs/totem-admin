@@ -15,6 +15,7 @@ import {
   type AttendeeTableHandle,
 } from "@/components/events/attendee-table"
 import { EventStaffTab } from "@/components/events/event-staff-tab"
+import { EventTransportsTab } from "@/components/events/event-transports-tab"
 import { EventBarSection } from "@/components/events/event-bar-section"
 import { EventExpensesTab } from "@/components/events/event-expenses-tab"
 import { EventIncomeSummary } from "@/components/events/event-income-summary"
@@ -47,6 +48,7 @@ import {
   Check,
   LayoutDashboard,
   Ticket,
+  Bus,
   Wine,
   Users,
   Globe,
@@ -63,6 +65,7 @@ import {
 type SectionId =
   | "resumen"
   | "entradas"
+  | "transporte"
   | "barra"
   | "equipo"
   | "acceso"
@@ -73,6 +76,7 @@ const EVENT_SECTIONS: { id: SectionId; label: string; Icon: LucideIcon }[] = [
   { id: "resumen", label: "Resumen", Icon: LayoutDashboard },
   { id: "pagina", label: "Página", Icon: Globe },
   { id: "entradas", label: "Entradas", Icon: Ticket },
+  { id: "transporte", label: "Transporte", Icon: Bus },
   { id: "barra", label: "Barra", Icon: Wine },
   { id: "equipo", label: "Equipo", Icon: Users },
   { id: "acceso", label: "Acceso", Icon: Ban },
@@ -323,6 +327,8 @@ export function EventDashboardPage() {
             />
           </SectionShell>
         )
+      case "transporte":
+        return <SectionShell title="Transporte"><EventTransportsTab eventId={id} /></SectionShell>
       case "entradas":
         if (ticketsView === "messages") {
           return (

@@ -31,7 +31,7 @@ export type CashClosingEntry = {
  */
 export type EventClosingReport = {
   closedAt: string
-  income: { tickets: string; bar: string; gross: string }
+  income: { tickets: string; bar: string; transport?: string; gross: string }
   expenses: {
     operational: string
     merchandisePurchased: string
@@ -54,6 +54,7 @@ export type EventClosingReport = {
    * del backend. Opcional por back-compat: los eventos cerrados antes de 10.3 no lo tienen.
    */
   incomeBySource?: {
+    transport?: string
     tickets: string
     tragos: string
     saldo: string

@@ -150,6 +150,7 @@ export function EventClosedReport({
       <dl className="space-y-2.5 text-[15px]">
         <Row label="Entradas" value={money(report.income.tickets)} muted />
         <Row label="Barra" value={money(report.income.bar)} muted />
+        {report.income.transport && report.income.transport !== "0.00" && <Row label="Transporte" value={money(report.income.transport)} muted />}
         <div className="border-t border-white/[0.06] pt-2.5">
           <Row label="Ingresos totales" value={money(report.income.gross)} strong />
         </div>
@@ -466,6 +467,7 @@ function IncomeBySourceCard({
           <span className="text-white/50">Saldo cargado</span>
           <span className="tabular-nums text-white/80">{money(source.saldo)}</span>
         </div>
+        {source.transport && source.transport !== "0.00" && <div className="flex items-center justify-between"><span className="text-white/50">Transporte</span><span className="tabular-nums text-white/80">{money(source.transport)}</span></div>}
         <div className="flex items-center justify-between border-t border-white/[0.06] pt-2">
           <span className="font-semibold text-white/80">Total</span>
           <span className="text-[15px] font-bold tabular-nums text-white">
