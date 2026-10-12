@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react"
 import Decimal from "decimal.js"
-import { Bus, Plus, Pencil, Loader2 } from "lucide-react"
+import {
+  Bus,
+  Plus,
+  Pencil,
+  Loader2,
+  Download,
+  Link as LinkIcon,
+  Copy,
+  ExternalLink,
+  Check,
+  RefreshCw
+} from "lucide-react"
 import { apiFetch } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
@@ -12,6 +23,11 @@ import {
   DialogTitle
 } from "@/components/ui/dialog"
 import { LocationPicker } from "./location-picker"
+import { getTransportDriverUrl } from "@/lib/client-app-url"
+import {
+  downloadTransportPassengers,
+  type TransportPassengerBooking
+} from "@/lib/transport-passenger-export"
 
 type Transport = {
   id: string
@@ -22,16 +38,7 @@ type Transport = {
   price: string
   isActive: boolean
 }
-type Booking = {
-  id: string
-  transportId: string
-  name: string
-  quantity: number
-  price: string
-  customerName: string
-  customerDni: string | null
-  customerPhone: string | null
-}
+type Booking = TransportPassengerBooking
 const field =
   "h-11 w-full rounded-lg border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-white/40"
 function money(value: string) {
@@ -62,6 +69,15 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
   } | null>(null)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [driverTransport, setDriverTransport] = useState<Transport | null>(null)
+  const [driverUrl, setDriverUrl] = useState("")
+  const [driverBusy, setDriverBusy] = useState(false)
+  const [driverError, setDriverError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [passengerFilter, setPassengerFilter] = useState("")
+  const visibleBookings = passengerFilter
+    ? bookings.filter((b) => b.transportId === passengerFilter)
+    : bookings
   const load = useCallback(async () => {
     if (!token) return
     setError(null)
@@ -86,6 +102,55 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
   useEffect(() => {
     void load()
   }, [load])
+  const generateDriverLink = async (transport: Transport) => {
+    if (!token || driverBusy) return
+    setDriverTransport(transport)
+    setDriverUrl("")
+    setCopied(false)
+    setDriverError(null)
+    setDriverBusy(true)
+    try {
+      const data = await apiFetch<{ token: string }>(
+        `/event-transports/${eventId}/${transport.id}/driver-link`,
+        { token, method: "POST" }
+      )
+      setDriverUrl(getTransportDriverUrl(data.token))
+    } catch (err) {
+      setDriverError(
+        err instanceof Error ? err.message : "No se pudo generar el link"
+      )
+    } finally {
+      setDriverBusy(false)
+    }
+  }
+  const copyDriverLink = async () => {
+    try {
+      await navigator.clipboard.writeText(driverUrl)
+      setCopied(true)
+      setDriverError(null)
+    } catch {
+      setDriverError("Copiá el link desde el campo de arriba.")
+    }
+  }
+  const disableDriverLink = async () => {
+    if (!token || !driverTransport || driverBusy) return
+    setDriverBusy(true)
+    setDriverError(null)
+    try {
+      await apiFetch(
+        `/event-transports/${eventId}/${driverTransport.id}/driver-link`,
+        { token, method: "DELETE" }
+      )
+      setDriverUrl("")
+      setCopied(false)
+    } catch (err) {
+      setDriverError(
+        err instanceof Error ? err.message : "No se pudo desactivar el link"
+      )
+    } finally {
+      setDriverBusy(false)
+    }
+  }
   const edit = (transport: Transport | null) => {
     setEditing(transport)
     setName(transport?.name ?? "")
@@ -147,10 +212,21 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
           Creá las salidas que se ofrecen junto a las entradas. El precio es por
           persona.
         </p>
-        <Button onClick={() => edit(null)} className="gap-2">
-          <Plus className="size-4" />
-          Nuevo transporte
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="ghost"
+            disabled={loading}
+            onClick={() => void load()}
+            className="gap-2"
+          >
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+            Actualizar lista
+          </Button>
+          <Button onClick={() => edit(null)} className="gap-2">
+            <Plus className="size-4" />
+            Nuevo transporte
+          </Button>
+        </div>
       </div>
       {loading ? (
         <Loader2 className="size-5 animate-spin text-white/50" />
@@ -190,6 +266,35 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
                     .reduce((n, b) => n + b.quantity, 0)}{" "}
                   pasajes pagados
                 </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={
+                      !bookings.some((b) => b.transportId === transport.id)
+                    }
+                    onClick={() =>
+                      downloadTransportPassengers(
+                        bookings.filter((b) => b.transportId === transport.id),
+                        `pasajeros-${transport.id.slice(0, 8)}.csv`
+                      )
+                    }
+                  >
+                    <Download className="size-4" />
+                    Exportar CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={driverBusy}
+                    onClick={() => void generateDriverLink(transport)}
+                  >
+                    <LinkIcon className="size-4" />
+                    Link para chofer
+                  </Button>
+                </div>
               </div>
               <Button
                 variant="ghost"
@@ -205,9 +310,41 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
       )}
       {bookings.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-lg font-semibold text-white">
-            Pasajeros con pago confirmado
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-white">
+              Pasajeros con pago confirmado
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={visibleBookings.length === 0}
+              onClick={() =>
+                downloadTransportPassengers(
+                  visibleBookings,
+                  `pasajeros-transporte-${eventId.slice(0, 8)}.csv`
+                )
+              }
+            >
+              <Download className="size-4" />
+              Exportar lista
+            </Button>
+          </div>
+          <label className="block max-w-sm space-y-2 text-sm text-white/60">
+            Filtrar por transporte
+            <select
+              className={field}
+              value={passengerFilter}
+              onChange={(e) => setPassengerFilter(e.target.value)}
+            >
+              <option value="">Todos los transportes</option>
+              {transports.map((transport) => (
+                <option key={transport.id} value={transport.id}>
+                  {transport.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-white/45">
@@ -222,7 +359,7 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {bookings.map((b) => (
+                {visibleBookings.map((b) => (
                   <tr
                     key={b.id}
                     className="border-t border-white/10 text-white/80"
@@ -239,6 +376,82 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
           </div>
         </section>
       )}
+      <Dialog
+        open={driverTransport !== null}
+        onOpenChange={(next) => {
+          if (!next && !driverBusy) setDriverTransport(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Lista para el chofer</DialogTitle>
+            <DialogDescription>
+              {driverTransport?.name}. Quien tenga este link puede ver los
+              pasajeros de esta salida. Las marcas de subida se guardan en el
+              navegador de cada chofer.
+            </DialogDescription>
+          </DialogHeader>
+          {driverBusy ? (
+            <div className="flex items-center gap-2 text-sm text-white/60">
+              <Loader2 className="size-4 animate-spin" />
+              Actualizando link…
+            </div>
+          ) : driverUrl ? (
+            <div className="space-y-4">
+              <label className="block space-y-2 text-sm">
+                Link de pasajeros
+                <input
+                  value={driverUrl}
+                  readOnly
+                  onFocus={(e) => e.target.select()}
+                  className={field}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button className="gap-2" onClick={() => void copyDriverLink()}>
+                  {copied ? (
+                    <Check className="size-4" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                  {copied ? "Copiado" : "Copiar link"}
+                </Button>
+                <Button asChild variant="outline" className="gap-2">
+                  <a href={driverUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="size-4" />
+                    Abrir lista
+                  </a>
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void disableDriverLink()}
+              >
+                Desactivar link
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-white/60">
+                Esta salida no tiene un link activo.
+              </p>
+              <Button
+                onClick={() =>
+                  driverTransport && void generateDriverLink(driverTransport)
+                }
+              >
+                Generar link
+              </Button>
+            </div>
+          )}
+          {driverError && (
+            <p role="alert" className="text-sm text-red-400">
+              {driverError}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={open}
         onOpenChange={(next) => {

@@ -33,3 +33,7 @@ export function getPromoterEventShopUrl(eventSlugOrId: string, promoterId: strin
 export function getCourtesyUrl(token: string): string {
   return `${getClientAppBaseUrl()}/i/${token}`
 }
+
+export function getTransportDriverUrl(token: string): string {
+  return `${getClientAppBaseUrl()}/transporte/${encodeURIComponent(token)}`
+}
