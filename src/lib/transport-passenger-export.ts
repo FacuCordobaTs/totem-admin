@@ -23,7 +23,7 @@ export function transportPassengerCsv(bookings: TransportPassengerBooking[]) {
     [
       "Transporte",
       "Dirección",
-      "Comprador",
+      "Titular",
       "DNI",
       "Celular",
       "Pasajes",

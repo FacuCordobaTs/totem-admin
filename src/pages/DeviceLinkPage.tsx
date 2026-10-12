@@ -43,6 +43,7 @@ const ROLE_LABELS: Record<StaffRole, string> = {
   MANAGER: "Administración",
   BARTENDER: "POS y barra",
   SECURITY: "Acceso y seguridad",
+  TRANSPORTER: "Transporte",
   PROMOTER: "Promotor",
   GENERAL_PROMOTER: "Promotor general",
 }

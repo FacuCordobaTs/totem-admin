@@ -94,6 +94,7 @@ const router = createBrowserRouter([
       { path: "pos/venta", element: <PosPage /> },
       { path: "pos/escaner", element: <PosPage /> },
       { path: "scanner", element: <ScannerPage /> },
+      { path: "scanner-transporte", element: <ScannerPage operation="transport" /> },
       { path: "promotor", element: <PromoterPage /> },
       // Legacy redirects
       { path: "events", element: <Navigate to="/eventos" replace /> },

@@ -7,6 +7,7 @@ export type StaffRole =
   | "MANAGER"
   | "BARTENDER"
   | "SECURITY"
+  | "TRANSPORTER"
   | "PROMOTER"
   | "GENERAL_PROMOTER"
 

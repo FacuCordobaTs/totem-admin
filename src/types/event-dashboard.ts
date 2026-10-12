@@ -104,7 +104,7 @@ export type StaffTeamMember = {
   tenantId: string | null
   name: string
   email: string
-  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "PROMOTER" | "GENERAL_PROMOTER"
+  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER"
   isActive: boolean
   createdAt: Date | string | null
 }
@@ -157,7 +157,7 @@ export type EventAssignmentStaffRow = {
   id: string
   name: string
   email: string
-  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "PROMOTER" | "GENERAL_PROMOTER"
+  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER"
   isAssigned: boolean
   barId: string | null
   /** Perfil comercial para construir su link público en este evento. */

@@ -33,7 +33,7 @@ export function SettingsPage() {
   const role = staff?.role
   const isAdmin = role === "ADMIN"
   const restrictedSettings =
-    role === "BARTENDER" || role === "SECURITY" || role === "GENERAL_PROMOTER"
+    role === "BARTENDER" || role === "SECURITY" || role === "TRANSPORTER" || role === "GENERAL_PROMOTER"
   const hasTenant = tenantId != null && tenantId !== ""
 
   useEffect(() => {

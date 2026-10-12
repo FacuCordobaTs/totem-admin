@@ -17,15 +17,16 @@ function redirectForRestrictedRole(
     }
     return "/pos"
   }
-  if (role === "SECURITY") {
+  if (role === "SECURITY" || role === "TRANSPORTER") {
+    const scanner = role === "TRANSPORTER" ? "/scanner-transporte" : "/scanner"
     if (
-      pathname === "/scanner" ||
+      pathname === scanner ||
       pathname === "/configuracion" ||
       pathname.startsWith("/configuracion/")
     ) {
       return null
     }
-    return "/scanner"
+    return scanner
   }
   if (role === "PROMOTER") {
     return pathname === "/promotor" ? null : "/promotor"
@@ -51,17 +52,14 @@ export function RoleAccessGate() {
   const token = useAuthStore((s) => s.token)
   const staff = useAuthStore((s) => s.staff)
   const fetchSession = useAuthStore((s) => s.fetchSession)
-  const [sessionReady, setSessionReady] = useState(false)
+  const [readyToken, setReadyToken] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!token) {
-      setSessionReady(true)
-      return
-    }
-    void fetchSession().finally(() => setSessionReady(true))
+    if (!token) return
+    void fetchSession().finally(() => setReadyToken(token))
   }, [token, fetchSession])
 
-  if (!sessionReady) {
+  if (token && readyToken !== token) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-pulse rounded-full bg-muted" aria-hidden />

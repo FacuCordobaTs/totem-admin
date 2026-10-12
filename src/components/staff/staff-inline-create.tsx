@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY"]
+const ROLES: StaffRole[] = ["ADMIN", "MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "TRANSPORTER"]
 
 /**
  * Promotores y promotores generales entran por link de invitación, igual que el resto del equipo

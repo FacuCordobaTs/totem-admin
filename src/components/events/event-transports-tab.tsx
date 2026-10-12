@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react"
 import Decimal from "decimal.js"
+import { Link } from "react-router"
 import {
   Bus,
   Plus,
@@ -213,6 +214,7 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
           persona.
         </p>
         <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline"><Link to="/scanner-transporte">Escáner de transporte</Link></Button>
           <Button
             variant="ghost"
             disabled={loading}
@@ -349,7 +351,7 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
             <table className="w-full text-left text-sm">
               <thead className="text-white/45">
                 <tr>
-                  {["Transporte", "Comprador", "DNI", "Celular", "Pasajes"].map(
+                  {["Transporte", "Titular", "DNI", "Celular", "Pasajes"].map(
                     (label) => (
                       <th key={label} className="p-3">
                         {label}
@@ -387,8 +389,8 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
             <DialogTitle>Lista para el chofer</DialogTitle>
             <DialogDescription>
               {driverTransport?.name}. Quien tenga este link puede ver los
-              pasajeros de esta salida. Las marcas de subida se guardan en el
-              navegador de cada chofer.
+              pasajeros de esta salida y consultar quiénes subieron. Para registrar
+              subidas, asigná el rol Transportista desde Equipo y usá el escáner.
             </DialogDescription>
           </DialogHeader>
           {driverBusy ? (
@@ -434,7 +436,7 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-white/60">
-                Esta salida no tiene un link activo.
+                Generá un link para abrir y compartir la lista de esta salida.
               </p>
               <Button
                 onClick={() =>

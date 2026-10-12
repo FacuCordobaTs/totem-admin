@@ -187,10 +187,12 @@ function ageFromBirthDate(iso: string): number {
   return age
 }
 
-export function ScannerPage() {
+export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "transport" }) {
+  const isTransport = operation === "transport"
+  const [selectedTransportId, setSelectedTransportId] = useState("")
   const token = useAuthStore((s) => s.token)
 
-  const [events, setEvents] = useState<ApiEvent[]>([])
+  const [events, setEvents] = useState<(ApiEvent & { transports?: { id: string; name: string; address: string }[] })[]>([])
   const [eventsLoading, setEventsLoading] = useState(true)
   const [eventsError, setEventsError] = useState<string | null>(null)
   const [selectedEventId, setSelectedEventId] = useState<string>("")
@@ -224,13 +226,14 @@ export function ScannerPage() {
   const manualDniInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null
+  useEffect(() => { setSelectedTransportId(selectedEvent?.transports?.length === 1 ? selectedEvent.transports[0].id : "") }, [selectedEvent])
 
   const loadEvents = useCallback(async () => {
     if (!token) return
     setEventsError(null)
     setEventsLoading(true)
     try {
-      const data = await apiFetch<{ events: ApiEvent[] }>("/events", {
+      const data = await apiFetch<{ events: (ApiEvent & { transports?: { id: string; name: string; address: string }[] })[] }>(isTransport ? "/transport-tickets/events" : "/events", {
         method: "GET",
         token,
       })
@@ -248,14 +251,14 @@ export function ScannerPage() {
     } finally {
       setEventsLoading(false)
     }
-  }, [token])
+  }, [token, isTransport])
 
   useEffect(() => {
     void loadEvents()
   }, [loadEvents])
 
   const loadScannedTickets = useCallback(async () => {
-    if (!token || !selectedEventId) {
+    if (!token || !selectedEventId || (isTransport && !selectedTransportId)) {
       setScannedTickets([])
       return
     }
@@ -264,7 +267,7 @@ export function ScannerPage() {
     setScannedTicketsLoading(true)
     try {
       const data = await apiFetch<ScannedTicketsResponse>(
-        `/events/${selectedEventId}/tickets?status=USED&orderBy=scannedAt&order=desc`,
+        isTransport ? `/transport-tickets/boarded?eventId=${selectedEventId}&transportId=${selectedTransportId}` : `/events/${selectedEventId}/tickets?status=USED&orderBy=scannedAt&order=desc`,
         { method: "GET", token }
       )
       setScannedTickets(data.tickets)
@@ -278,7 +281,7 @@ export function ScannerPage() {
     } finally {
       setScannedTicketsLoading(false)
     }
-  }, [selectedEventId, token])
+  }, [selectedEventId, token, isTransport, selectedTransportId])
 
   useEffect(() => {
     setScannedTicketsPage(1)
@@ -292,7 +295,7 @@ export function ScannerPage() {
 
   const handleScan = useCallback(
     async (raw: string) => {
-      if (!token || !selectedEventId || overlay || inFlightRef.current) return
+      if (!token || !selectedEventId || (isTransport && !selectedTransportId) || overlay || inFlightRef.current) return
 
       const qrHash = parseQrHash(raw)
       if (!qrHash) return
@@ -300,10 +303,10 @@ export function ScannerPage() {
       inFlightRef.current = true
 
       try {
-        const res = await apiFetch<ValidateResponse>("/tickets/validate", {
+        const res = await apiFetch<ValidateResponse>(isTransport ? "/transport-tickets/validate" : "/tickets/validate", {
           method: "POST",
           token,
-          body: JSON.stringify({ qrHash, eventId: selectedEventId }),
+          body: JSON.stringify({ qrHash, eventId: selectedEventId, ...(isTransport ? { transportId: selectedTransportId } : {}) }),
         })
 
         playScannerSound("success")
@@ -337,22 +340,22 @@ export function ScannerPage() {
         inFlightRef.current = false
       }
     },
-    [token, selectedEventId, overlay, loadScannedTickets]
+    [token, selectedEventId, overlay, loadScannedTickets, isTransport, selectedTransportId]
   )
 
   /** Tarea 1.4 — Valida la entrada por DNI: mismo endpoint de lógica que el QR, resuelto por
    * `tickets.buyer_dni`. La blacklist ya la chequea el backend (403 con motivo/foto). */
   const validateDni = useCallback(
     async (dni: string, closeManualKeyboard = false) => {
-      if (!token || !selectedEventId) return
+      if (!token || !selectedEventId || (isTransport && !selectedTransportId)) return
       inFlightRef.current = true
       try {
         const res = await apiFetch<ValidateByDniResponse>(
-          "/tickets/validate-by-dni",
+          isTransport ? "/transport-tickets/validate-by-dni" : "/tickets/validate-by-dni",
           {
             method: "POST",
             token,
-            body: JSON.stringify({ eventId: selectedEventId, dni }),
+            body: JSON.stringify({ eventId: selectedEventId, dni, ...(isTransport ? { transportId: selectedTransportId } : {}) }),
           }
         )
 
@@ -387,7 +390,7 @@ export function ScannerPage() {
         inFlightRef.current = false
       }
     },
-    [token, selectedEventId, loadScannedTickets]
+    [token, selectedEventId, loadScannedTickets, isTransport, selectedTransportId]
   )
 
   /** Tarea 3.1 — Un código de barras de DNI escaneado: parsea el documento, chequea +18
@@ -408,7 +411,7 @@ export function ScannerPage() {
         return
       }
 
-      const restriction = selectedEvent?.ageRestriction ?? null
+      const restriction = isTransport ? null : selectedEvent?.ageRestriction ?? null
       if (restriction != null && restriction > 0) {
         if (!parsed.birthDate) {
           // Libreta verde: no trae fecha de nacimiento → paso mínimo del guardia (3.1).
@@ -429,12 +432,13 @@ export function ScannerPage() {
 
       void validateDni(parsed.dni)
     },
-    [token, selectedEventId, overlay, dniDatePrompt, validateDni, selectedEvent]
+    [token, selectedEventId, overlay, dniDatePrompt, validateDni, selectedEvent, isTransport]
   )
 
   const scannerPaused =
     !cameraOn ||
     !selectedEventId ||
+    (isTransport && !selectedTransportId) ||
     overlay !== null ||
     dniDatePrompt !== null ||
     !token
@@ -451,7 +455,7 @@ export function ScannerPage() {
   )
 
   const scanner = useZxingScanner({
-    active: !!selectedEventId && cameraOn && !!token,
+    active: !!selectedEventId && (!isTransport || !!selectedTransportId) && cameraOn && !!token,
     paused: scannerPaused,
     facingMode,
     profile: mode === "qr" ? "qr" : "dni",
@@ -490,7 +494,7 @@ export function ScannerPage() {
     }
     setManualDni("")
     setManualDniError(null)
-    const restriction = selectedEvent?.ageRestriction ?? null
+    const restriction = isTransport ? null : selectedEvent?.ageRestriction ?? null
     if (restriction != null && restriction > 0) {
       manualDniInputRef.current?.blur()
       setDniDatePrompt({ dni, closeManualKeyboard: true })
@@ -502,7 +506,7 @@ export function ScannerPage() {
   const confirmPromptBirthDate = () => {
     if (!dniDatePrompt || !promptBirthDate) return
     const dni = dniDatePrompt.dni
-    const restriction = selectedEvent?.ageRestriction ?? null
+    const restriction = isTransport ? null : selectedEvent?.ageRestriction ?? null
     setDniDatePrompt(null)
     setPromptBirthDate("")
     if (restriction != null && restriction > 0) {
@@ -541,7 +545,7 @@ export function ScannerPage() {
         <BrandLockup className="mb-8" />
         <h1 className="text-2xl font-bold tracking-tight">Elegí un evento</h1>
         <p className="mt-2 text-[15px] text-[#98989D]">
-          Seleccioná el evento en el que vas a controlar los accesos.
+          {isTransport ? "Seleccioná el evento para controlar la subida al colectivo." : "Seleccioná el evento en el que vas a controlar los accesos."}
         </p>
 
         <div className="mt-8 space-y-3">
@@ -637,7 +641,13 @@ export function ScannerPage() {
         />
       </div>
 
-      {/* Tarea 3.1 — Alternar QR de entrada / DNI físico. */}
+      {isTransport && <label className="mx-auto mt-4 block w-full max-w-lg px-4 text-sm text-neutral-300">Transporte
+        <select aria-label="Transporte" className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-white" value={selectedTransportId} onChange={(e) => { setSelectedTransportId(e.target.value); setOverlay(null) }}>
+          <option value="">Elegí la salida</option>
+          {selectedEvent?.transports?.map((transport) => <option key={transport.id} value={transport.id}>{transport.name} · {transport.address}</option>)}
+        </select>
+      </label>}
+      {/* Alternar QR / DNI físico. */}
       <div className="mx-auto mt-4 flex w-full max-w-lg gap-2 rounded-2xl border border-zinc-800 bg-[#1C1C1E] p-2">
         <button
           type="button"
@@ -786,7 +796,7 @@ export function ScannerPage() {
 
         <p className="mx-auto mt-8 max-w-lg text-center text-[13px] leading-relaxed text-[#636366]">
           {mode === "qr"
-            ? "Apuntá al código de la entrada."
+            ? (isTransport ? "Apuntá al QR del pasaje de colectivo." : "Apuntá al código de la entrada.")
             : "Apuntá al QR o código de barras de la parte de atrás del DNI."}
         </p>
 
@@ -798,7 +808,7 @@ export function ScannerPage() {
             <div className="flex items-center gap-2">
               <History className="h-5 w-5 text-[#FF9500]" />
               <h2 id="scanned-tickets-title" className="text-base font-bold text-white">
-                Entradas escaneadas
+                {isTransport ? "Pasajeros que subieron" : "Entradas escaneadas"}
               </h2>
             </div>
             <Button
@@ -814,12 +824,12 @@ export function ScannerPage() {
           </div>
 
           {scannedTicketsLoading ? (
-            <p className="py-5 text-sm text-[#98989D]">Cargando entradas escaneadas…</p>
+            <p className="py-5 text-sm text-[#98989D]">{isTransport ? "Cargando subidas…" : "Cargando entradas escaneadas…"}</p>
           ) : scannedTicketsError ? (
             <p className="py-5 text-sm text-red-400">{scannedTicketsError}</p>
           ) : scannedTicketsPageItems.length === 0 ? (
             <p className="py-5 text-sm text-[#98989D]">
-              Todavía no se escaneó ninguna entrada.
+              {isTransport ? "Todavía no subió ningún pasajero." : "Todavía no se escaneó ninguna entrada."}
             </p>
           ) : (
             <>
@@ -905,7 +915,7 @@ export function ScannerPage() {
           </span>
           {overlay.admissionWindow && <p className="mt-3 max-w-sm text-center text-sm opacity-80">{overlay.admissionWindow}</p>}
           <p className="mt-7 text-4xl font-black tracking-tight sm:text-5xl">
-            {overlay.reentry ? "¡Reingreso!" : "¡Ticket válido!"}
+            {isTransport ? "¡Pasaje válido!" : overlay.reentry ? "¡Reingreso!" : "¡Ticket válido!"}
           </p>
           {/* Tarea 3.2 — Nombre grande: se lee desde la fila (visión §2.4). */}
           <p className="mt-4 w-full max-w-3xl break-words text-5xl font-black leading-tight sm:text-7xl">
@@ -916,7 +926,7 @@ export function ScannerPage() {
               ? overlay.gatePassCount
                 ? `Ya entró — reingreso (pase #${overlay.gatePassCount})`
                 : "Ya entró — reingreso"
-              : "Ingreso autorizado"}
+              : isTransport ? "Subida registrada" : "Ingreso autorizado"}
           </p>
           <Button
             type="button"

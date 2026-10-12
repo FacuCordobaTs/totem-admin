@@ -5,6 +5,7 @@ const labels: Record<StaffRole, string> = {
   MANAGER: "Gerente",
   BARTENDER: "Barra",
   SECURITY: "Seguridad",
+  TRANSPORTER: "Transportista",
   PROMOTER: "Promotor",
   GENERAL_PROMOTER: "Promotor general",
 }

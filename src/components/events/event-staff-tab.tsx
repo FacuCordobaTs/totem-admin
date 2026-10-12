@@ -34,10 +34,10 @@ type Invitation = {
 
 type InvitationsResponse = { invitations: Invitation[] }
 
-const INVITE_ROLES: StaffRole[] = ["PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "MANAGER"]
+const INVITE_ROLES: StaffRole[] = ["PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "TRANSPORTER", "MANAGER"]
 // `ROLE_ORDER` gobierna los grupos que ve el admin: un rol ausente acá no se dibuja nunca, así
 // que todo rol nuevo que se pueda invitar desde la pestaña tiene que entrar también en esta lista.
-const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "ADMIN"]
+const ROLE_ORDER: StaffRole[] = ["MANAGER", "PROMOTER", "GENERAL_PROMOTER", "BARTENDER", "SECURITY", "TRANSPORTER", "ADMIN"]
 
 type Props = {
   eventId: string
@@ -65,7 +65,7 @@ export function EventStaffTab({
   const isGeneralPromoter = role === "GENERAL_PROMOTER"
   const canManage = role === "ADMIN" || role === "MANAGER" || isGeneralPromoter
   const canInvite = role === "ADMIN" || isGeneralPromoter
-  const promotersView = promotersOnly || isGeneralPromoter
+  const promotersView = isGeneralPromoter
   const [rows, setRows] = useState<EventAssignmentStaffRow[]>([])
   const [bars, setBars] = useState<EventBarRow[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
@@ -87,7 +87,7 @@ export function EventStaffTab({
         canInvite
           ? apiFetch<InvitationsResponse>("/staff/invitations", { method: "GET", token })
           : Promise.resolve(null),
-        promotersView
+        (promotersView || promotersOnly)
           ? Promise.resolve(null)
           : apiFetch<EventBarsResponse>(`/events/${eventId}/bars`, { method: "GET", token }),
       ])
@@ -99,7 +99,7 @@ export function EventStaffTab({
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [canInvite, eventId, promotersView, token])
+  }, [canInvite, eventId, promotersOnly, promotersView, token])
 
   useEffect(() => { void load(true) }, [load])
 
@@ -126,7 +126,7 @@ export function EventStaffTab({
   /** Primero por tipo de puesto, y adentro por asignación al evento. */
   const roleGroups = useMemo(
     () =>
-      ROLE_ORDER.map((staffRole) => {
+      ROLE_ORDER.filter((role) => !promotersOnly || role !== "BARTENDER").map((staffRole) => {
         const members = rows.filter((member) => member.role === staffRole)
         return {
           role: staffRole,
@@ -134,7 +134,7 @@ export function EventStaffTab({
           unassigned: members.filter((member) => !member.isAssigned),
         }
       }).filter((group) => group.assigned.length > 0 || group.unassigned.length > 0),
-    [rows]
+    [rows, promotersOnly]
   )
 
   async function setAssignment(member: EventAssignmentStaffRow, isAssigned: boolean, barId?: string | null) {
@@ -536,15 +536,15 @@ export function EventStaffTab({
         </div>
       )}
 
-      {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reloadTeam} accessHint={inviteAccessHint} initialInvitation={invitationToShow} /> : null}
+      {canInvite ? <InviteEmployeeDialog eventId={eventId} open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reloadTeam} accessHint={inviteAccessHint} initialInvitation={invitationToShow} ticketsOnly={promotersOnly} /> : null}
     </div>
   )
 }
 
-function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHint, initialInvitation, promoterOnly = false }: { eventId: string; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void; accessHint?: string; initialInvitation: Invitation | null; promoterOnly?: boolean }) {
+function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHint, initialInvitation, promoterOnly = false, ticketsOnly = false }: { eventId: string; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void; accessHint?: string; initialInvitation: Invitation | null; promoterOnly?: boolean; ticketsOnly?: boolean }) {
   const token = useAuthStore((s) => s.token)
   const [name, setName] = useState("")
-  const [role, setRole] = useState<StaffRole>(promoterOnly ? "PROMOTER" : "BARTENDER")
+  const [role, setRole] = useState<StaffRole>(promoterOnly ? "PROMOTER" : ticketsOnly ? "TRANSPORTER" : "BARTENDER")
   const [invitation, setInvitation] = useState<Invitation | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -561,7 +561,7 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
       setInvitation(null)
       setError(null)
       setName("")
-      setRole(promoterOnly ? "PROMOTER" : "BARTENDER")
+      setRole(promoterOnly ? "PROMOTER" : ticketsOnly ? "TRANSPORTER" : "BARTENDER")
     }
     onOpenChange(nextOpen)
   }
@@ -616,7 +616,7 @@ function InviteEmployeeDialog({ eventId, open, onOpenChange, onCreated, accessHi
               <Field label="Rol">
                 <Select value={role} onValueChange={(value) => setRole(value as StaffRole)}>
                   <SelectTrigger className="border-white/[0.1] bg-white/[0.04]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{INVITE_ROLES.map((item) => <SelectItem key={item} value={item}>{staffRoleLabel(item)}</SelectItem>)}</SelectContent>
+                  <SelectContent>{INVITE_ROLES.filter((item) => !ticketsOnly || item !== "BARTENDER").map((item) => <SelectItem key={item} value={item}>{staffRoleLabel(item)}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
             ) : null}
