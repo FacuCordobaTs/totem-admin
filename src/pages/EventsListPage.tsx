@@ -26,12 +26,13 @@ import {
   ProductoraSetupCard,
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
+import { LocationPicker } from "@/components/events/location-picker"
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { eventStatusLabel } from "@/lib/event-status"
 import { EVENT_OPERATION_MODE_OPTIONS } from "@/lib/event-operation-mode"
 import { isValidSlug, slugify } from "@/lib/event-slug"
 import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { ArrowLeft, Boxes, Check, ChevronRight, Loader2, MapPin, Plus, Ticket, Trash2, Wine } from "lucide-react"
+import { ArrowLeft, Boxes, Check, ChevronRight, Loader2, Plus, Ticket, Trash2, Wine } from "lucide-react"
 import type { ApiEvent, EventOperationMode } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
@@ -595,105 +596,6 @@ function useCreateEvent(
     setError,
     submit,
   }
-}
-
-type PlaceSuggestion = { place_id: number; display_name: string }
-
-/** Búsqueda de direcciones sin clave; la dirección elegida es la que se guarda para el mapa. */
-function LocationPicker({
-  id,
-  value,
-  onChange,
-  className,
-}: {
-  id: string
-  value: string
-  onChange: (value: string) => void
-  className: string
-}) {
-  const [query, setQuery] = useState(value)
-  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([])
-  const [searching, setSearching] = useState(false)
-
-  useEffect(() => {
-    if (query.trim().length < 3 || query === value) {
-      setSuggestions([])
-      setSearching(false)
-      return
-    }
-    const controller = new AbortController()
-    const timeout = window.setTimeout(async () => {
-      setSearching(true)
-      try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&q=${encodeURIComponent(query)}`,
-          { signal: controller.signal },
-        )
-        if (!response.ok) throw new Error("No se pudieron buscar ubicaciones")
-        setSuggestions((await response.json()) as PlaceSuggestion[])
-      } catch (error) {
-        if ((error as DOMException).name !== "AbortError") setSuggestions([])
-      } finally {
-        if (!controller.signal.aborted) setSearching(false)
-      }
-    }, 350)
-    return () => {
-      window.clearTimeout(timeout)
-      controller.abort()
-    }
-  }, [query, value])
-
-  const select = (place: PlaceSuggestion) => {
-    setQuery(place.display_name)
-    onChange(place.display_name)
-    setSuggestions([])
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Input
-          id={id}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            onChange("")
-          }}
-          className={className}
-          placeholder="Buscá una dirección o lugar"
-          autoComplete="off"
-        />
-        {searching ? <Loader2 className="absolute right-3 top-3 size-5 animate-spin text-white/45" /> : null}
-        {suggestions.length > 0 ? (
-          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
-            {suggestions.map((place) => (
-              <button
-                key={place.place_id}
-                type="button"
-                onClick={() => select(place)}
-                className="flex w-full items-start gap-2 px-3 py-3 text-left text-sm text-white/80 transition-colors hover:bg-white/10"
-              >
-                <MapPin className="mt-0.5 size-4 shrink-0 text-[#FF9500]" />
-                <span>{place.display_name}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-      {value ? (
-        <div className="overflow-hidden rounded-xl border border-zinc-800">
-          <iframe
-            src={`https://maps.google.com/maps?q=${encodeURIComponent(value)}&z=16&output=embed`}
-            title={`Mapa de ${value}`}
-            loading="lazy"
-            className="h-40 w-full"
-          />
-        </div>
-      ) : (
-        <p className="text-xs text-white/40">Elegí una recomendación para confirmar la ubicación y ver el mapa.</p>
-      )}
-    </div>
-  )
 }
 
 function CreateFields({

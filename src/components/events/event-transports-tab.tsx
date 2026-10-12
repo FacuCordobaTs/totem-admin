@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog"
-import { TransportLocationPicker } from "./transport-location-picker"
+import { LocationPicker } from "./location-picker"
 
 type Transport = {
   id: string
@@ -278,49 +278,22 @@ export function EventTransportsTab({ eventId }: { eventId: string }) {
                 onChange={(e) => setPrice(e.target.value)}
               />
             </label>
-            <label className="block space-y-2 text-sm">
-              Dirección del punto de salida
-              <input
+            <div className="space-y-2">
+              <label htmlFor="transport-location" className="text-sm">
+                Dirección del punto de salida
+              </label>
+              <LocationPicker
+                id="transport-location"
                 className={field}
-                required
-                maxLength={500}
-                placeholder="Av. 7 de Marzo 1800, Santo Tomé"
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={(value) => {
+                  setAddress(value)
+                  setPoint(null)
+                }}
+                onSelect={setPoint}
+                coordinates={point}
               />
-            </label>
-            <p className="text-sm text-white/60">
-              Mové el mapa y tocá el lugar exacto donde se toma el transporte.
-            </p>
-            <TransportLocationPicker value={point} onChange={setPoint} />
-            <div className="grid grid-cols-2 gap-3">
-              {(["latitude", "longitude"] as const).map((key) => (
-                <label key={key} className="space-y-1 text-xs text-white/60">
-                  {key === "latitude" ? "Latitud" : "Longitud"}
-                  <input
-                    className={field}
-                    type="number"
-                    step="any"
-                    min={key === "latitude" ? -90 : -180}
-                    max={key === "latitude" ? 90 : 180}
-                    value={point?.[key] ?? ""}
-                    onChange={(e) => {
-                      if (e.target.value !== "")
-                        setPoint({
-                          latitude: point?.latitude ?? -31.663,
-                          longitude: point?.longitude ?? -60.765,
-                          [key]: Number(e.target.value)
-                        })
-                    }}
-                  />
-                </label>
-              ))}
             </div>
-            <p className="text-xs text-white/50">
-              {point
-                ? "Punto de salida seleccionado"
-                : "Seleccioná un punto en el mapa para guardar"}
-            </p>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
