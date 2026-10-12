@@ -51,11 +51,18 @@ export function LocationPicker({
         const places = (await response.json()) as PlaceSuggestion[]
         if (controller.signal.aborted) return
         setSuggestions(places)
-        if (places.length === 0) setError("No encontramos ese lugar. Probá con la dirección y la ciudad.")
+        if (places.length === 0)
+          setError(
+            "No encontramos ese lugar. Probá con la dirección y la ciudad."
+          )
       } catch (error) {
         if (!controller.signal.aborted) {
           setSuggestions([])
-          setError(error instanceof Error ? error.message : "No se pudieron buscar ubicaciones")
+          setError(
+            error instanceof Error
+              ? error.message
+              : "No se pudieron buscar ubicaciones"
+          )
         }
       } finally {
         if (!controller.signal.aborted) setSearching(false)
@@ -70,8 +77,18 @@ export function LocationPicker({
   const select = (place: PlaceSuggestion) => {
     const latitude = Number(place.lat)
     const longitude = Number(place.lon)
-    if (onSelect && (!place.lat || !place.lon || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180)) {
-      setError("No pudimos obtener la ubicación de ese lugar. Elegí otra recomendación.")
+    if (
+      onSelect &&
+      (!place.lat ||
+        !place.lon ||
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        Math.abs(latitude) > 90 ||
+        Math.abs(longitude) > 180)
+    ) {
+      setError(
+        "No pudimos obtener la ubicación de ese lugar. Elegí otra recomendación."
+      )
       return
     }
     setQuery(place.display_name)
@@ -80,7 +97,9 @@ export function LocationPicker({
     setSuggestions([])
     setError(null)
   }
-  const mapLocation = coordinates ? `${coordinates.latitude},${coordinates.longitude}` : value
+  const mapLocation = coordinates
+    ? `${coordinates.latitude},${coordinates.longitude}`
+    : value
 
   return (
     <div className="space-y-3">
@@ -98,7 +117,9 @@ export function LocationPicker({
           placeholder="Buscá una dirección o lugar"
           autoComplete="off"
         />
-        {searching ? <Loader2 className="absolute right-3 top-3 size-5 animate-spin text-white/45" /> : null}
+        {searching ? (
+          <Loader2 className="absolute right-3 top-3 size-5 animate-spin text-white/45" />
+        ) : null}
         {suggestions.length > 0 ? (
           <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
             {suggestions.map((place) => (
@@ -115,7 +136,11 @@ export function LocationPicker({
           </div>
         ) : null}
       </div>
-      {error ? <p role="status" className="text-xs text-amber-300">{error}</p> : null}
+      {error ? (
+        <p role="status" className="text-xs text-amber-300">
+          {error}
+        </p>
+      ) : null}
       {value ? (
         <div className="overflow-hidden rounded-xl border border-zinc-800">
           <iframe
@@ -126,7 +151,9 @@ export function LocationPicker({
           />
         </div>
       ) : (
-        <p className="text-xs text-white/40">Elegí una recomendación para confirmar la ubicación y ver el mapa.</p>
+        <p className="text-xs text-white/40">
+          Elegí una recomendación para confirmar la ubicación y ver el mapa.
+        </p>
       )}
     </div>
   )
