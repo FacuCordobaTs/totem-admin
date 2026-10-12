@@ -41,6 +41,8 @@ function splitDateTimeLocal(v: string): [string, string] {
 
 type Fields = {
   description: string
+  venue: string
+  location: string
   ticketsLocal: string
   consumptionsLocal: string
   slug: string
@@ -123,6 +125,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
+  const [venue, setVenue] = useState("")
+  const [location, setLocation] = useState("")
   const [description, setDescription] = useState("")
   const [slug, setSlug] = useState("")
   const [designType, setDesignType] = useState<"GLASS" | "MINIMAL">("MINIMAL")
@@ -147,14 +151,18 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
     const design = event.designType ?? "MINIMAL"
     setTicketsLocal(tickets)
     setConsumptionsLocal(consumptions)
+    setVenue(event.venue ?? "")
+    setLocation(event.location ?? "")
     setDescription(desc)
     setSlug(s)
     setDesignType(design)
     setError(null)
-    lastSavedRef.current = JSON.stringify([desc, tickets, consumptions, s, design])
+    lastSavedRef.current = JSON.stringify([desc, tickets, consumptions, s, design, event.venue ?? "", event.location ?? ""])
   }, [
     event.id,
     event.description,
+    event.venue,
+    event.location,
     event.ticketsAvailableFrom,
     event.consumptionsAvailableFrom,
     event.slug,
@@ -180,6 +188,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const persist = useCallback(
     async (override?: Partial<Fields>) => {
       if (!token) return
+      const venueValue = (override?.venue ?? venue).trim()
+      const locationValue = (override?.location ?? location).trim()
       const desc = (override?.description ?? description).trim()
       const tickets = override?.ticketsLocal ?? ticketsLocal
       const consumptions = override?.consumptionsLocal ?? consumptionsLocal
@@ -189,7 +199,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
       const trimmed = rawSlug.trim()
       if (trimmed !== "" && !isValidSlug(trimmed)) return // el error ya se muestra
 
-      const signature = JSON.stringify([desc, tickets, consumptions, trimmed, design])
+      const signature = JSON.stringify([desc, tickets, consumptions, trimmed, design, venueValue, locationValue])
       if (signature === lastSavedRef.current) return // sin cambios reales
 
       const ticketsPayload = tickets.trim() === "" ? null : fromDatetimeLocalToIso(tickets)
@@ -212,6 +222,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
           method: "PATCH",
           token,
           body: JSON.stringify({
+            venue: venueValue || null,
+            location: locationValue || null,
             description: desc === "" ? null : desc,
             ticketsAvailableFrom: ticketsPayload,
             ...(supportsConsumptions
@@ -234,7 +246,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setSaving(false)
       }
     },
-    [token, description, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
+    [token, venue, location, description, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
   )
 
   return (
@@ -322,6 +334,48 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
 
       {!onlySlug ? (
         <>
+          <div className="mt-8 grid gap-6">
+            <div className="space-y-2">
+              <label htmlFor={`event-venue-${event.id}`} className="block text-md font-medium text-[#98989D]">
+                Dirección textual (opcional)
+              </label>
+              <input
+                id={`event-venue-${event.id}`}
+                value={venue}
+                maxLength={255}
+                placeholder="Ej. Salón del Puerto"
+                onChange={(e) => setVenue(e.target.value)}
+                onBlur={() => void persist()}
+                className="w-full rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] focus:ring-white/25"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor={`event-location-${event.id}`} className="block text-md font-medium text-[#98989D]">
+                Ubicación para el mapa (opcional)
+              </label>
+              <input
+                id={`event-location-${event.id}`}
+                value={location}
+                maxLength={255}
+                placeholder="Dirección y ciudad, o coordenadas"
+                onChange={(e) => setLocation(e.target.value)}
+                onBlur={() => void persist()}
+                className="w-full rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] focus:ring-white/25"
+              />
+              <p className="text-[12px] text-[#98989D]">
+                Podés indicar la ubicación sin completar la dirección textual.
+              </p>
+              {location.trim() ? (
+                <iframe
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(location.trim())}&z=16&output=embed`}
+                  title="Vista previa de la ubicación del evento"
+                  loading="lazy"
+                  className="h-40 w-full rounded-xl border border-white/[0.06]"
+                />
+              ) : null}
+            </div>
+          </div>
+
           {/* Descripcion publica: texto libre de la pagina de venta. Persiste al perder el foco,
               sin "Guardar" global, igual que el resto de la seccion. */}
           <div className="mt-8 space-y-2">
