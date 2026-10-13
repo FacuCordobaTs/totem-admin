@@ -23,6 +23,7 @@ import { EventSalesList } from "@/components/events/event-sales-list"
 import { EventSummaryDashboard } from "@/components/events/event-summary-dashboard"
 import { EventLivePanel } from "@/components/events/event-live-panel"
 import { EventClosingCeremony } from "@/components/events/event-closing-ceremony"
+import { EventCashPeriod } from "@/components/events/event-cash-period"
 import { EventClosedReport } from "@/components/events/event-closed-report"
 import { EventFlyerMailPreview } from "@/components/events/event-flyer-mail-preview"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
@@ -116,6 +117,7 @@ type Readiness = { canOpenSale: boolean; missing: string[] }
 export function EventDashboardPage() {
   const { id } = useParams<{ id: string }>()
   const token = useAuthStore((s) => s.token)
+  const role = useAuthStore((s) => s.staff?.role)
 
   const [event, setEvent] = useState<ApiEvent | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -132,6 +134,7 @@ export function EventDashboardPage() {
   const [intervening, setIntervening] = useState(false)
   // Vista previa del recorrido de cierre: reemplaza el panel sin guardar ni cambiar el estado.
   const [closing, setClosing] = useState(false)
+  const [cashPeriodOpen, setCashPeriodOpen] = useState(false)
   // Cerrado (spec §5 / 4.5): el reporte compartible por link. Copiado con confirmación efímera.
   const [reportCopied, setReportCopied] = useState(false)
 
@@ -535,7 +538,13 @@ export function EventDashboardPage() {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
-            {status !== "closed" && !closing && (
+            {(role === "ADMIN" || role === "MANAGER") && !cashPeriodOpen && !closing && (
+              <Button type="button" variant="outline" onClick={() => setCashPeriodOpen(true)}
+                className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]">
+                Caja por fechas
+              </Button>
+            )}
+            {status !== "closed" && !closing && !cashPeriodOpen && (
               <Button
                 type="button"
                 variant="outline"
@@ -546,7 +555,7 @@ export function EventDashboardPage() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             )}
-            {status !== "draft" && (
+            {status !== "draft" && !cashPeriodOpen && (
               <PrimaryStateAction
                 status={status}
                 readiness={readiness}
@@ -580,7 +589,9 @@ export function EventDashboardPage() {
         </header>
 
         {/* Cierre: la ceremonia por pasos toma toda la pantalla mientras dura (spec §5 / 4.4). */}
-        {closing ? (
+        {cashPeriodOpen ? (
+          <EventCashPeriod key={id} eventId={id} eventName={event.name} onBack={() => setCashPeriodOpen(false)} />
+        ) : closing ? (
           <EventClosingCeremony
             eventId={id}
             eventName={event.name}
