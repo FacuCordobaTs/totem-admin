@@ -34,6 +34,8 @@ export type ApiTicketType = {
   name: string
   price: string
   stockLimit: number | null
+  promoBuy?: number | null
+  promoPay?: number | null
   sold: number
   remaining: number | null
   courtesies?: number
@@ -288,6 +290,8 @@ function TypeRow({
   const [name, setName] = useState(type.name)
   const [price, setPrice] = useState(String(Number.parseFloat(type.price)))
   const [stock, setStock] = useState(type.stockLimit != null ? String(type.stockLimit) : "")
+  const [promoBuy, setPromoBuy] = useState(type.promoBuy != null ? String(type.promoBuy) : "")
+  const [promoPay, setPromoPay] = useState(type.promoPay != null ? String(type.promoPay) : "")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -298,12 +302,16 @@ function TypeRow({
     setName(type.name)
     setPrice(String(Number.parseFloat(type.price)))
     setStock(type.stockLimit != null ? String(type.stockLimit) : "")
+    setPromoBuy(type.promoBuy != null ? String(type.promoBuy) : "")
+    setPromoPay(type.promoPay != null ? String(type.promoPay) : "")
     lastSaved.current = JSON.stringify({
       name: type.name,
       price: String(Number.parseFloat(type.price)),
       stock: type.stockLimit != null ? String(type.stockLimit) : "",
+      promoBuy: type.promoBuy != null ? String(type.promoBuy) : "",
+      promoPay: type.promoPay != null ? String(type.promoPay) : "",
     })
-  }, [type.id, type.name, type.price, type.stockLimit])
+  }, [type.id, type.name, type.price, type.stockLimit, type.promoBuy, type.promoPay])
 
   useEffect(() => () => {
     if (savedTimer.current) clearTimeout(savedTimer.current)
@@ -325,7 +333,17 @@ function TypeRow({
       setError("El cupo debe ser un entero positivo o vacío")
       return
     }
-    const sig = JSON.stringify({ name: name.trim(), price, stock })
+    const buyN = promoBuy.trim() === "" ? null : Number(promoBuy)
+    const payN = promoPay.trim() === "" ? null : Number(promoPay)
+    if ((buyN == null) !== (payN == null)) {
+      setError("La promo necesita 'llevás' y 'pagás', o dejar ambos vacíos")
+      return
+    }
+    if (buyN != null && payN != null && !(Number.isInteger(buyN) && Number.isInteger(payN) && buyN >= 2 && buyN <= 20 && payN >= 1 && payN < buyN)) {
+      setError("Promo inválida: 'pagás' debe ser menor que 'llevás' (ej: llevás 2, pagás 1)")
+      return
+    }
+    const sig = JSON.stringify({ name: name.trim(), price, stock, promoBuy: promoBuy.trim(), promoPay: promoPay.trim() })
     if (sig === lastSaved.current) {
       setError(null)
       return
@@ -340,6 +358,8 @@ function TypeRow({
           name: name.trim(),
           price: parsedPrice,
           stockLimit: parsedStock.value,
+          promoBuy: buyN,
+          promoPay: payN,
         }),
       })
       lastSaved.current = sig
@@ -352,7 +372,7 @@ function TypeRow({
     } finally {
       setSaving(false)
     }
-  }, [token, eventId, type.id, name, price, stock, onChanged])
+  }, [token, eventId, type.id, name, price, stock, promoBuy, promoPay, onChanged])
 
   async function remove() {
     if (!token) return
@@ -390,6 +410,11 @@ function TypeRow({
             {type.activeTier ? (
               <span className="shrink-0 rounded-full bg-[#FF9500]/15 px-2 py-0.5 text-[11px] font-medium text-[#FF9500]">
                 {type.activeTier.name}
+              </span>
+            ) : null}
+            {type.promoBuy != null && type.promoPay != null ? (
+              <span className="shrink-0 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+                {type.promoBuy}x{type.promoPay}
               </span>
             ) : null}
           </div>
@@ -440,6 +465,30 @@ function TypeRow({
                 inputMode="numeric"
                 placeholder="∞"
                 className={fieldClass}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] text-white/35">promo (ej: 2x1 = llevás 2, pagás 1)</label>
+            <div className="flex items-center gap-2 text-[13px] text-white/50">
+              llevás
+              <input
+                value={promoBuy}
+                onChange={(e) => setPromoBuy(e.target.value)}
+                onBlur={persist}
+                inputMode="numeric"
+                placeholder="—"
+                className={cn(fieldClass, "w-16")}
+              />
+              pagás
+              <input
+                value={promoPay}
+                onChange={(e) => setPromoPay(e.target.value)}
+                onBlur={persist}
+                inputMode="numeric"
+                placeholder="—"
+                className={cn(fieldClass, "w-16")}
               />
             </div>
           </div>
