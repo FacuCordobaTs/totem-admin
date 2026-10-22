@@ -24,6 +24,7 @@ import {
   Flashlight,
   History,
   IdCard,
+  Loader2,
   QrCode,
   RefreshCw,
   ScanLine,
@@ -211,6 +212,8 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
   const [mode, setMode] = useState<ScanMode>("qr")
 
   const [overlay, setOverlay] = useState<OverlayState | null>(null)
+  /** Código leído y validación en vuelo: feedback inmediato mientras responde el backend. */
+  const [validating, setValidating] = useState<"qr" | "dni" | null>(null)
 
   /** Tarea 3.1 — Paso mínimo del guardia: el documento escaneado no trae fecha de nacimiento
    * (libreta verde) y el evento exige +18: hay que cargarla para validar la edad. */
@@ -301,6 +304,8 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
       if (!qrHash) return
 
       inFlightRef.current = true
+      setValidating("qr")
+      navigator.vibrate?.(40)
 
       try {
         const res = await apiFetch<ValidateResponse>(isTransport ? "/transport-tickets/validate" : "/tickets/validate", {
@@ -338,6 +343,8 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
           blacklist,
         })
         inFlightRef.current = false
+      } finally {
+        setValidating(null)
       }
     },
     [token, selectedEventId, overlay, loadScannedTickets, isTransport, selectedTransportId]
@@ -349,6 +356,8 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
     async (dni: string, closeManualKeyboard = false) => {
       if (!token || !selectedEventId || (isTransport && !selectedTransportId)) return
       inFlightRef.current = true
+      setValidating("dni")
+      navigator.vibrate?.(40)
       try {
         const res = await apiFetch<ValidateByDniResponse>(
           isTransport ? "/transport-tickets/validate-by-dni" : "/tickets/validate-by-dni",
@@ -388,6 +397,8 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
           blacklist,
         })
         inFlightRef.current = false
+      } finally {
+        setValidating(null)
       }
     },
     [token, selectedEventId, loadScannedTickets, isTransport, selectedTransportId]
@@ -440,6 +451,7 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
     !selectedEventId ||
     (isTransport && !selectedTransportId) ||
     overlay !== null ||
+    validating !== null ||
     dniDatePrompt !== null ||
     !token
 
@@ -896,6 +908,20 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
           )}
         </section>
       </div>
+
+      {validating && !overlay && (
+        <div
+          className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/85 px-6 text-center text-white backdrop-blur-sm"
+          role="status"
+          aria-live="assertive"
+        >
+          <Loader2 className="h-20 w-20 animate-spin text-[#FF9500]" />
+          <p className="mt-6 text-3xl font-black tracking-tight">
+            {validating === "qr" ? "QR leído" : "DNI leído"}
+          </p>
+          <p className="mt-2 text-lg font-medium text-[#98989D]">Validando entrada…</p>
+        </div>
+      )}
 
       {overlay?.kind === "success" && successColor && (
         <div
