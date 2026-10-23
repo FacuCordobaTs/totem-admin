@@ -44,6 +44,7 @@ type Fields = {
   venue: string
   location: string
   ticketsLocal: string
+  ticketsCloseLocal: string
   consumptionsLocal: string
   slug: string
   designType: "GLASS" | "MINIMAL"
@@ -124,6 +125,7 @@ function DateTimeField({
 export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) {
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
+  const [ticketsCloseLocal, setTicketsCloseLocal] = useState("")
   const [consumptionsLocal, setConsumptionsLocal] = useState("")
   const [venue, setVenue] = useState("")
   const [location, setLocation] = useState("")
@@ -145,11 +147,13 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
 
   useEffect(() => {
     const tickets = toDatetimeLocalValue(event.ticketsAvailableFrom)
+    const ticketsClose = toDatetimeLocalValue(event.ticketsSalesClosedAt)
     const consumptions = toDatetimeLocalValue(event.consumptionsAvailableFrom)
     const desc = event.description ?? ""
     const s = event.slug ?? ""
     const design = event.designType ?? "MINIMAL"
     setTicketsLocal(tickets)
+    setTicketsCloseLocal(ticketsClose)
     setConsumptionsLocal(consumptions)
     setVenue(event.venue ?? "")
     setLocation(event.location ?? "")
@@ -157,13 +161,14 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
     setSlug(s)
     setDesignType(design)
     setError(null)
-    lastSavedRef.current = JSON.stringify([desc, tickets, consumptions, s, design, event.venue ?? "", event.location ?? ""])
+    lastSavedRef.current = JSON.stringify([desc, tickets, ticketsClose, consumptions, s, design, event.venue ?? "", event.location ?? ""])
   }, [
     event.id,
     event.description,
     event.venue,
     event.location,
     event.ticketsAvailableFrom,
+    event.ticketsSalesClosedAt,
     event.consumptionsAvailableFrom,
     event.slug,
     event.designType,
@@ -192,6 +197,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
       const locationValue = (override?.location ?? location).trim()
       const desc = (override?.description ?? description).trim()
       const tickets = override?.ticketsLocal ?? ticketsLocal
+      const ticketsClose = override?.ticketsCloseLocal ?? ticketsCloseLocal
       const consumptions = override?.consumptionsLocal ?? consumptionsLocal
       const rawSlug = override?.slug ?? slug
       const design = override?.designType ?? designType
@@ -199,15 +205,29 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
       const trimmed = rawSlug.trim()
       if (trimmed !== "" && !isValidSlug(trimmed)) return // el error ya se muestra
 
-      const signature = JSON.stringify([desc, tickets, consumptions, trimmed, design, venueValue, locationValue])
+      const signature = JSON.stringify([desc, tickets, ticketsClose, consumptions, trimmed, design, venueValue, locationValue])
       if (signature === lastSavedRef.current) return // sin cambios reales
 
       const ticketsPayload = tickets.trim() === "" ? null : fromDatetimeLocalToIso(tickets)
+      const ticketsClosePayload =
+        ticketsClose.trim() === "" ? null : fromDatetimeLocalToIso(ticketsClose)
       const consumptionsPayload =
         consumptions.trim() === "" ? null : fromDatetimeLocalToIso(consumptions)
 
       if (tickets.trim() !== "" && ticketsPayload === null) {
         setError("La fecha de entradas no es válida.")
+        return
+      }
+      if (ticketsClose.trim() !== "" && ticketsClosePayload === null) {
+        setError("La fecha de cierre de venta no es válida.")
+        return
+      }
+      if (
+        ticketsPayload !== null &&
+        ticketsClosePayload !== null &&
+        ticketsClosePayload <= ticketsPayload
+      ) {
+        setError("El cierre de venta debe ser posterior al inicio de venta.")
         return
       }
       if (supportsConsumptions && consumptions.trim() !== "" && consumptionsPayload === null) {
@@ -226,6 +246,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
             location: locationValue || null,
             description: desc === "" ? null : desc,
             ticketsAvailableFrom: ticketsPayload,
+            ticketsSalesClosedAt: ticketsClosePayload,
             ...(supportsConsumptions
               ? { consumptionsAvailableFrom: consumptionsPayload }
               : {}),
@@ -246,7 +267,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setSaving(false)
       }
     },
-    [token, venue, location, description, ticketsLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
+    [token, venue, location, description, ticketsLocal, ticketsCloseLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
   )
 
   return (
@@ -441,13 +462,21 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
             </div>
           </div>
 
-          <div className={`mt-6 grid gap-6 ${supportsConsumptions ? "sm:grid-cols-2" : ""}`}>
+          <div className="mt-6 grid gap-6 sm:grid-cols-2">
             <DateTimeField
               id={`sales-tickets-${event.id}`}
               label="Inicio de venta de entradas"
               hint="Cuándo se abre la compra de entradas al público."
               value={ticketsLocal}
               onChange={setTicketsLocal}
+              onCommit={() => void persist()}
+            />
+            <DateTimeField
+              id={`sales-tickets-close-${event.id}`}
+              label="Cierre de venta de entradas"
+              hint="Pasada esta fecha y hora no se pueden comprar más entradas. Vacío = sin cierre."
+              value={ticketsCloseLocal}
+              onChange={setTicketsCloseLocal}
               onCommit={() => void persist()}
             />
             {supportsConsumptions ? <DateTimeField

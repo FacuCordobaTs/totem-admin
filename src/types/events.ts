@@ -140,6 +140,8 @@ export type ApiEvent = {
   createdAt: string | null
   /** ISO 8601 UTC; null = guest ticket sales not deferred by schedule */
   ticketsAvailableFrom: string | null
+  /** ISO 8601 UTC; null = sin cierre de venta de entradas */
+  ticketsSalesClosedAt?: string | null
   /** ISO 8601 UTC; null = guest consumption sales not deferred by schedule */
   consumptionsAvailableFrom: string | null
 }
