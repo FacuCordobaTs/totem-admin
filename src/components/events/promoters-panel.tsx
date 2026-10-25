@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
-import { Link } from "react-router"
 import { toast } from "sonner"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Trash2 } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
@@ -31,7 +30,6 @@ export function PromotersPanel() {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
-  const canCreateStaff = role === "ADMIN"
 
   const [rows, setRows] = useState<ApiPromoter[]>([])
   const [loading, setLoading] = useState(true)
@@ -184,14 +182,6 @@ export function PromotersPanel() {
             Quién vende entradas a comisión. Cada venta puede atribuírseles.
           </p>
         </div>
-        {canCreateStaff ? (
-          <Button asChild type="button" variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl text-[13px] font-medium">
-            <Link to="/staff">
-            <Plus className="h-3.5 w-3.5" />
-            Crear desde Personal
-            </Link>
-          </Button>
-        ) : null}
       </div>
 
       {error ? (
@@ -210,7 +200,6 @@ export function PromotersPanel() {
       ) : activeRows.length === 0 && !editing ? (
         <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-6 text-center text-[14px] text-white/45">
           Todavía no hay promotores.
-          {canCreateStaff ? " Crealo desde Personal para darle su acceso propio." : null}
         </div>
       ) : (
         <div className="space-y-1.5">

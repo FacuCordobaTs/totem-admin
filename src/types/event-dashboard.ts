@@ -176,6 +176,7 @@ export type BarMenuProductRow = {
   name: string
   price: string
   isActiveForBar: boolean
+  directStock?: string | null
 }
 
 export type BarMenuProductsApiResponse = {
@@ -187,6 +188,7 @@ export type BarInventoryItemRow = {
   name: string
   baseUnit: "ML" | "GRAMS" | "UNIT"
   packageSize: string
+  countingUnit?: string
   eventStockAllocated: string
   /** eventInventory menos suma de stock en todas las barras (unidades base). */
   unallocatedEventStock: string

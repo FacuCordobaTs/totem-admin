@@ -45,6 +45,7 @@ export interface ApiInventoryItem {
   name: string
   baseUnit: InventoryBaseUnit
   packageSize: string
+  countingUnit?: string
 }
 
 type MaterialKind = "liquid" | "solid" | "unit"

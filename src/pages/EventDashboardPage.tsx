@@ -319,17 +319,7 @@ export function EventDashboardPage() {
         )
       case "barra":
         return (
-          <SectionShell
-            title="Barra"
-            action={
-              <Button asChild variant="ghost" size="sm" className="cursor-pointer gap-1.5 border border-white/[0.10] bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white/75">
-                <Link to={`/catalogo?from=${id}`}>
-                  Gestionar catálogo global
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            }
-          >
+          <SectionShell title="Barra">
             <EventBarSection
               eventId={id}
               trackStock={tracksStock}

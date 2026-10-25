@@ -6,8 +6,6 @@ import { createBrowserRouter, Navigate } from "react-router"
 import { RouterProvider } from "react-router/dom"
 import { RoleAccessGate } from "@/components/auth/RoleAccessGate"
 import { EventRoute, EventsRoute } from "@/components/events/event-route"
-import { InventoryPage } from "@/pages/InventoryPage"
-import { StaffPage } from "@/pages/StaffPage"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { GlobalMetricsPage } from "@/pages/GlobalMetricsPage"
 import { PosPage } from "@/pages/PosPage"
@@ -86,8 +84,6 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/eventos" replace /> },
       { path: "eventos", element: <EventsRoute /> },
       { path: "eventos/:id", element: <EventRoute /> },
-      { path: "catalogo", element: <InventoryPage /> },
-      { path: "staff", element: <StaffPage /> },
       { path: "configuracion", element: <SettingsPage /> },
       { path: "metrics", element: <GlobalMetricsPage /> },
       { path: "pos", element: <MobileOperationsPage /> },
@@ -99,7 +95,6 @@ const router = createBrowserRouter([
       // Legacy redirects
       { path: "events", element: <Navigate to="/eventos" replace /> },
       { path: "events/:id", element: <LegacyEventRedirect /> },
-      { path: "inventory", element: <Navigate to="/catalogo" replace /> },
       { path: "settings", element: <Navigate to="/configuracion" replace /> },
       { path: "dashboard/perfil", element: <MpOAuthRedirect /> },
       { path: "onboarding", element: <MpOAuthRedirect /> },

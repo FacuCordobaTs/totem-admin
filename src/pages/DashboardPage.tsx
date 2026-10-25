@@ -207,31 +207,6 @@ export function DashboardPage() {
               )}
             </section>
 
-            <section className="space-y-6">
-              <h2 className="text-2xl font-bold tracking-tight text-foreground">
-                Accesos
-              </h2>
-              <div className="divide-y divide-zinc-200/50 overflow-hidden rounded-2xl bg-background dark:divide-zinc-800/50">
-                <Link
-                  to="/catalogo"
-                  className="flex items-center justify-between px-5 py-4 transition-colors active:bg-zinc-50 dark:active:bg-zinc-800/40"
-                >
-                  <span className="text-[17px] font-medium text-foreground">
-                    Inventario
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-[#C7C7CC] dark:text-[#48484A]" />
-                </Link>
-                <Link
-                  to="/staff"
-                  className="flex items-center justify-between px-5 py-4 transition-colors active:bg-zinc-50 dark:active:bg-zinc-800/40"
-                >
-                  <span className="text-[17px] font-medium text-foreground">
-                    Personal
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-[#C7C7CC] dark:text-[#48484A]" />
-                </Link>
-              </div>
-            </section>
           </div>
         </div>
       </main>

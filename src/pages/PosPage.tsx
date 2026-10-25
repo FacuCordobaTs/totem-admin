@@ -164,10 +164,9 @@ function stockVisualForProduct(
 }
 
 /**
- * La caja vende contra el inventario general del evento. La barra identifica quién
- * cobró, pero no limita qué producto se puede cobrar ni su disponibilidad.
+ * La caja muestra el menú y las existencias físicas de la barra seleccionada.
  */
-function eventProductAvailabilityUnits(
+function barProductAvailabilityUnits(
   product: CatalogProduct,
   eventStock: Record<string, number>
 ): number {
@@ -476,7 +475,7 @@ export function PosPage() {
         )
         if (cancelled) return
         setTracksStock(res.tracksStock !== false)
-        const rows = res.products.map((p) => ({
+        const rows = res.products.filter((p) => p.isActiveForBar).map((p) => ({
             id: p.id,
             name: p.name,
             price: p.price,
@@ -581,8 +580,12 @@ export function PosPage() {
     !!activeBarId &&
     (!shiftBound || hasBoundShift)
 
-  const { eventStock, connectionStatus, refreshSnapshot } =
+  const { barStock, connectionStatus, refreshSnapshot } =
     useEventStock(activeEventId || null, activeBarId || null, token, posReady && tracksStock)
+
+  const physicalStock = useMemo(() => Object.fromEntries(
+    Object.entries(barStock).filter(([key]) => key.startsWith(`${activeBarId}:`)).map(([key, quantity]) => [key.slice(activeBarId.length + 1), quantity])
+  ), [barStock, activeBarId])
 
   const [productBaselines, setProductBaselines] = useState<
     Record<string, number>
@@ -599,14 +602,14 @@ export function PosPage() {
       const next = { ...prev }
       for (const p of catalogProducts) {
         if (next[p.id] != null) continue
-        const a = eventProductAvailabilityUnits(p, eventStock)
+        const a = barProductAvailabilityUnits(p, physicalStock)
         if (!Number.isFinite(a)) continue
         next[p.id] = Math.max(a, 1)
         changed = true
       }
       return changed ? next : prev
     })
-  }, [catalogProducts, eventStock, posReady])
+  }, [catalogProducts, physicalStock, posReady])
 
   const catalogCategories = useMemo(() => {
     const categories = new Map<string, { id: string; name: string; sortOrder: number; count: number }>()
@@ -663,14 +666,14 @@ export function PosPage() {
   const eventStockProducts = useMemo(
     () =>
       catalogProducts.map((product) => {
-        const available = eventProductAvailabilityUnits(product, eventStock)
+        const available = barProductAvailabilityUnits(product, physicalStock)
         return {
           product,
           available,
           visual: stockVisualForProduct(available, productBaselines[product.id]),
         }
       }),
-    [catalogProducts, eventStock, productBaselines]
+    [catalogProducts, physicalStock, productBaselines]
   )
 
   const cartTotal = useMemo(
@@ -1055,7 +1058,7 @@ export function PosPage() {
           <DialogHeader className="border-b border-zinc-100 px-6 py-5 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-4 pr-6">
               <div>
-                <DialogTitle>Stock del evento</DialogTitle>
+                <DialogTitle>Stock de esta barra</DialogTitle>
                 <DialogDescription className="mt-1.5">
                   Disponible para toda la caja, sin separar por barras.
                 </DialogDescription>
@@ -1066,7 +1069,7 @@ export function PosPage() {
                 size="icon"
                 onClick={() => void refreshSnapshot()}
                 className="h-9 w-9 shrink-0 rounded-xl"
-                aria-label="Actualizar stock del evento"
+                aria-label="Actualizar stock de esta barra"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button> : null}
@@ -1277,7 +1280,7 @@ export function PosPage() {
 
       {posReady && connectionStatus === "closed" && (
         <div className="shrink-0 border-b border-amber-200/80 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-          Stock en vivo desconectado — el stock del evento se actualiza cada 25s.
+          Stock en vivo desconectado — el stock de esta barra se actualiza cada 25s.
         </div>
       )}
 
@@ -1299,7 +1302,7 @@ export function PosPage() {
                 className="h-9 shrink-0 gap-1.5 rounded-xl text-xs font-semibold"
               >
                 <Package className="h-3.5 w-3.5" />
-                Stock del evento
+                Stock de esta barra
               </Button>
             </div>
             <div className="relative">
@@ -1348,7 +1351,7 @@ export function PosPage() {
                     ) : null}
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
                       {group.products.map((product) => {
-                        const avail = eventProductAvailabilityUnits(product, eventStock)
+                        const avail = barProductAvailabilityUnits(product, physicalStock)
                         const baseline = productBaselines[product.id]
                         const vis = stockVisualForProduct(avail, baseline)
                         const hasStockWarning = vis === "low" || vis === "out"
@@ -1713,7 +1716,7 @@ export function PosPage() {
                         </li>
                       )
                     }
-                    const avail = eventProductAvailabilityUnits(item.product, eventStock)
+                    const avail = barProductAvailabilityUnits(item.product, physicalStock)
                     const stockGone =
                       Number.isFinite(avail) &&
                       (avail <= 0 || item.quantity > avail)

@@ -1,0 +1,304 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-25T20:54:18.681Z",
+  "title": "Design System: Crow Admin — Barra",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Naranja Crow",
+        "tonalRamp": [
+          "oklch(15% 0.1752 62.57)",
+          "oklch(26.4% 0.1752 62.57)",
+          "oklch(37.9% 0.1752 62.57)",
+          "oklch(49.3% 0.1752 62.57)",
+          "oklch(60.7% 0.1752 62.57)",
+          "oklch(72.1% 0.1752 62.57)",
+          "oklch(83.6% 0.1752 62.57)",
+          "oklch(95% 0.1752 62.57)"
+        ]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Naranja de interacción",
+        "tonalRamp": [
+          "oklch(15% 0.1574 69.98)",
+          "oklch(26.4% 0.1574 69.98)",
+          "oklch(37.9% 0.1574 69.98)",
+          "oklch(49.3% 0.1574 69.98)",
+          "oklch(60.7% 0.1574 69.98)",
+          "oklch(72.1% 0.1574 69.98)",
+          "oklch(83.6% 0.1574 69.98)",
+          "oklch(95% 0.1574 69.98)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Texto claro",
+        "tonalRamp": [
+          "oklch(15% 0.0013 286.38)",
+          "oklch(26.4% 0.0013 286.38)",
+          "oklch(37.9% 0.0013 286.38)",
+          "oklch(49.3% 0.0013 286.38)",
+          "oklch(60.7% 0.0013 286.38)",
+          "oklch(72.1% 0.0013 286.38)",
+          "oklch(83.6% 0.0013 286.38)",
+          "oklch(95% 0.0013 286.38)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Gris de apoyo",
+        "tonalRamp": [
+          "oklch(15% 0.0129 286.07)",
+          "oklch(26.4% 0.0129 286.07)",
+          "oklch(37.9% 0.0129 286.07)",
+          "oklch(49.3% 0.0129 286.07)",
+          "oklch(60.7% 0.0129 286.07)",
+          "oklch(72.1% 0.0129 286.07)",
+          "oklch(83.6% 0.0129 286.07)",
+          "oklch(95% 0.0129 286.07)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Línea carbón",
+        "tonalRamp": [
+          "oklch(15% 0.0073 285.93)",
+          "oklch(26.4% 0.0073 285.93)",
+          "oklch(37.9% 0.0073 285.93)",
+          "oklch(49.3% 0.0073 285.93)",
+          "oklch(60.7% 0.0073 285.93)",
+          "oklch(72.1% 0.0073 285.93)",
+          "oklch(83.6% 0.0073 285.93)",
+          "oklch(95% 0.0073 285.93)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Carbón de superficie",
+        "tonalRamp": [
+          "oklch(15% 0.0059 285.89)",
+          "oklch(26.4% 0.0059 285.89)",
+          "oklch(37.9% 0.0059 285.89)",
+          "oklch(49.3% 0.0059 285.89)",
+          "oklch(60.7% 0.0059 285.89)",
+          "oklch(72.1% 0.0059 285.89)",
+          "oklch(83.6% 0.0059 285.89)",
+          "oklch(95% 0.0059 285.89)"
+        ]
+      },
+      "field-border": {
+        "role": "neutral",
+        "displayName": "Borde de control",
+        "tonalRamp": [
+          "oklch(15% 0.0119 285.81)",
+          "oklch(26.4% 0.0119 285.81)",
+          "oklch(37.9% 0.0119 285.81)",
+          "oklch(49.3% 0.0119 285.81)",
+          "oklch(60.7% 0.0119 285.81)",
+          "oklch(72.1% 0.0119 285.81)",
+          "oklch(83.6% 0.0119 285.81)",
+          "oklch(95% 0.0119 285.81)"
+        ]
+      },
+      "button-ink": {
+        "role": "neutral",
+        "displayName": "Tinta de acción",
+        "tonalRamp": [
+          "oklch(15% 0.0181 74.31)",
+          "oklch(26.4% 0.0181 74.31)",
+          "oklch(37.9% 0.0181 74.31)",
+          "oklch(49.3% 0.0181 74.31)",
+          "oklch(60.7% 0.0181 74.31)",
+          "oklch(72.1% 0.0181 74.31)",
+          "oklch(83.6% 0.0181 74.31)",
+          "oklch(95% 0.0181 74.31)"
+        ]
+      },
+      "ready-text": {
+        "role": "semantic",
+        "displayName": "Disponibilidad",
+        "tonalRamp": [
+          "oklch(15% 0.1067 164.99)",
+          "oklch(26.4% 0.1067 164.99)",
+          "oklch(37.9% 0.1067 164.99)",
+          "oklch(49.3% 0.1067 164.99)",
+          "oklch(60.7% 0.1067 164.99)",
+          "oklch(72.1% 0.1067 164.99)",
+          "oklch(83.6% 0.1067 164.99)",
+          "oklch(95% 0.1067 164.99)"
+        ]
+      },
+      "warning-text": {
+        "role": "semantic",
+        "displayName": "Faltante",
+        "tonalRamp": [
+          "oklch(15% 0.0935 75.00)",
+          "oklch(26.4% 0.0935 75.00)",
+          "oklch(37.9% 0.0935 75.00)",
+          "oklch(49.3% 0.0935 75.00)",
+          "oklch(60.7% 0.0935 75.00)",
+          "oklch(72.1% 0.0935 75.00)",
+          "oklch(83.6% 0.0935 75.00)",
+          "oklch(95% 0.0935 75.00)"
+        ]
+      },
+      "error-text": {
+        "role": "semantic",
+        "displayName": "Error",
+        "tonalRamp": [
+          "oklch(15% 0.1061 11.64)",
+          "oklch(26.4% 0.1061 11.64)",
+          "oklch(37.9% 0.1061 11.64)",
+          "oklch(49.3% 0.1061 11.64)",
+          "oklch(60.7% 0.1061 11.64)",
+          "oklch(72.1% 0.1061 11.64)",
+          "oklch(83.6% 0.1061 11.64)",
+          "oklch(95% 0.1061 11.64)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "bar-title": {
+        "displayName": "Título de barra",
+        "purpose": "Identidad del puesto abierto."
+      },
+      "title": {
+        "displayName": "Título de sección",
+        "purpose": "Encabezado de tarea."
+      },
+      "body": {
+        "displayName": "Cuerpo",
+        "purpose": "Contenido y campos."
+      },
+      "label": {
+        "displayName": "Etiqueta",
+        "purpose": "Nombre de campo."
+      },
+      "meta": {
+        "displayName": "Metadatos",
+        "purpose": "Unidades y detalles secundarios."
+      },
+      "stock-value": {
+        "displayName": "Valor de stock",
+        "purpose": "Conteo destacado con cifras tabulares."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "button-colors",
+        "value": "background-color 150ms, color 150ms",
+        "purpose": "Respuesta cromática de botones."
+      },
+      {
+        "name": "loading-pulse",
+        "value": "1.6s ease-in-out infinite alternate",
+        "purpose": "Esqueleto de carga. Desactivado con prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "stack-fields-and-rows",
+        "value": "760px"
+      },
+      {
+        "name": "compact-headers",
+        "value": "480px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Acción principal",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Crear o guardar en el contexto actual.",
+      "html": "<button class=\"ds-primary\">Nuevo producto</button>",
+      "css": ".ds-primary{font-family:'Inter Variable',sans-serif;font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 14px;font-weight:550;border:0;border-radius:9px;background:var(--bw-accent,#ff9500);color:#18120a;cursor:pointer;transition:background-color 150ms,color 150ms}.ds-primary:hover:not(:disabled){background:#ffab36}.ds-primary:disabled{opacity:.5;cursor:default}.ds-primary:focus-visible{outline:2px solid var(--bw-accent,#ff9500);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "Acción secundaria",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Alternativa visible junto a la acción principal.",
+      "html": "<button class=\"ds-secondary\">Del catálogo</button>",
+      "css": ".ds-secondary{font-family:'Inter Variable',sans-serif;font-size:13px;min-height:40px;padding:9px 14px;font-weight:550;border:1px solid #3f3f46;border-radius:9px;background:#ffffff08;color:var(--bw-text,#f4f4f5);cursor:pointer;transition:background-color 150ms,color 150ms}.ds-secondary:hover:not(:disabled){background:#ffffff10}.ds-secondary:disabled{opacity:.5;cursor:default}.ds-secondary:focus-visible{outline:2px solid var(--bw-accent,#ff9500);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
+    },
+    {
+      "name": "Acción de texto",
+      "kind": "button",
+      "description": "Agregar un elemento sin competir con el guardado.",
+      "html": "<button class=\"ds-text\">Agregar insumo</button>",
+      "css": ".ds-text{font-family:'Inter Variable',sans-serif;font-size:13px;min-height:40px;padding:9px 0;font-weight:550;background:transparent;border:0;border-radius:9px;color:#ffad3b;cursor:pointer;transition:color 150ms}.ds-text:hover:not(:disabled){color:#ffc775}.ds-text:disabled{opacity:.5;cursor:default}.ds-text:focus-visible{outline:2px solid var(--bw-accent,#ff9500);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-text{transition:none}}"
+    },
+    {
+      "name": "Campo",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Etiqueta visible y control oscuro.",
+      "html": "<label class=\"ds-field\">Nombre del producto<input placeholder=\"Ej. Agua mineral\" /></label>",
+      "css": ".ds-field{display:block;font-family:'Inter Variable',sans-serif;font-size:13px;font-weight:500;color:var(--bw-text,#f4f4f5)}.ds-field input{display:block;margin-top:8px;min-height:42px;width:100%;border:1px solid #3f3f46;border-radius:8px;background:#ffffff06;padding:9px 12px;color:var(--bw-text,#f4f4f5);font-family:'Inter Variable',sans-serif;font-size:14px;line-height:1.5;caret-color:var(--bw-accent,#ff9500)}.ds-field input::placeholder{color:#96969f}.ds-field input:focus-visible{outline:2px solid var(--bw-accent,#ff9500);outline-offset:3px;}"
+    },
+    {
+      "name": "Navegación de barra",
+      "kind": "nav",
+      "description": "Sección activa subrayada y contadores discretos.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Secciones de la barra\"><button aria-current=\"page\">Menú <span>5</span></button><button>Stock</button><button>Equipo <span>1</span></button><button>Ventas</button></nav>",
+      "css": ".ds-nav{display:flex;align-items:stretch;gap:24px;border-bottom:1px solid var(--bw-line,#29292d);overflow-x:auto}.ds-nav button{font-family:'Inter Variable',sans-serif;font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:12px 2px 16px;white-space:nowrap;font-weight:550;color:var(--bw-muted,#a1a1aa);background:transparent;border:0;border-bottom:2px solid transparent;cursor:pointer;transition:color 150ms}.ds-nav button:hover{color:white}.ds-nav button[aria-current]{color:white;border-bottom-color:var(--bw-accent,#ff9500)}.ds-nav span{display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:21px;padding:0 6px;border-radius:5px;background:#ffffff0d;color:#c4c4cc;font-size:11px;font-weight:600}.ds-nav button:focus-visible{outline:2px solid var(--bw-accent,#ff9500);outline-offset:3px;}@media(max-width:480px){.ds-nav{gap:20px}}@media(prefers-reduced-motion:reduce){.ds-nav button{transition:none}}"
+    },
+    {
+      "name": "Estado secundario",
+      "kind": "chip",
+      "refersTo": "status",
+      "description": "Metadato breve de un puesto.",
+      "html": "<span class=\"ds-status\">Inactiva</span>",
+      "css": ".ds-status{display:inline-block;font-family:\"Inter Variable\",sans-serif;font-size:12px;font-weight:450;padding:2px 7px;border-radius:5px;background:#ffffff08;color:var(--bw-muted,#a1a1aa)}"
+    },
+    {
+      "name": "Disponibilidad",
+      "kind": "chip",
+      "description": "Cantidad o agotado con indicador textual e icono.",
+      "html": "<button class=\"ds-availability\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"m20 6-11 11-5-5\" /></svg>50 unidades</button>",
+      "css": ".ds-availability{display:inline-flex;gap:6px;align-items:center;justify-content:center;min-height:36px;padding:6px 10px;border:0;border-radius:6px;background:#65d6a810;color:#8ceac2;font-family:'Inter Variable',sans-serif;font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer;transition:background-color 150ms}.ds-availability:hover{background:#ffffff0d}.ds-availability:focus-visible{outline:2px solid var(--bw-accent,#ff9500);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-availability{transition:none}}"
+    },
+    {
+      "name": "Panel en contexto",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Contenedor de creación o selección dentro del flujo.",
+      "html": "<section class=\"ds-panel\"><h4>Nueva barra</h4><p>Nombre de la barra</p></section>",
+      "css": ".ds-panel{padding:24px;background:var(--bw-surface,#18181b);border-radius:12px;font-family:\"Inter Variable\",sans-serif;color:var(--bw-text,#f4f4f5)}.ds-panel h4{margin:0;font-size:15px;font-weight:600}.ds-panel p{margin:4px 0 0;font-size:13px;color:var(--bw-muted,#a1a1aa)}@media(max-width:480px){.ds-panel{padding:18px}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "La barra como mesa de trabajo",
+    "overview": "Este documento registra el sistema implementado en Evento → Barra. Conserva la identidad negra y naranja y la tipografía de Crow, con una composición sobria y directa para operar. La información se ordena en filas legibles y acciones concretas, con controles y estados visibles en el contexto de la tarea.\n\nEl alcance es la superficie de barras y sus componentes locales. Los valores de la cabecera son normativos para esta superficie, extraídos de `src/components/events/bar-workspace.css`; no sustituyen los tokens globales de `src/index.css` ni convierten patrones de otras pantallas en reglas nuevas. La arquitectura particular del flujo está registrada en el brief de superficie.",
+    "keyCharacteristics": [
+      "Identidad Crow preservada, con naranja para acciones y selección.",
+      "Filas abiertas y separadores para lectura operativa.",
+      "Cambios en contexto y detalle progresivo.",
+      "Cantidades comparables y estados expresados con texto."
+    ],
+    "rules": [
+      {
+        "name": "The State Rule",
+        "body": "Un color semántico debe acompañar información explícita; un punto o fondo de color por sí solo no explica una advertencia.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** conservar Inter Variable y la identidad negra y naranja de Crow.",
+      "**Do** mantener títulos, cantidades y acciones comparables al recorrer las filas.",
+      "**Do** acompañar las advertencias con texto, iconos o cifras que expresen su significado.",
+      "**Do** conservar foco visible, nombres accesibles y adaptación de las filas en pantallas estrechas."
+    ],
+    "donts": [
+      "**Don't** convertir estos patrones de barras en una política global sin revisar las superficies afectadas.",
+      "**Don't** depender solamente del color para distinguir agotado, activo o error.",
+      "**Don't** agregar sombras o adornos para sustituir la jerarquía de texto y espacio de esta superficie.",
+      "**Don't** reemplazar acciones claras por párrafos explicativos permanentes."
+    ]
+  }
+}
