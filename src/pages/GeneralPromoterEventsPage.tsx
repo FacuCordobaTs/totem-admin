@@ -4,7 +4,6 @@ import { ChevronRight, Loader2 } from "lucide-react"
 import { Header } from "@/components/dashboard/header"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import { eventStatusLabel } from "@/lib/event-status"
 import type { ApiEvent } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
@@ -92,9 +91,6 @@ export function GeneralPromoterEventsPage() {
                           {subtitle}
                         </span>
                       ) : null}
-                    </span>
-                    <span className="shrink-0 text-[12px] uppercase tracking-wide text-white/30">
-                      {eventStatusLabel(event.status)}
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-white/20" />
                   </button>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useNavigate } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,16 +27,12 @@ import {
   ProductoraWaitingCard,
 } from "@/components/onboarding/productora-setup-card"
 import { LocationPicker } from "@/components/events/location-picker"
-import { EventLivePanel } from "@/components/events/event-live-panel"
-import { eventStatusLabel } from "@/lib/event-status"
 import { EVENT_OPERATION_MODE_OPTIONS } from "@/lib/event-operation-mode"
 import { isValidSlug, slugify } from "@/lib/event-slug"
-import type { EventSummaryResponse } from "@/types/event-dashboard"
-import { ArrowLeft, Boxes, Check, ChevronRight, Loader2, Plus, Ticket, Trash2, Wine } from "lucide-react"
+import { ArrowLeft, Boxes, CalendarDays, Check, ChevronRight, Loader2, MapPin, Plus, Ticket, Trash2, Wine } from "lucide-react"
 import type { ApiEvent, EventOperationMode } from "@/types/events"
 
 type EventsListResponse = { events: ApiEvent[] }
-type Readiness = { canOpenSale: boolean; missing: string[] }
 
 function formatEventDateShort(iso: string): string {
   const d = new Date(iso)
@@ -48,33 +44,13 @@ function formatEventDateShort(iso: string): string {
   })
 }
 
-function money(value: string | number | null | undefined): string {
-  if (value == null) return "—"
-  const n = typeof value === "string" ? Number.parseFloat(value) : value
-  if (!Number.isFinite(n)) return "—"
-  const isInt = Number.isInteger(n)
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    minimumFractionDigits: isInt ? 0 : 2,
-    maximumFractionDigits: isInt ? 0 : 2,
-  }).format(n)
-}
-
-function int(n: number): string {
-  return n.toLocaleString("es-AR")
-}
-
-/**
- * Sin eventos, la Home muestra el formulario de creación. Con eventos, muestra los
- * paneles en vivo, el próximo evento, los demás próximos y el historial juntos.
- */
 export function EventsListPage() {
   const navigate = useNavigate()
   const token = useAuthStore((s) => s.token)
   const tenantId = useAuthStore((s) => s.staff?.tenantId)
   const role = useAuthStore((s) => s.staff?.role)
   const isAdmin = role === "ADMIN"
+  const productoraName = useAuthStore((s) => s.staff?.tenantName?.trim())
 
   const [events, setEvents] = useState<ApiEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,6 +59,7 @@ export function EventsListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ApiEvent | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const hasTenant = tenantId != null && tenantId !== ""
 
@@ -111,47 +88,24 @@ export function EventsListPage() {
     void load()
   }, [token, hasTenant, load])
 
-  // ── Buckets según estado ──────────────────────────────────────────────────────────────
-  const { liveEvents, protagonist, upcomingRest, history } = useMemo(() => {
-    const live = events.filter((e) => e.status === "live")
-    const closed = events
-      .filter((e) => e.status === "closed")
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    // No cerrados y no en vivo, ordenados por fecha ascendente: el próximo es el protagonista.
-    const openish = events
-      .filter((e) => e.status !== "closed" && e.status !== "live")
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    const now = Date.now()
-    const future = openish.filter((e) => new Date(e.date).getTime() >= now)
-    const proto = future[0] ?? openish[openish.length - 1] ?? null
-    const rest = proto ? openish.filter((e) => e.id !== proto.id) : openish
-    return { liveEvents: live, protagonist: proto, upcomingRest: rest, history: closed }
-  }, [events])
-
-  // "Partir de: [último evento]" (spec §3 / §5.2): el duplicado es el camino por defecto del
-  // segundo evento en adelante. Origen = el último cerrado (evento completo, con toda su config)
-  // o, si no hay cerrados, el más reciente por fecha.
-  const duplicateSource = useMemo(() => {
-    if (events.length === 0) return null
-    const closed = events.filter((e) => e.status === "closed")
-    const pool = closed.length > 0 ? closed : events
-    return (
-      [...pool].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null
-    )
-  }, [events])
+  const sortedEvents = useMemo(
+    () => [...events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [events]
+  )
+  const duplicateSource = sortedEvents[0] ?? null
 
   const needsProductora = !hasTenant
 
   async function deleteEvent() {
     if (!token || !deleteTarget) return
     setDeleting(true)
-    setError(null)
+    setDeleteError(null)
     try {
       await apiFetch(`/events/${deleteTarget.id}`, { method: "DELETE", token })
       setEvents((current) => current.filter((event) => event.id !== deleteTarget.id))
       setDeleteTarget(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo eliminar el evento")
+      setDeleteError(err instanceof ApiError ? err.message : "No se pudo eliminar el evento")
     } finally {
       setDeleting(false)
     }
@@ -175,101 +129,45 @@ export function EventsListPage() {
     <div className="flex min-h-screen flex-col bg-black text-white">
       <Header />
       <main className="flex-1">
-        <div className="mx-auto max-w-4xl px-6 py-10 lg:px-8 lg:py-14">
+        <div className="mx-auto max-w-7xl px-6 py-10 lg:px-8 lg:py-14">
+          <div className="mb-10 flex flex-wrap items-center justify-between gap-5">
+            <div className="min-w-0">
+              <h1 className="break-words text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                {productoraName ? `Hola, ${productoraName}` : "Hola, te damos la bienvenida"}
+              </h1>
+              <p className="mt-2 text-[15px] text-zinc-400">Todos tus eventos en un solo lugar.</p>
+            </div>
+            {!empty && (
+              <Button
+                className="h-11 gap-2 rounded-xl bg-[#FF9500] px-5 text-[14px] font-semibold text-black hover:bg-[#FFAD33]"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Crear evento
+              </Button>
+            )}
+          </div>
           {loading ? (
-            <div className="flex min-h-[40vh] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-white/25" aria-hidden />
+            <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-label="Cargando eventos">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-400" aria-hidden />
             </div>
           ) : empty ? (
-            // Forma 1: la creación ES el empty state — sin texto de bienvenida.
             <CreateHero navigate={navigate} token={token} />
+          ) : error ? (
+            <div className="space-y-4" role="alert">
+              <p className="text-[15px] text-red-400">{error}</p>
+              <Button variant="outline" onClick={() => void load()}>Volver a intentar</Button>
+            </div>
           ) : (
-            <>
-              {error ? (
-                <p className="mb-6 text-[15px] text-red-400/80">{error}</p>
-              ) : null}
-
-              <div className="mb-8 flex items-center justify-between gap-4">
-                <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                  Eventos
-                </h1>
-                <Button
-                  className="h-10 gap-1.5 rounded-xl bg-[#FF9500] px-4 text-[14px] font-semibold text-white hover:bg-[#FF9500]/90"
-                  onClick={() => setCreateOpen(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Crear evento
-                </Button>
-              </div>
-
-              {liveEvents.map((event) => (
-                <EventLivePanel
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="Tus eventos">
+              {sortedEvents.map((event) => (
+                <EventCard
                   key={event.id}
-                  eventId={event.id}
-                  eventName={event.name}
-                  operationMode={event.operationMode}
-                  onIntervene={() => navigate(`/eventos/${event.id}`)}
+                  event={event}
+                  onDelete={isAdmin ? () => { setDeleteError(null); setDeleteTarget(event) } : undefined}
                 />
               ))}
-
-              {/* Protagonista: el próximo evento con su señal vital según estado */}
-              {protagonist ? (
-                <ProtagonistCard
-                  event={protagonist}
-                  token={token}
-                  onOpen={() => navigate(`/eventos/${protagonist.id}`)}
-                  onDelete={isAdmin ? () => setDeleteTarget(protagonist) : undefined}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setCreateOpen(true)}
-                  className="flex w-full items-center gap-3 rounded-3xl border border-dashed border-white/[0.12] px-7 py-10 text-left text-[16px] text-white/50 transition-colors hover:border-white/25 hover:text-white/70"
-                >
-                  <Plus className="h-5 w-5" />
-                  Crear tu próximo evento
-                </button>
-              )}
-
-              {/* Futuros en tono menor */}
-              {upcomingRest.length > 0 && (
-                <div className="mt-10">
-                  <p className="mb-3 text-[12px] uppercase tracking-[0.18em] text-white/30">
-                    próximos
-                  </p>
-                  <div className="divide-y divide-white/[0.06]">
-                    {upcomingRest.map((ev) => (
-                      <MinorRow
-                        key={ev.id}
-                        event={ev}
-                        onOpen={() => navigate(`/eventos/${ev.id}`)}
-                        onDelete={isAdmin ? () => setDeleteTarget(ev) : undefined}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Historial: cada evento pasado en una línea con su neto */}
-              {history.length > 0 && (
-                <div className="mt-12">
-                  <p className="mb-3 text-[12px] uppercase tracking-[0.18em] text-white/30">
-                    historial
-                  </p>
-                  <div className="divide-y divide-white/[0.06]">
-                    {history.map((ev) => (
-                      <HistoryRow
-                        key={ev.id}
-                        event={ev}
-                        token={token}
-                        onOpen={() => navigate(`/eventos/${ev.id}`)}
-                        onDelete={isAdmin ? () => setDeleteTarget(ev) : undefined}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+            </div>
           )}
         </div>
       </main>
@@ -289,6 +187,7 @@ export function EventsListPage() {
               Se eliminarán permanentemente las entradas, ventas, barras, stock, gastos y demás datos asociados. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError && <p role="alert" className="text-sm text-red-400">{deleteError}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting} className="border-zinc-700 bg-transparent text-white hover:bg-white/10 hover:text-white">Cancelar</AlertDialogCancel>
             <Button disabled={deleting} onClick={() => void deleteEvent()} className="bg-red-600 text-white hover:bg-red-500">
@@ -301,179 +200,43 @@ export function EventsListPage() {
   )
 }
 
-/* ── Protagonista: pieza grande con señal vital ─────────────────────────────────────────── */
-
-function ProtagonistCard({
-  event,
-  token,
-  onOpen,
-  onDelete,
-}: {
-  event: ApiEvent
-  token: string | null
-  onOpen: () => void
-  onDelete?: () => void
-}) {
-  const [readiness, setReadiness] = useState<Readiness | null>(null)
-  const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
-
-  useEffect(() => {
-    if (!token) return
-    let cancelled = false
-    if (event.status === "draft") {
-      void apiFetch<Readiness>(`/events/${event.id}/readiness`, { method: "GET", token })
-        .then((r) => !cancelled && setReadiness(r))
-        .catch(() => {})
-    } else if (event.status === "on_sale") {
-      void apiFetch<EventSummaryResponse>(`/events/${event.id}/summary`, { method: "GET", token })
-        .then((s) => !cancelled && setSummary(s))
-        .catch(() => {})
-    }
-    return () => {
-      cancelled = true
-    }
-  }, [token, event.id, event.status])
-
-  const subtitle = [formatEventDateShort(event.date), event.venue ?? event.location]
-    .filter(Boolean)
-    .join(" · ")
-
+function EventCard({ event, onDelete }: { event: ApiEvent; onDelete?: () => void }) {
+  const location = event.venue ?? event.location
   return (
-    <div className="group relative rounded-3xl border border-white/[0.08] bg-white/[0.02] transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]">
-      <button type="button" onClick={onOpen} className="block w-full px-7 py-8 pr-16 text-left">
-      <span className="text-[12px] uppercase tracking-[0.18em] text-white/40">
-        {eventStatusLabel(event.status)}
-      </span>
-      <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-        {event.name}
-      </h2>
-      {subtitle && <p className="mt-1.5 text-[15px] text-white/45">{subtitle}</p>}
-
-      <div className="mt-6 border-t border-white/[0.06] pt-5">
-        {event.status === "draft" ? (
-          <p className="text-[16px] leading-relaxed text-white/70">
-            {readiness == null
-              ? " "
-              : readiness.canOpenSale
-                ? "Está todo listo. Cuando quieras, abrí la venta."
-                : `Falta ${readiness.missing.join(" y ")}.`}
-          </p>
-        ) : event.status === "on_sale" ? (
-          <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
-            <div>
-              <p className="text-[13px] lowercase text-white/40">vendidas</p>
-              <p className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight text-white">
-                {summary ? int(summary.ticketsSold) : " "}
-                {summary?.ticketCapacity != null && (
-                  <span className="text-xl font-medium text-white/35">
-                    {" "}
-                    / {int(summary.ticketCapacity)}
-                  </span>
-                )}
-              </p>
+    <article className="group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 transition-colors hover:border-white/25 focus-within:border-[#FF9500]">
+      <Link to={`/eventos/${event.id}`} className="flex h-full flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FF9500]">
+        <div className="aspect-[16/9] overflow-hidden bg-zinc-900">
+          {event.imageUrl ? (
+            <img src={event.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center" aria-hidden>
+              <Ticket className="h-12 w-12 text-zinc-600" strokeWidth={1.25} />
             </div>
-            <div>
-              <p className="text-[13px] lowercase text-white/40">recaudado</p>
-              <p className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight text-white">
-                {summary ? money(summary.grossRevenue) : " "}
-              </p>
-            </div>
+          )}
+        </div>
+        <div className="flex flex-1 flex-col p-5">
+          <h2 className="break-words text-xl font-semibold leading-snug tracking-tight text-white">{event.name}</h2>
+          <div className="mt-4 space-y-2 text-sm text-zinc-400">
+            <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 shrink-0" aria-hidden /><time dateTime={event.date}>{formatEventDateShort(event.date)}</time></p>
+            {location && <p className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /><span className="line-clamp-2 break-words">{location}</span></p>}
           </div>
-        ) : null}
-      </div>
-      </button>
-      {onDelete ? <DeleteEventButton onClick={onDelete} /> : null}
-    </div>
-  )
-}
-
-/* ── Filas menores ──────────────────────────────────────────────────────────────────────── */
-
-function MinorRow({ event, onOpen, onDelete }: { event: ApiEvent; onOpen: () => void; onDelete?: () => void }) {
-  return (
-    <div className="group relative">
-      <button type="button" onClick={onOpen} className="flex w-full items-center gap-4 py-3.5 pr-11 text-left transition-colors hover:opacity-80">
-      <span className="min-w-0 flex-1 truncate font-semibold text-white/90">{event.name}</span>
-      <span className="hidden shrink-0 text-[14px] text-white/40 sm:inline">
-        {formatEventDateShort(event.date)}
-      </span>
-      <span className="shrink-0 text-[12px] uppercase tracking-wide text-white/30">
-        {eventStatusLabel(event.status)}
-      </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-white/20" />
-      </button>
-      {onDelete ? <DeleteEventButton onClick={onDelete} compact /> : null}
-    </div>
-  )
-}
-
-function HistoryRow({
-  event,
-  token,
-  onOpen,
-  onDelete,
-}: {
-  event: ApiEvent
-  token: string | null
-  onOpen: () => void
-  onDelete?: () => void
-}) {
-  // Neto: preferí la liquidación congelada (4.4). Para cerrados legacy (sin reporte),
-  // caé a /summary.netProfit (puede ser null para roles sin permisos financieros).
-  const [legacyNet, setLegacyNet] = useState<number | null | undefined>(undefined)
-  const reportNet = event.closingReport
-    ? Number.parseFloat(event.closingReport.netReal)
-    : null
-
-  useEffect(() => {
-    if (event.closingReport || !token) return
-    let cancelled = false
-    void apiFetch<EventSummaryResponse>(`/events/${event.id}/summary`, { method: "GET", token })
-      .then((s) => {
-        if (cancelled) return
-        setLegacyNet(s.netProfit != null ? Number.parseFloat(s.netProfit) : null)
-      })
-      .catch(() => !cancelled && setLegacyNet(null))
-    return () => {
-      cancelled = true
-    }
-  }, [event.id, event.closingReport, token])
-
-  const net = event.closingReport ? reportNet : legacyNet
-  const netKnown = net != null && Number.isFinite(net)
-
-  return (
-    <div className="group relative">
-      <button type="button" onClick={onOpen} className="flex w-full items-center gap-4 py-3.5 pr-11 text-left transition-colors hover:opacity-80">
-      <span className="min-w-0 flex-1 truncate text-white/70">{event.name}</span>
-      <span className="hidden shrink-0 text-[14px] text-white/30 sm:inline">
-        {formatEventDateShort(event.date)}
-      </span>
-      <span
-        className={
-          "shrink-0 text-[15px] font-semibold tabular-nums " +
-          (netKnown ? (net! >= 0 ? "text-emerald-400/90" : "text-red-400/90") : "text-white/25")
-        }
-      >
-        {netKnown ? money(net!) : "—"}
-      </span>
-      </button>
-      {onDelete ? <DeleteEventButton onClick={onDelete} compact /> : null}
-    </div>
-  )
-}
-
-function DeleteEventButton({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
-  return (
-    <button
-      type="button"
-      aria-label="Eliminar evento"
-      title="Eliminar evento"
-      onClick={onClick}
-      className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-white/25 transition-colors hover:bg-red-500/15 hover:text-red-400 ${compact ? "" : "opacity-0 group-hover:opacity-100 focus:opacity-100"}`}
-    >
-      <Trash2 className="h-4 w-4" />
-    </button>
+          <span className="mt-auto flex items-center gap-2 pt-6 text-sm font-medium text-white">
+            Abrir evento <ChevronRight className="h-4 w-4" aria-hidden />
+          </span>
+        </div>
+      </Link>
+      {onDelete && (
+        <button
+          type="button"
+          aria-label={`Eliminar ${event.name}`}
+          title="Eliminar evento"
+          onClick={onDelete}
+          className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-lg bg-black/80 text-zinc-300 transition-colors hover:bg-red-950 hover:text-red-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF9500]"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+      )}
+    </article>
   )
 }
 

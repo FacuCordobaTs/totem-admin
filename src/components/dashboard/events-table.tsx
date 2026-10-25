@@ -1,5 +1,4 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
   Table,
@@ -21,34 +20,6 @@ export type EventPerformanceRow = {
   ticketsSold: number
   ticketsCapacity: number | null
   salesProgress: number
-}
-
-function getStatusBadge(status: string) {
-  switch (status) {
-    case "active":
-      return (
-        <Badge className="border-0 bg-primary/20 text-primary hover:bg-primary/20">
-          Activo
-        </Badge>
-      )
-    case "draft":
-      return (
-        <Badge variant="secondary" className="border-0">
-          Borrador
-        </Badge>
-      )
-    case "finished":
-      return (
-        <Badge
-          variant="outline"
-          className="border-muted-foreground/50 text-muted-foreground"
-        >
-          Finalizado
-        </Badge>
-      )
-    default:
-      return null
-  }
 }
 
 function formatDate(iso: string): string {
@@ -92,7 +63,6 @@ export function EventsTable({ rows }: { rows: EventPerformanceRow[] | null }) {
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="text-muted-foreground">Evento</TableHead>
                 <TableHead className="text-muted-foreground">Fecha</TableHead>
-                <TableHead className="text-muted-foreground">Estado</TableHead>
                 <TableHead className="text-right text-muted-foreground">
                   Ingresos
                 </TableHead>
@@ -111,7 +81,6 @@ export function EventsTable({ rows }: { rows: EventPerformanceRow[] | null }) {
                   <TableCell className="whitespace-nowrap text-muted-foreground">
                     {formatDate(event.date)}
                   </TableCell>
-                  <TableCell>{getStatusBadge(event.status)}</TableCell>
                   <TableCell className="text-right font-mono text-sm">
                     {formatMoney(event.totalRevenue)}
                   </TableCell>

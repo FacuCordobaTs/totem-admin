@@ -240,8 +240,7 @@ export function ScannerPage({ operation = "gate" }: { operation?: "gate" | "tran
         method: "GET",
         token,
       })
-      // Tarea 11.3 — `isActive` retirado del modelo: la puerta ofrece eventos no cerrados.
-      const list = data.events.filter((e) => e.status !== "closed")
+      const list = data.events
       setEvents(list)
       setSelectedEventId((prev) =>
         prev && list.some((e) => e.id === prev) ? prev : ""

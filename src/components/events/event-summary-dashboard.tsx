@@ -8,8 +8,10 @@ import type {
   EventPromoterSalesRow,
 } from "@/types/event-dashboard"
 import type { ApiTicketType } from "@/components/events/ticket-types"
+import { EventActivityPanel } from "./event-activity-panel"
 import { GeneralPromoterLine } from "@/components/events/general-promoter-line"
 import { Lock, Loader2, ArrowRight } from "lucide-react"
+import Decimal from "decimal.js"
 import { cn } from "@/lib/utils"
 import {
   eventSupportsConsumptions,
@@ -37,11 +39,8 @@ function formatInt(n: number): string {
   return n.toLocaleString("es-AR")
 }
 
-type EventStatus = "draft" | "active" | "finished"
-
 type Props = {
   eventId: string
-  status: EventStatus
   operationMode: EventOperationMode
   refreshTrigger?: number
   /** Si el evento ya tiene una URL (slug) pública configurada. */
@@ -54,14 +53,8 @@ type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 type EventInvRow = { stockAllocated: string }
 type EventInventoryListResponse = { items: EventInvRow[] }
 
-/**
- * Spec §4.1 / §5 — El Resumen es la única sección que cambia de naturaleza según el estado:
- *   - Borrador  → mapa de preparación (frases declarativas de qué falta, sin checklists ni %).
- *   - En venta  → pulso comercial (vendidas / recaudado, escalera de tandas, proyección vs equilibrio).
- *   - Cerrado   → reporte (grilla de métricas; la liquidación completa es 4.4/4.5).
- * (El estado "En vivo" lo cubre el panel de la noche, tarea 4.3 — no acá.)
- */
-export function EventSummaryDashboard({ eventId, status, operationMode, refreshTrigger = 0, hasUrl, onNavigate }: Props) {
+/** Configuración pendiente y métricas actuales, disponibles para todos los eventos. */
+export function EventSummaryDashboard({ eventId, operationMode, refreshTrigger = 0, hasUrl, onNavigate }: Props) {
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
   const [types, setTypes] = useState<ApiTicketType[] | null>(null)
@@ -71,55 +64,51 @@ export function EventSummaryDashboard({ eventId, status, operationMode, refreshT
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const isDraft = status === "draft"
   const supportsConsumptions = eventSupportsConsumptions(operationMode)
   const tracksStock = eventTracksStock(operationMode)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal: AbortSignal, silent = false) => {
     if (!token) return
-    setLoading(true)
-    setError(null)
+    if (!silent) setLoading(true)
     try {
-      const [sum, tt] = await Promise.all([
-        apiFetch<EventSummaryResponse>(`/events/${eventId}/summary`, { method: "GET", token }),
-        apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, { method: "GET", token }),
+      const options = { method: "GET", token, signal }
+      const [sum, tt, inv, menu, pr] = await Promise.all([
+        apiFetch<EventSummaryResponse>(`/events/${eventId}/summary`, options),
+        apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, options),
+        tracksStock
+          ? apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, options)
+          : Promise.resolve({ items: [] } as EventInventoryListResponse),
+        supportsConsumptions
+          ? apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, options)
+          : Promise.resolve({ products: [] } as EventMenuProductsResponse),
+        apiFetch<EventPromoterSalesResponse>(`/events/${eventId}/promoter-sales`, options),
       ])
+      if (signal.aborted) return
       setSummary(sum)
       setTypes(tt.ticketTypes)
-
-      // El mapa de preparación (borrador) necesita saber si la barra ya tiene stock y menú.
-      if (isDraft) {
-        const [inv, menu] = await Promise.all([
-          tracksStock
-            ? apiFetch<EventInventoryListResponse>(`/events/${eventId}/inventory`, { method: "GET", token })
-            : Promise.resolve({ items: [] } as EventInventoryListResponse),
-          supportsConsumptions
-            ? apiFetch<EventMenuProductsResponse>(`/events/${eventId}/products`, { method: "GET", token })
-            : Promise.resolve({ products: [] } as EventMenuProductsResponse),
-        ])
-        setHasStock(tracksStock ? inv.items.some((i) => Number.parseFloat(i.stockAllocated) > 0) : null)
-        setHasMenu(supportsConsumptions ? menu.products.some((p) => p.isActiveForEvent) : null)
-        setPromoters([])
-      } else {
-        setHasStock(null)
-        setHasMenu(null)
-        // Tarea 9.2 — Reporte por promotor: cuánto vendió cada uno (entradas + barra).
-        const pr = await apiFetch<EventPromoterSalesResponse>(`/events/${eventId}/promoter-sales`, { method: "GET", token })
-        setPromoters(pr.promoters)
-      }
+      setHasStock(tracksStock ? inv.items.some((i) => Number.parseFloat(i.stockAllocated) > 0) : null)
+      setHasMenu(supportsConsumptions ? menu.products.some((p) => p.isActiveForEvent) : null)
+      setPromoters(pr.promoters)
+      setError(null)
     } catch (e) {
-      setSummary(null)
-      setTypes(null)
-      setPromoters([])
-      setError(e instanceof ApiError ? e.message : "No se pudo cargar el resumen")
+      if (!signal.aborted) setError(e instanceof ApiError ? e.message : "No se pudo cargar el resumen")
     } finally {
-      setLoading(false)
+      if (!signal.aborted && !silent) setLoading(false)
     }
-  }, [token, eventId, refreshTrigger, isDraft, supportsConsumptions, tracksStock])
+  }, [token, eventId, supportsConsumptions, tracksStock])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    const controller = new AbortController()
+    let busy = false
+    const refresh = async (silent = false) => {
+      if (busy) return
+      busy = true
+      try { await load(controller.signal, silent) } finally { busy = false }
+    }
+    void refresh()
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void refresh(true) }, 20_000)
+    return () => { controller.abort(); clearInterval(timer) }
+  }, [load, refreshTrigger])
 
   if (loading) {
     return (
@@ -129,7 +118,7 @@ export function EventSummaryDashboard({ eventId, status, operationMode, refreshT
     )
   }
 
-  if (error || !summary || !types) {
+  if (!summary || !types) {
     return (
       <p className="rounded-2xl border border-red-200/60 bg-red-50/80 px-5 py-4 text-[15px] text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
         {error ?? "Sin datos"}
@@ -137,28 +126,20 @@ export function EventSummaryDashboard({ eventId, status, operationMode, refreshT
     )
   }
 
-  if (status === "draft") {
-    return (
-      <PreparationMap
-        types={types}
-        hasStock={hasStock}
-        hasMenu={hasMenu}
-        hasUrl={hasUrl}
-        supportsConsumptions={supportsConsumptions}
-        tracksStock={tracksStock}
-        onNavigate={onNavigate}
-      />
-    )
-  }
-
-  if (status === "active") {
-    return <CommercialPulse summary={summary} types={types} promoters={promoters} supportsConsumptions={supportsConsumptions} />
-  }
-
-  return <ReportGrid data={summary} promoters={promoters} supportsConsumptions={supportsConsumptions} />
+  return (
+    <div className="space-y-8">
+      {error && <p role="status" className="text-sm text-amber-300">{error}. Se muestran los últimos datos disponibles.</p>}
+      <PreparationMap types={types} hasStock={hasStock} hasMenu={hasMenu} hasUrl={hasUrl}
+        supportsConsumptions={supportsConsumptions} tracksStock={tracksStock} onNavigate={onNavigate} />
+      <p className="text-sm text-zinc-400">Actualización automática cada 20 segundos.</p>
+      <ReportGrid data={summary} promoters={promoters} supportsConsumptions={supportsConsumptions} />
+      <CommercialPulse summary={summary} types={types} />
+      <EventActivityPanel eventId={eventId} operationMode={operationMode} refreshTrigger={refreshTrigger} />
+    </div>
+  )
 }
 
-/* ── Borrador: mapa de preparación (frases declarativas, sin checklists ni %) ────────── */
+/* Configuración pendiente */
 
 type PendingItem = {
   line: string
@@ -193,13 +174,10 @@ function PreparationMap({
   if (hasUrl === false)
     pending.push({ line: "Falta configurar la URL del evento.", cta: "Configurar URL", target: "pagina" })
 
+  if (pending.length === 0) return null
+
   return (
     <div className="max-w-2xl space-y-4">
-      {pending.length === 0 ? (
-        <p className="text-[17px] leading-relaxed text-white/70">
-          Está todo listo. Cuando quieras, abrí la venta.
-        </p>
-      ) : (
         <ul className="space-y-3">
           {pending.map((item) => (
             <li
@@ -214,7 +192,7 @@ function PreparationMap({
                 <button
                   type="button"
                   onClick={() => onNavigate(item.target)}
-                  className="group inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-white/40 transition-colors hover:text-white/80"
+                  className="group inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-zinc-400 transition-colors hover:text-white/80"
                 >
                   {item.cta}
                   <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -223,12 +201,11 @@ function PreparationMap({
             </li>
           ))}
         </ul>
-      )}
     </div>
   )
 }
 
-/* ── En venta: pulso comercial ───────────────────────────────────────────────────────── */
+/* Ventas y proyección */
 
 type TierLine = { key: string; label: string }
 
@@ -259,72 +236,42 @@ function tierLines(type: ApiTicketType): TierLine[] {
   })
 }
 
-function CommercialPulse({
-  summary,
-  types,
-  promoters,
-  supportsConsumptions,
-}: {
-  summary: EventSummaryResponse
-  types: ApiTicketType[]
-  promoters: EventPromoterSalesRow[]
-  supportsConsumptions: boolean
-}) {
+function CommercialPulse({ summary, types }: { summary: EventSummaryResponse; types: ApiTicketType[] }) {
   const sold = summary.ticketsSold
-  const cap = summary.ticketCapacity
 
   const projection = useMemo(() => {
-    let potentialIncome = 0
+    let potentialIncome = new Decimal(0)
     let totalCapacity = 0
-    let priceSum = 0
+    let priceSum = new Decimal(0)
     for (const t of types) {
-      const price = Number.parseFloat(t.price)
-      if (!Number.isNaN(price)) priceSum += price
-      if (t.stockLimit != null && !Number.isNaN(price)) {
-        potentialIncome += price * t.stockLimit
+      const price = new Decimal(t.price)
+      if (price.isFinite()) priceSum = priceSum.plus(price)
+      if (t.stockLimit != null && price.isFinite()) {
+        potentialIncome = potentialIncome.plus(price.times(t.stockLimit))
         totalCapacity += t.stockLimit
       }
     }
     const avgPrice =
       totalCapacity > 0
-        ? potentialIncome / totalCapacity
+        ? potentialIncome.div(totalCapacity)
         : types.length > 0
-          ? priceSum / types.length
-          : 0
+          ? priceSum.div(types.length)
+          : new Decimal(0)
     return { avgPrice }
   }, [types])
 
   const canViewCosts = summary.canViewFinancials
   const costs =
     canViewCosts && summary.totalExpenses != null
-      ? Number.parseFloat(summary.totalExpenses)
+      ? new Decimal(summary.totalExpenses)
       : null
   const breakEven =
-    costs != null && costs > 0 && projection.avgPrice > 0
-      ? Math.ceil(costs / projection.avgPrice)
+    costs != null && costs.gt(0) && projection.avgPrice.gt(0)
+      ? costs.div(projection.avgPrice).ceil().toNumber()
       : null
 
   return (
     <div className="space-y-8">
-      {/* Vendidas + recaudado, grandes */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <article className="rounded-2xl border border-white/[0.06] px-6 py-6">
-          <p className="text-[13px] lowercase text-white/45">vendidas</p>
-          <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-white sm:text-5xl">
-            {formatInt(sold)}
-            {cap != null && (
-              <span className="text-2xl font-medium text-white/35"> / {formatInt(cap)}</span>
-            )}
-          </p>
-        </article>
-        <article className="rounded-2xl border border-white/[0.06] px-6 py-6">
-          <p className="text-[13px] lowercase text-white/45">recaudado</p>
-          <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-white sm:text-5xl">
-            {formatMoney(summary.grossRevenue)}
-          </p>
-        </article>
-      </div>
-
       {/* Escalera de tandas por tipo */}
       {types.length > 0 && (
         <div className="space-y-3">
@@ -341,13 +288,10 @@ function CommercialPulse({
         </div>
       )}
 
-      {/* Tarea 9.2 — Ventas por promotor (visión §2.8). */}
-      <PromoterSalesBlock rows={promoters} supportsConsumptions={supportsConsumptions} />
-
       {/* Proyección contra punto de equilibrio */}
       {canViewCosts && (
         <p className="border-t border-white/[0.06] pt-5 text-[15px] text-white/70">
-          {costs == null || costs === 0 ? (
+          {costs == null || costs.isZero() ? (
             "Todavía no cargaste costos."
           ) : breakEven != null ? (
             <>
@@ -364,7 +308,7 @@ function CommercialPulse({
   )
 }
 
-/* ── Cerrado: reporte (grilla de métricas) ───────────────────────────────────────────── */
+/* Métricas actuales */
 
 function ReportGrid({
   data,
@@ -395,7 +339,7 @@ function ReportGrid({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <MetricCard label="ingresos totales">
         <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground sm:text-3xl">
           {formatMoney(data.grossRevenue)}
@@ -453,6 +397,7 @@ function ReportGrid({
               className="h-full rounded-full bg-white/50 transition-[width] duration-500"
               style={{ width: `${doorPct}%` }}
               role="progressbar"
+              aria-label="Entradas registradas en puerta"
               aria-valuenow={doorPct}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -478,6 +423,7 @@ function ReportGrid({
               className="h-full rounded-full bg-white/50 transition-[width] duration-500"
               style={{ width: `${canjePct}%` }}
               role="progressbar"
+              aria-label="Consumos canjeados"
               aria-valuenow={canjePct}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -502,7 +448,7 @@ export function PromoterSalesBlock({ rows, supportsConsumptions = true }: { rows
 
   return (
     <div className="space-y-3">
-      <h3 className="text-[13px] lowercase text-white/45">ventas por promotor</h3>
+      <h3 className="text-[13px] lowercase text-zinc-400">ventas por promotor</h3>
       <div className="space-y-1.5">
         {rows.map((p) => (
           <div
@@ -513,10 +459,10 @@ export function PromoterSalesBlock({ rows, supportsConsumptions = true }: { rows
               <p className="truncate text-[15px] font-medium text-foreground">
                 {p.name}
                 {!p.isActive ? (
-                  <span className="ml-2 text-[12px] font-normal text-white/35">inactivo</span>
+                  <span className="ml-2 text-[12px] font-normal text-zinc-400">inactivo</span>
                 ) : null}
               </p>
-              <p className="text-[12px] text-white/40">
+              <p className="text-[12px] text-zinc-400">
                 {formatInt(p.ticketsCount)} entrada{p.ticketsCount === 1 ? "" : "s"}
                 {supportsConsumptions ? (
                   <> · {formatInt(p.barItemsCount)} consumo{p.barItemsCount === 1 ? "" : "s"}</>
@@ -542,8 +488,8 @@ function MetricCard({
   children: React.ReactNode
 }) {
   return (
-    <article className="flex flex-col gap-3 rounded-2xl p-5">
-      <p className="text-[12px] font-normal lowercase text-white/45">{label}</p>
+    <article className="flex min-w-0 flex-col gap-3 rounded-2xl p-5">
+      <p className="text-[12px] font-normal lowercase text-zinc-400">{label}</p>
       {children}
     </article>
   )

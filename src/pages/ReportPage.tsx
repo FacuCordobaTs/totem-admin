@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react"
 /**
  * Página pública del reporte de cierre (tarea 4.5 / spec §5 "Cerrado": compartible por link).
  * Solo lectura, sin auth. Consume `GET /public/events/:id/report`, que responde únicamente para
- * eventos ya cerrados con su liquidación congelada. Reusa `EventClosedReport`.
+ * eventos con una liquidación guardada. Reusa `EventClosedReport`.
  */
 
 type ReportPayload = {
@@ -69,7 +69,7 @@ export function ReportPage() {
           {loadError ?? "Reporte no disponible"}
         </p>
         <p className="text-[14px] text-white/40">
-          El reporte solo está disponible para eventos ya cerrados.
+          Este evento todavía no tiene un reporte guardado.
         </p>
       </div>
     )

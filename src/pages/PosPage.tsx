@@ -351,7 +351,7 @@ export function PosPage() {
         })
         if (cancelled) return
         const evs = evRes.events.filter(
-          (e) => e.status !== "closed" && eventSupportsConsumptions(e.operationMode)
+          (e) => eventSupportsConsumptions(e.operationMode)
         )
         setEvents(evs)
         setEventId((prev) => {
@@ -429,7 +429,7 @@ export function PosPage() {
       try {
         const evRes = await cachedFetch<{ events: ApiEvent[] }>("/events", { method: "GET", token })
         const ev = evRes.events.find((e) => e.id === assignedShiftRaw.eventId)
-        usable = !!ev && ev.status !== "closed" && eventSupportsConsumptions(ev.operationMode)
+        usable = !!ev && eventSupportsConsumptions(ev.operationMode)
         if (usable) {
           const barsRes = await cachedFetch<EventBarsResponse>(
             `/events/${assignedShiftRaw.eventId}/bars`,

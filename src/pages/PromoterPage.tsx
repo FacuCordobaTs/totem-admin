@@ -46,7 +46,7 @@ export function PromoterPage() {
     try {
       const data = await apiFetch<EventsResponse>("/promoters/me/events", { method: "GET", token })
       setEvents(data.events)
-      setEventId((current) => current && data.events.some((event) => event.id === current) ? current : data.events.find((event) => event.status !== "closed")?.id ?? data.events[0]?.id ?? "")
+      setEventId((current) => current && data.events.some((event) => event.id === current) ? current : data.events[0]?.id ?? "")
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : "No se pudieron cargar tus eventos")
     } finally {

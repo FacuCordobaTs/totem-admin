@@ -19,10 +19,8 @@ import type { ApiEvent } from "@/types/events"
 
 type ReminderState =
   | "SENT"
-  | "EVENT_CLOSED"
   | "DISABLED"
   | "MISSED"
-  | "WAITING_SALE"
   | "SENDING"
   | "SCHEDULED"
 
@@ -121,13 +119,6 @@ function describeState(data: ReminderOverview): { tone: Tone; title: string; det
       return { tone: "ok", title: "Programado", detail: `Sale el ${formatDateTime(data.sendAt)}.` }
     case "SENDING":
       return { tone: "live", title: "Saliendo", detail: "Sale en el próximo minuto." }
-    case "WAITING_SALE":
-      return {
-        tone: "warn",
-        title: "Esperando que se abra la venta",
-        detail:
-          "El evento todavía está en borrador. El recordatorio sale recién cuando abras la venta, y sólo si todavía falta para el evento.",
-      }
     case "DISABLED":
       return { tone: "muted", title: "Desactivado", detail: "No se envía ningún mensaje." }
     case "SENT":
@@ -142,14 +133,12 @@ function describeState(data: ReminderOverview): { tone: Tone; title: string; det
         title: "No salió",
         detail: "La hora del evento ya pasó y el recordatorio no salió. No se va a enviar.",
       }
-    case "EVENT_CLOSED":
-      return { tone: "muted", title: "Evento cerrado", detail: "Ya no se envían mensajes." }
   }
 }
 
-/** Estados en los que ya no hay nada que configurar: salió, se cerró el evento o pasó la hora. */
+/** Estados en los que ya no hay nada que configurar: salió o pasó la hora. */
 function isLocked(state: ReminderState): boolean {
-  return state === "SENT" || state === "EVENT_CLOSED" || state === "MISSED"
+  return state === "SENT" || state === "MISSED"
 }
 
 /**

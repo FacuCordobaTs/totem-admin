@@ -109,7 +109,7 @@ export function EventClosedReport({
             </h1>
             <p className="mt-2 text-[15px] text-white/45">
               {subtitle ? `${subtitle} · ` : ""}
-              Cerrado{" "}
+              Reporte guardado{" "}
               {report.closedAt && (
                 <span className="text-white/30">
                   el {formatDate(report.closedAt)}
@@ -122,7 +122,7 @@ export function EventClosedReport({
       )}
 
       {/* Neto real vs proyectado, lado a lado */}
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
+      <div className="grid grid-cols-1 gap-px sm:grid-cols-2 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
         <div className="bg-black/40 px-5 py-7 text-center">
           <p className="text-[12px] uppercase tracking-[0.12em] text-white/30">
             resultado neto
@@ -179,7 +179,7 @@ export function EventClosedReport({
         <StatCard
           label="sobrante en stock"
           value={money(leftover)}
-          hint="viaja valuado al próximo evento"
+          hint="valor del stock sin consumir"
         />
         <StatCard
           label="merma"

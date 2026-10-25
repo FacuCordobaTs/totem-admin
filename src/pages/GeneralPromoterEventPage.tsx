@@ -6,7 +6,6 @@ import { EventStaffTab } from "@/components/events/event-staff-tab"
 import { GeneralPromoterSalesPanel } from "@/components/events/general-promoter-sales"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import { eventStatusLabel } from "@/lib/event-status"
 import type { ApiEvent } from "@/types/events"
 
 function formatEventDate(iso: string): string {
@@ -79,9 +78,6 @@ export function GeneralPromoterEventPage() {
           ) : id ? (
             <>
               <header className="mb-7">
-                <p className="text-[12px] uppercase tracking-[0.18em] text-white/40">
-                  {event ? eventStatusLabel(event.status) : ""}
-                </p>
                 <h1 className="mt-2 text-[28px] font-extrabold leading-tight tracking-tight text-white sm:text-3xl">
                   {event?.name}
                 </h1>

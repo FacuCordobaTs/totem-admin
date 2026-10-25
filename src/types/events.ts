@@ -1,4 +1,3 @@
-import type { EventStatus } from "@/lib/event-status"
 import type { EventPromoterSalesRow } from "./event-dashboard"
 
 export type EventOperationMode =
@@ -125,17 +124,17 @@ export type ApiEvent = {
    * activó el administrador. El resto de su configuración se lee de `GET /events/:id/whatsapp-reminder`.
    */
   whatsappReminderEnabled?: boolean
-  /** Estado del ciclo de vida (máquina de 4 estados). Fuente de verdad del header/Resumen. */
-  status: EventStatus
-  /** ISO 8601 — hora de puertas programada (trigger automático on_sale→live). */
+  /** Campo legado de la API; no condiciona la operación ni la interfaz. */
+  status: "draft" | "on_sale" | "live" | "closed"
+  /** ISO 8601 — hora de puertas heredada; referencia opcional de recordatorios. */
   doorsAt?: string | null
-  /** ISO 8601 — instante efectivo en que se abrió la venta (draft→on_sale). */
+  /** ISO 8601 — marca histórica de apertura de venta. */
   salesOpenedAt?: string | null
-  /** ISO 8601 — instante efectivo en que pasó a En vivo (on_sale→live). */
+  /** ISO 8601 — marca histórica de inicio. */
   wentLiveAt?: string | null
-  /** ISO 8601 — instante efectivo en que se cerró (live→closed). */
+  /** ISO 8601 — marca histórica de cierre. */
   closedAt?: string | null
-  /** Liquidación congelada de la ceremonia de cierre (4.4). Null hasta cerrar. */
+  /** Reporte histórico guardado. No bloquea la operación del evento. */
   closingReport?: EventClosingReport | null
   createdAt: string | null
   /** ISO 8601 UTC; null = guest ticket sales not deferred by schedule */

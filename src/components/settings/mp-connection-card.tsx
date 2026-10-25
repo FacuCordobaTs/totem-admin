@@ -28,7 +28,7 @@ type MpConnectionCardProps = {
   /**
    * `card` (Cuenta → Pagos): la tarjeta con título, detalle de cuenta y desconexión.
    * `inline` (header del evento): un solo control compacto que entra en la fila de acciones
-   * junto a "Abrir venta", sin arrastrar el layout de tarjeta.
+   * para consultar o configurar los cobros.
    */
   variant?: "card" | "inline"
 }
@@ -105,7 +105,7 @@ export function MpConnectionCard({
   }
 
   // Inline: mismo alto que los botones del header (h-9) y un solo elemento. Desconectado es la
-  // acción que destraba "Abrir venta"; conectado, un chip de estado que no compite con el CTA.
+  // acceso a configurar cobros; conectado, un enlace a la cuenta.
   if (variant === "inline") {
     if (loading) {
       return (

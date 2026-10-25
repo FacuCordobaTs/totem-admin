@@ -1,27 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
+import Decimal from "decimal.js"
 import { cn } from "@/lib/utils"
 import type { EventClosingReport } from "@/types/events"
-import { usePrinter } from "@/context/PrinterContext"
-import {
-  commandsToBytes,
-  formatResumenCaja,
-  PAYMENT_LABELS,
-} from "@/lib/printerUtils"
-import { toast } from "sonner"
+import { PAYMENT_LABELS } from "@/lib/printerUtils"
 import { ArrowLeft, ArrowRight, Loader2, Check } from "lucide-react"
 
-/**
- * Ceremonia de cierre (tarea 4.4 / spec §5 "Cierre") — el ÚNICO flujo por pasos de la app.
- * Tres pasos: (1) conteo de insumos con teclado numérico y la estimación del sistema al lado;
- * (2) caja POR PUESTO (tarea 10.1, visión §2.8: "cómo cerró cada caja" — esperado por método
- * y contado manual por cajero, solo si hubo efectivo); (3) liquidación automática, con el
- * resultado real (mercadería CONSUMIDA, no comprada) al lado del proyectado. Al confirmar,
- * `POST /:id/closing` recalcula del lado servidor, congela el reporte, cierra el evento e
- * imprime el resumen de caja de cada puesto (`formatResumenCaja`).
- */
+/** Simulación del balance actual con conteos de insumos y efectivo. No persiste conteos. */
 
 type ClosingInsumo = {
   inventoryItemId: string
@@ -52,23 +39,9 @@ type ClosingPrep = {
   report: EventClosingReport | null
 }
 
-/** Respuesta del POST de cierre: reporte + ventas por puesto para imprimir. */
-type ClosingResponse = {
-  event: unknown
-  report: EventClosingReport
-  barSales: {
-    barId: string | null
-    barName: string
-    sales: {
-      paymentMethod: "CASH" | "CARD" | "MERCADOPAGO" | "TRANSFER" | "SALDO"
-      totalAmount: string
-    }[]
-  }[]
-}
-
-function money(value: string | number | null | undefined): string {
+function money(value: Decimal.Value | null | undefined): string {
   if (value == null) return "—"
-  const n = typeof value === "string" ? Number.parseFloat(value) : value
+  const n = Number(value)
   if (!Number.isFinite(n)) return "—"
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -84,14 +57,22 @@ function numFmt(n: number): string {
 }
 
 type Preview = {
-  consumed: number
-  leftover: number
-  mermaValue: number
-  gross: number
-  operational: number
-  merchandisePurchased: number
-  netReal: number
-  netProjected: number
+  consumed: Decimal
+  leftover: Decimal
+  mermaValue: Decimal
+  gross: Decimal
+  operational: Decimal
+  netReal: Decimal
+  netProjected: Decimal
+}
+
+function decimalInput(raw: string): Decimal {
+  try {
+    const value = new Decimal(raw.trim().replace(",", "."))
+    return value.isFinite() && value.gte(0) ? value : new Decimal(0)
+  } catch {
+    return new Decimal(0)
+  }
 }
 
 type Props = {
@@ -99,18 +80,14 @@ type Props = {
   eventName: string
   supportsConsumptions?: boolean
   trackStock?: boolean
-  previewOnly?: boolean
-  onClosed: () => void
   onCancel: () => void
 }
 
-export function EventClosingCeremony({
+export function EventBalancePreview({
   eventId,
   eventName,
   supportsConsumptions = true,
   trackStock = true,
-  previewOnly = false,
-  onClosed,
   onCancel,
 }: Props) {
   const token = useAuthStore((s) => s.token)
@@ -122,15 +99,10 @@ export function EventClosingCeremony({
   // Tarea 10.1 — Contado manual por puesto/barra (key = `barId ?? ""` para la caja de puerta).
   const [cashCounts, setCashCounts] = useState<Record<string, string>>({})
   const [stepIdx, setStepIdx] = useState(0)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-
-  const { printRaw } = usePrinter()
 
   useEffect(() => {
     if (!token) return
     let cancelled = false
-    setLoading(true)
     void apiFetch<ClosingPrep>(`/events/${eventId}/closing`, {
       method: "GET",
       token,
@@ -142,7 +114,7 @@ export function EventClosingCeremony({
       })
       .catch((e) => {
         if (cancelled) return
-        setLoadError(e instanceof ApiError ? e.message : "No se pudo preparar el cierre")
+        setLoadError(e instanceof ApiError ? e.message : "No se pudo cargar el balance")
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -163,114 +135,27 @@ export function EventClosingCeremony({
 
   const step = steps[Math.min(stepIdx, steps.length - 1)]
 
-  // Liquidación en vivo (preview cliente). El backend recalcula la versión autoritativa al POST.
+  // Simulación local a partir de las cifras actuales consultadas al backend.
   const preview = useMemo(() => {
     if (!prep) return null
-    let consumed = 0
-    let leftover = 0
-    let mermaValue = 0
-    const insumos = prep.insumos.map((i) => {
-      const raw = counts[i.inventoryItemId]
-      const counted =
-        raw != null && raw.trim() !== ""
-          ? Math.max(0, Number.parseFloat(raw.replace(",", ".")) || 0)
-          : i.estimated
-      const unitCost = Number.parseFloat(i.unitCost) || 0
-      const purchasedCost = Number.parseFloat(i.purchasedCost) || 0
-      const leftoverUnits = Math.min(counted, i.purchased)
-      const itemLeftover = leftoverUnits * unitCost
-      const itemConsumed = Math.max(0, purchasedCost - itemLeftover)
-      const merma = i.estimated - counted
-      const itemMerma = merma > 0 ? merma * unitCost : 0
-      consumed += itemConsumed
-      leftover += itemLeftover
-      mermaValue += itemMerma
-      return { ...i, counted, itemConsumed, itemLeftover, merma, itemMerma }
-    })
-    const gross = Number.parseFloat(prep.income.gross) || 0
-    const operational = Number.parseFloat(prep.expenses.operational) || 0
-    const merchandisePurchased =
-      Number.parseFloat(prep.expenses.merchandisePurchased) || 0
-    const netReal = gross - operational - consumed
-    const netProjected = gross - operational - merchandisePurchased
-    return {
-      insumos,
-      consumed,
-      leftover,
-      mermaValue,
-      gross,
-      operational,
-      merchandisePurchased,
-      netReal,
-      netProjected,
+    let consumed = new Decimal(0)
+    let leftover = new Decimal(0)
+    let mermaValue = new Decimal(0)
+    for (const item of prep.insumos) {
+      const raw = counts[item.inventoryItemId]
+      const counted = raw?.trim() ? decimalInput(raw) : new Decimal(item.estimated)
+      const unitCost = new Decimal(item.unitCost)
+      const itemLeftover = Decimal.min(counted, item.purchased).times(unitCost)
+      consumed = consumed.plus(Decimal.max(0, new Decimal(item.purchasedCost).minus(itemLeftover)))
+      leftover = leftover.plus(itemLeftover)
+      mermaValue = mermaValue.plus(Decimal.max(0, new Decimal(item.estimated).minus(counted)).times(unitCost))
     }
+    const gross = new Decimal(prep.income.gross)
+    const operational = new Decimal(prep.expenses.operational)
+    const netReal = gross.minus(operational).minus(consumed)
+    const netProjected = gross.minus(operational).minus(prep.expenses.merchandisePurchased)
+    return { consumed, leftover, mermaValue, gross, operational, netReal, netProjected }
   }, [prep, counts])
-
-  const submit = useCallback(async () => {
-    if (previewOnly) return
-    if (!token || !prep) return
-    setSubmitting(true)
-    setSubmitError(null)
-    try {
-      const body = {
-        counts: prep.insumos.map((i) => {
-          const raw = counts[i.inventoryItemId]
-          const counted =
-            raw != null && raw.trim() !== ""
-              ? Math.max(0, Number.parseFloat(raw.replace(",", ".")) || 0)
-              : i.estimated
-          return { inventoryItemId: i.inventoryItemId, counted }
-        }),
-        // Tarea 10.1 — Conteo por puesto: cada barra con su contado (null = no se contó).
-        cashes: prep.cashes.map((bar) => {
-          const raw = cashCounts[bar.barId ?? ""]
-          return {
-            barId: bar.barId,
-            counted:
-              raw != null && raw.trim() !== ""
-                ? Number.parseFloat(raw.replace(",", ".")) || 0
-                : null,
-          }
-        }),
-      }
-      const res = await apiFetch<ClosingResponse>(`/events/${eventId}/closing`, {
-        method: "POST",
-        token,
-        body: JSON.stringify(body),
-      })
-
-      // Tarea 10.1 — Al confirmar se imprime el resumen de caja de cada puesto con caja
-      // (`formatResumenCaja`). La impresión es best-effort: el evento ya quedó cerrado.
-      for (const bar of res.barSales ?? []) {
-        if (bar.sales.length === 0) continue
-        try {
-          await printRaw(
-            commandsToBytes(
-              formatResumenCaja(
-                bar.sales.map((s) => ({
-                  totalAmount: s.totalAmount,
-                  paymentMethod: s.paymentMethod,
-                })),
-                bar.barName,
-                eventName
-              )
-            )
-          )
-        } catch (err) {
-          toast.error(
-            `Resumen de ${bar.barName}: ${
-              err instanceof Error ? err.message : "no se pudo imprimir"
-            }`
-          )
-        }
-      }
-
-      onClosed()
-    } catch (e) {
-      setSubmitError(e instanceof ApiError ? e.message : "No se pudo cerrar el evento")
-      setSubmitting(false)
-    }
-  }, [previewOnly, token, prep, counts, cashCounts, eventId, onClosed, printRaw, eventName])
 
   if (loading) {
     return (
@@ -300,14 +185,10 @@ export function EventClosingCeremony({
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
       <div className="mb-8">
-        <p className="text-[12px] uppercase tracking-[0.2em] text-white/30">
-          {eventName} · {previewOnly ? "vista previa del cierre" : "cierre"}
+        <h2 className="text-2xl font-bold tracking-tight text-white">Balance de {eventName}</h2>
+        <p className="mt-2 text-[14px] text-white/60">
+          Probá los conteos para calcular el resultado. Los conteos no se guardan.
         </p>
-        {previewOnly && (
-          <p className="mt-2 text-[14px] text-white/50">
-            El evento conserva su estado. Los conteos son de prueba y no se guardan.
-          </p>
-        )}
         <div className="mt-3 flex items-center gap-2">
           {steps.map((s, i) => (
             <div
@@ -346,35 +227,25 @@ export function EventClosingCeremony({
         />
       )}
 
-      {submitError && (
-        <p className="mt-6 text-center text-[13px] text-red-400/80">{submitError}</p>
-      )}
-
       <div className="mt-10 flex items-center justify-between">
         <Button
           type="button"
           variant="ghost"
-          disabled={submitting}
           onClick={() => (stepIdx === 0 ? onCancel() : setStepIdx((i) => i - 1))}
           className="gap-2 text-white/50 hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" />
-          {stepIdx === 0 ? (previewOnly ? "Volver al evento" : "Cancelar") : "Atrás"}
+          {stepIdx === 0 ? "Volver al evento" : "Atrás"}
         </Button>
 
         {isLast ? (
           <Button
             type="button"
-            disabled={submitting}
-            onClick={previewOnly ? onCancel : submit}
-            className="h-11 gap-2 bg-[#FF9500] px-6 text-[15px] font-semibold text-white hover:bg-[#FF9500]/90"
+            onClick={onCancel}
+            className="h-11 gap-2 bg-[#FF9500] px-6 text-[15px] font-semibold text-black hover:bg-[#FF9500]/90"
           >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Check className="h-4 w-4" />
-            )}
-            {previewOnly ? "Volver al evento" : "Cerrar el evento"}
+            <Check className="h-4 w-4" />
+            Volver al evento
           </Button>
         ) : (
           <Button
@@ -426,6 +297,7 @@ function StepConteo({
               <input
                 type="text"
                 inputMode="decimal"
+                aria-label={`Sobrante de ${i.name}`}
                 value={counts[i.inventoryItemId] ?? ""}
                 onChange={(e) =>
                   setCounts((prev) => ({
@@ -546,14 +418,14 @@ function StepResultado({
     const raw = cashCounts[bar.barId ?? ""]
     const counted =
       raw != null && raw.trim() !== ""
-        ? Number.parseFloat(raw.replace(",", ".")) || 0
+        ? decimalInput(raw)
         : null
-    const expected = Number.parseFloat(bar.expected) || 0
+    const expected = new Decimal(bar.expected)
     return {
       bar,
       expected,
       counted,
-      diff: counted != null ? counted - expected : null,
+      diff: counted != null ? counted.minus(expected) : null,
     }
   })
   const anyCounted = cashRows.some((r) => r.counted != null)
@@ -566,7 +438,7 @@ function StepResultado({
       </p>
 
       {/* Neto real vs proyectado, lado a lado */}
-      <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
+      <div className="mt-8 grid grid-cols-1 gap-px sm:grid-cols-2 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
         <div className="bg-black/40 px-5 py-6 text-center">
           <p className="text-[12px] uppercase tracking-[0.12em] text-white/30">
             resultado real
@@ -574,7 +446,7 @@ function StepResultado({
           <p
             className={cn(
               "mt-2 text-3xl font-bold tabular-nums sm:text-4xl",
-              preview.netReal >= 0 ? "text-emerald-300" : "text-red-300"
+              preview.netReal.gte(0) ? "text-emerald-300" : "text-red-300"
             )}
           >
             {money(preview.netReal)}
@@ -612,7 +484,7 @@ function StepResultado({
           <p className="mt-1 text-[18px] font-semibold tabular-nums text-white">
             {money(preview.leftover)}
           </p>
-          <p className="text-[12px] text-white/35">viaja valuado al próximo evento</p>
+          <p className="text-[12px] text-white/35">valor del stock sin consumir</p>
         </div>
         <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
           <p className="text-[12px] uppercase tracking-[0.1em] text-white/30">merma</p>
@@ -624,7 +496,7 @@ function StepResultado({
       </div> : null}
 
       {/* Tarea 10.2 — Pendiente de entrega: "Vendiste $X en tragos que nadie retiró (N)". Es
-          plata cobrada que todavía se debe; se congela en el reporte al confirmar. */}
+          plata cobrada que todavía se debe; se muestra en el balance. */}
       {supportsConsumptions && pending != null && pending.quantity > 0 && (
         <div className="mt-3 rounded-xl border border-amber-200/25 bg-amber-200/[0.05] px-4 py-3">
           <p className="text-[12px] uppercase tracking-[0.1em] text-amber-200/60">
@@ -658,16 +530,16 @@ function StepResultado({
                   <span
                     className={cn(
                       "w-28 text-right font-semibold tabular-nums",
-                      Math.abs(diff) < 0.005
+                      diff.abs().lt("0.005")
                         ? "text-emerald-300"
-                        : diff > 0
+                        : diff.gt(0)
                           ? "text-amber-200"
                           : "text-red-300"
                     )}
                   >
-                    {diff === 0
+                    {diff.isZero()
                       ? "Cuadra"
-                      : `${diff > 0 ? "+" : ""}${money(diff)}`}
+                      : `${diff.gt(0) ? "+" : ""}${money(diff)}`}
                   </span>
                 ) : (
                   <span className="text-[12px] text-white/25">sin contar</span>
