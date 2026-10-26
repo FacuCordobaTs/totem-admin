@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { apiFetch, ApiError } from "@/lib/api";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type {
   EventSaleRowApi,
   EventSalesPageResponse,
 } from "@/types/event-dashboard";
 import { moneyLabel } from "./bar-workspace-model";
+
 const payment: Record<string, string> = {
   CASH: "Efectivo",
   CARD: "Tarjeta",
@@ -12,6 +22,7 @@ const payment: Record<string, string> = {
   TRANSFER: "Transferencia",
   SALDO: "Saldo",
 };
+
 export function BarSalesPanel({
   token,
   eventId,
@@ -56,22 +67,21 @@ export function BarSalesPanel({
   useEffect(() => {
     void load(0);
   }, [load]);
+
   return (
-    <section>
-      <div className="bw-heading">
-        <div>
-          <h3>Ventas de la barra</h3>
-          <p>
-            Total vendido:{" "}
-            <strong className="bw-sales-total">{moneyLabel(total)}</strong>
-          </p>
-        </div>
+    <section aria-label="Ventas de la barra">
+      <div className="bw-tab-head">
+        <p className="bw-lede">
+          Total vendido{" "}
+          <strong className="bw-sales-total">{moneyLabel(total)}</strong>
+        </p>
         <button
           className="bw-secondary"
           disabled={busy}
           onClick={() => void load(0)}
         >
-          Actualizar
+          <RefreshCw size={15} className={busy ? "bw-spin" : undefined} />
+          {busy ? "Actualizando…" : "Actualizar"}
         </button>
       </div>
       {error && (
@@ -89,21 +99,34 @@ export function BarSalesPanel({
         <div className="bw-skeleton" aria-label="Cargando ventas" />
       ) : sales.length ? (
         <>
-          <div className="bw-sales-scroll">
-            <table className="bw-sales-table">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Cliente / atención</th>
-                  <th>Pedido</th>
-                  <th>Pago</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                    Fecha
+                  </TableHead>
+                  <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                    Cliente
+                  </TableHead>
+                  <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 md:table-cell">
+                    Pedido
+                  </TableHead>
+                  <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 md:table-cell">
+                    Pago
+                  </TableHead>
+                  <TableHead className="pr-4 text-right text-[11px] font-normal lowercase text-white/45">
+                    Total
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
                 {sales.map((sale) => (
-                  <tr key={sale.id}>
-                    <td>
+                  <TableRow
+                    key={sale.id}
+                    className="border-0 hover:bg-white/[0.03]"
+                  >
+                    <TableCell className="whitespace-nowrap py-3.5 pl-4 text-[12px] tabular-nums text-white/45">
                       {sale.createdAt
                         ? new Date(sale.createdAt).toLocaleString("es-AR", {
                             day: "2-digit",
@@ -112,20 +135,39 @@ export function BarSalesPanel({
                             minute: "2-digit",
                           })
                         : "—"}
-                    </td>
-                    <td>
-                      <strong>
-                        {sale.customerName?.trim() || "Consumidor final"}
-                      </strong>
-                      <small>{sale.staffName ?? ""}</small>
-                    </td>
-                    <td>{sale.itemsSummary}</td>
-                    <td>{payment[sale.paymentMethod] ?? sale.paymentMethod}</td>
-                    <td>{moneyLabel(sale.totalAmount)}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="max-w-[300px] py-3.5 pl-4">
+                      <div
+                        className="flex min-w-0 items-baseline gap-2"
+                        title={`${sale.customerName?.trim() || "Consumidor final"}${sale.staffName ? ` · ${sale.staffName}` : ""} · ${sale.itemsSummary} · ${payment[sale.paymentMethod] ?? sale.paymentMethod}`}
+                      >
+                        <span className="truncate text-[14px] font-medium text-foreground">
+                          {sale.customerName?.trim() || "Consumidor final"}
+                        </span>
+                        {sale.staffName ? (
+                          <span className="hidden truncate text-[12px] text-white/40 sm:inline">
+                            {sale.staffName}
+                          </span>
+                        ) : null}
+                        <span className="truncate text-[11px] text-white/40 md:hidden">
+                          {sale.itemsSummary} ·{" "}
+                          {payment[sale.paymentMethod] ?? sale.paymentMethod}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden max-w-[320px] truncate py-3.5 text-[13px] text-white/55 md:table-cell">
+                      <span title={sale.itemsSummary}>{sale.itemsSummary}</span>
+                    </TableCell>
+                    <TableCell className="hidden whitespace-nowrap py-3.5 text-[13px] text-white/55 md:table-cell">
+                      {payment[sale.paymentMethod] ?? sale.paymentMethod}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap py-3.5 pr-4 text-right text-[14px] font-medium tabular-nums text-foreground">
+                      {moneyLabel(sale.totalAmount)}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           {more && (
             <div className="bw-load-more">

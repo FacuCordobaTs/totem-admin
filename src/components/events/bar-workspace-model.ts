@@ -23,6 +23,14 @@ export const moneyLabel = (value: string) =>
     maximumFractionDigits: 2,
   }).format(Number(value));
 export const decimalInput = (value: string) => value.trim().replace(",", ".");
+export function priceInput(value: string): string {
+  const amount = new Decimal(value);
+  return amount.isInteger() ? amount.toFixed(0) : amount.toFixed(2);
+}
+export const packageQuantityLabel = (value: string | number) =>
+  new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 }).format(
+    Number(value),
+  );
 export const validQuantity = (value: string) =>
   /^\d+(\.\d{1,4})?$/.test(decimalInput(value));
 export type StockUnit = Pick<ApiInventoryItem, "baseUnit" | "packageSize"> & {
@@ -75,27 +83,56 @@ export function consumptionPerSale(
       )
     : amount;
 }
+export type AvailabilityDetail = {
+  /** Unidades vendibles. `null` = sin control de stock. */
+  count: number | null;
+  /** Insumo que limita la venta; `null` si no hay receta o no falta nada. */
+  limiter: ApiProductRecipeLine | null;
+};
+
+/**
+ * Devuelve la disponibilidad y el insumo que la limita. El operador necesita
+ * saber por qué un trago no se puede vender sin abrir el stock.
+ */
+export function productAvailabilityDetail(
+  product: ApiProduct,
+  inventory: BarInventoryItemRow[],
+  directStock?: string | null,
+): AvailabilityDetail {
+  if (product.recipes.length === 0)
+    return {
+      count:
+        directStock == null
+          ? null
+          : Math.max(0, new Decimal(directStock).floor().toNumber()),
+      limiter: null,
+    };
+  let count = Number.POSITIVE_INFINITY;
+  let limiter: ApiProductRecipeLine | null = null;
+  for (const line of product.recipes) {
+    const consumption = consumptionPerSale(product, line);
+    const available = consumption.lte(0)
+      ? 0
+      : new Decimal(
+          inventory.find((item) => item.inventoryItemId === line.inventoryItemId)
+            ?.barCurrentStock ?? "0",
+        )
+          .div(consumption)
+          .floor()
+          .toNumber();
+    if (available < count) {
+      count = available;
+      limiter = line;
+    }
+  }
+  return { count: Math.max(0, count), limiter };
+}
 export function productAvailability(
   product: ApiProduct,
   inventory: BarInventoryItemRow[],
   directStock?: string | null,
 ): number | null {
-  if (product.recipes.length === 0)
-    return directStock == null
-      ? null
-      : Math.max(0, new Decimal(directStock).floor().toNumber());
-  const limits = product.recipes.map((line) => {
-    const consumption = consumptionPerSale(product, line);
-    if (consumption.lte(0)) return 0;
-    return new Decimal(
-      inventory.find((item) => item.inventoryItemId === line.inventoryItemId)
-        ?.barCurrentStock ?? "0",
-    )
-      .div(consumption)
-      .floor()
-      .toNumber();
-  });
-  return Math.max(0, Math.min(...limits));
+  return productAvailabilityDetail(product, inventory, directStock).count;
 }
 export function recipeSummary(product: ApiProduct): string {
   return product.recipes.map((line) => line.inventoryItemName).join(" + ");

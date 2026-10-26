@@ -26,6 +26,12 @@ typography:
     fontWeight: 650
     lineHeight: 1.3
     letterSpacing: "-0.02em"
+  dialog-title:
+    fontFamily: "'Inter Variable', sans-serif"
+    fontSize: "17px"
+    fontWeight: 600
+    lineHeight: 1.35
+    letterSpacing: "-0.01em"
   body:
     fontFamily: "'Inter Variable', sans-serif"
     fontSize: "14px"
@@ -76,6 +82,11 @@ components:
     backgroundColor: "{colors.surface}"
     rounded: "{rounded.panel}"
     padding: "24px"
+  dialog-panel:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.panel}"
+    padding: "24px"
   status:
     backgroundColor: "#ffffff08"
     textColor: "{colors.muted}"
@@ -89,7 +100,7 @@ components:
 
 **Creative North Star: "La barra como mesa de trabajo"**
 
-Este documento registra el sistema implementado en Evento → Barra. Conserva la identidad negra y naranja y la tipografía de Crow, con una composición sobria y directa para operar. La información se ordena en filas legibles y acciones concretas, con controles y estados visibles en el contexto de la tarea.
+Este documento registra el sistema implementado en Evento → Barra. Conserva la identidad negra y naranja y la tipografía de Crow, con una composición sobria y directa para operar. La información se ordena en filas legibles y acciones concretas, con controles y estados visibles en el contexto de la tarea. El título de página pertenece al evento; la pestaña activa es el título de cada sección y el contenido empieza directamente en su barra de herramientas.
 
 El alcance es la superficie de barras y sus componentes locales. Los valores de la cabecera son normativos para esta superficie, extraídos de `src/components/events/bar-workspace.css`; no sustituyen los tokens globales de `src/index.css` ni convierten patrones de otras pantallas en reglas nuevas. La arquitectura particular del flujo está registrada en el brief de superficie.
 
@@ -126,7 +137,8 @@ Los tokens `ready-text`, `warning-text` y `error-text` expresan disponibilidad, 
 Inter Variable, cargada localmente por la aplicación, cubre títulos, cuerpo, controles y cifras. No hay una fuente de display nueva. La jerarquía se logra con tamaño, peso y espacio.
 
 - **Título de barra** (`bar-title`): identidad del puesto abierto; se reduce a (21px) en pantallas estrechas.
-- **Título de sección** (`title`): encabezados de tareas.
+- **Título de sección** (`title`): encabezados de tareas dentro de un flujo, como el editor de producto.
+- **Título de diálogo** (`dialog-title`): alta de barras y selectores del puesto.
 - **Cuerpo** (`body`): contenido habitual y campos.
 - **Etiqueta** (`label`): nombres de campos; los botones usan un peso ligeramente mayor (550).
 - **Metadatos** (`meta`): unidades, detalles de receta y estados secundarios.
@@ -138,7 +150,9 @@ Precios, cantidades y totales usan cifras tabulares. Los nombres largos pueden p
 
 La superficie aprovecha el contenedor de evento existente. Encabezado, navegación y área de tarea comparten el ancho; las listas se apoyan en líneas horizontales y columnas alineadas. Las separaciones recurrentes están en `spacing`; la navegación reserva el mayor espacio antes del contenido. El editor de producto limita su ancho a (860px).
 
-En escritorio, el menú alinea nombre, precio, disponibilidad y edición; el stock alinea nombre, cantidad y acción. Los formularios generales usan dos columnas, y nombre/precio en el editor usa una relación (2:1). A (760px) o menos, los formularios y opciones se apilan; menú y stock transforman sus filas para conservar lectura y acciones. A (480px) o menos, se reorganizan encabezados, ventas de cada barra y herramientas. La navegación admite desplazamiento horizontal y Ventas conserva su tabla con desplazamiento dentro de su contenedor.
+Cada sección abre con una barra de contexto (`bw-tab-head`): a la izquierda un dato breve —productos a la venta, existencias, personas o total vendido— y a la derecha una única acción primaria, más una secundaria solo cuando el flujo la necesita. No se repite el nombre de la pestaña como título. En el listado de barras, la misma barra resume cantidad y estado a la izquierda y ofrece **Nueva barra** a la derecha.
+
+En escritorio, el menú alinea nombre, precio, disponibilidad y una flecha de navegación; el stock alinea nombre, cantidad y acción. Los formularios generales usan dos columnas, y nombre/precio en el editor usa una relación (2:1). A (760px) o menos, los formularios y opciones se apilan; menú y stock transforman sus filas para conservar lectura y acciones. A (480px) o menos, se reorganizan encabezados, ventas de cada barra y herramientas. A (380px) o menos, las acciones de la barra de contexto se apilan y la navegación conserva las cuatro pestañas: solo permanece el contador de stock agotado. La navegación admite desplazamiento horizontal y Ventas conserva su tabla con desplazamiento dentro de su contenedor.
 
 ## Elevation & Depth
 
@@ -156,15 +170,21 @@ Los radios pequeños distinguen controles, etiquetas y paneles según los tokens
 
 Acciones compactas y verbos directos. El botón principal naranja identifica la acción de creación o guardado del contexto. El secundario usa fondo translúcido y borde. Ambos tienen altura mínima de (40px). Las acciones de texto e iconos reservan menor peso visual; los iconos tienen nombre accesible.
 
+Las acciones reversibles de baja frecuencia —desactivar una barra, editar un insumo— usan un botón silencioso sin borde que gana contraste al pasar el puntero. Las acciones destructivas o de retiro —quitar una persona de la barra— usan texto rosado y no compiten con la acción principal de la fila. Las acciones de fila que repiten etiqueta llevan un nombre accesible con el elemento al que afectan.
+
 El foco visible utiliza contorno naranja de (2px), separado (3px). Los botones deshabilitados reducen opacidad a (0.5) y dejan de presentar cursor de acción. Mantener feedback de espera durante escrituras.
 
 ### Inputs / Fields
 
 Campos oscuros con borde, altura mínima de (42px), etiquetas visibles y relleno de `input`. Búsqueda integra un icono y un fondo transparente. Los importes muestran prefijo de moneda y cifras tabulares. Los errores aparecen en un bloque contextual con `role="alert"`.
 
+### Dialogs and Selectors
+
+Los selectores de catálogo, equipo y existencias, y el alta de barra o insumo, se abren en un diálogo centrado sobre un velo oscuro. La superficie usa `dialog-panel` —negro de panel, radio de panel y padding de 24px—, un título `dialog-title` con una línea de contexto y un cierre de icono con nombre accesible. El contenido scrollea dentro del diálogo y nunca supera el alto visible. Elegir un elemento no cierra el selector cuando la tarea admite sumar varios; el foco vuelve al disparador al cerrar. No se montan selectores largos ni formularios de alta dentro del flujo de la lista.
+
 ### Navigation
 
-La navegación del puesto usa texto y subrayado naranja para la sección actual; el atributo `aria-current` conserva su semántica. Los contadores son pequeños bloques de apoyo, y el contador de faltantes agrega icono de advertencia. Los filtros segmentados usan `aria-pressed` y un fondo claro tenue para la selección.
+La navegación del puesto usa texto y subrayado naranja para la sección actual; el atributo `aria-current` conserva su semántica. Los contadores son pequeños bloques de apoyo. El contador de Stock resume las existencias agotadas con icono y texto alternativo; los demás contadores acompañan el nombre de la sección y se ocultan por debajo de (380px) para mantener las cuatro pestañas visibles. Los filtros segmentados usan `aria-pressed` y un fondo claro tenue para la selección.
 
 ### Chips
 
@@ -172,11 +192,11 @@ Los estados secundarios usan el token `status`. La disponibilidad añade texto y
 
 ### Cards / Containers
 
-Los paneles de creación y selección usan `panel`. Las opciones de control de stock se presentan como etiquetas con radio y borde; la seleccionada incorpora borde naranja y un fondo apenas teñido. Las expansiones de receta y stock emplean fondos translúcidos y una línea superior, conservando la fila como ancla.
+No hay tarjetas anidadas. Las filas y secciones se separan con líneas y espacio; el detalle de stock se expande con un fondo apenas translúcido y una línea superior, conservando la fila como ancla. Las opciones de control de stock del editor de producto se presentan como etiquetas con radio y borde; la seleccionada incorpora borde naranja y un fondo apenas teñido. La receta alinea insumo, rendimiento y eliminación en filas. Un único botón **Agregar insumo** abre una búsqueda en contexto: los resultados disponibles aparecen primero y los que ya están en la receta se identifican y deshabilitan. Crear un insumo es una continuación de esa búsqueda, conserva el nombre buscado y lo agrega a la receta al finalizar. En móvil, las acciones del formulario se apilan para mantener su ancho y lectura.
 
 ### Operational Rows
 
-Las barras son filas enteras seleccionables con identidad, metadatos y venta acumulada. Los productos permiten revelar composición y acciones. En stock, el número permanece junto a su unidad y los vínculos a productos consumidores permiten entender el rendimiento. El editor de conteo muestra el resultado de la operación antes de guardarla.
+Las barras son filas enteras seleccionables con identidad, metadatos y venta acumulada; una barra sin menú se identifica con una etiqueta. Cada fila de producto abre directamente su editor, con precio y disponibilidad como información sin acciones independientes. Cuando un producto no se puede vender, la fila nombra el insumo que lo limita; si quedan pocas unidades, indica también cuál se agota primero. Quitar de la barra se ofrece en el pie del editor. En stock, el número permanece junto a su unidad y se muestra con dos decimales; los productos consumidores y la edición del insumo viven dentro de la operación abierta, no como acciones sueltas en la fila. La acción de cada fila es **Ingresar o contar** y abre un único formulario con las dos operaciones. El editor de conteo muestra el resultado antes de guardarla y cierra con Escape.
 
 ## Do's and Don'ts
 

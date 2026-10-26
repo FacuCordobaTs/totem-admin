@@ -139,7 +139,7 @@ export function TicketQrDialog({
               type="button"
               disabled={!data?.qrDataUrl}
               onClick={downloadPng}
-              className="h-11 w-full rounded-xl bg-[#FF9500] text-[17px] font-semibold text-white transition-all duration-200 active:opacity-70"
+              className="h-11 w-full rounded-xl bg-[#FF9500] text-[17px] font-semibold text-[#18120a] transition-all duration-200 active:opacity-70"
             >
               Descargar PNG
             </Button>

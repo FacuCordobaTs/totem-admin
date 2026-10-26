@@ -1,29 +1,31 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import Decimal from "decimal.js"
+import {
+  ArrowLeft,
+  ChevronRight,
+  Clock3,
+  Loader2,
+  Plus,
+  Ticket,
+  Trash2,
+} from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
-import { ChevronDown, Plus, Trash2 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { admissionInputToIso, formatAdmissionWindow } from "@/lib/ticket-admission"
-import { TicketAdmissionEditor, TicketAdmissionFields } from "./ticket-admission-fields"
+import { admissionInputToIso, toAdmissionInput } from "@/lib/ticket-admission"
+import { TicketAdmissionFields } from "./ticket-admission-fields"
+import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-
-export type ApiTier = {
-  id: string
-  name: string
-  price: string
-  position: number
-  stockLimit: number | null
-  activeFrom: string | null
-  activeUntil: string | null
-}
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { cn } from "@/lib/utils"
+import "./tickets-workspace.css"
 
 export type ApiTicketType = {
   validFrom: string | null
@@ -34,639 +36,526 @@ export type ApiTicketType = {
   name: string
   price: string
   stockLimit: number | null
+  isActive?: boolean
   promoBuy?: number | null
   promoPay?: number | null
   sold: number
   remaining: number | null
   courtesies?: number
-  effectivePrice?: string
-  tiers?: ApiTier[]
-  activeTier?: { id: string; name: string; price: string; remaining: number | null } | null
 }
 
 type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
-
 type TicketTypesProps = {
   eventId: string
-  eventDate: string
   refreshTrigger: number
   onChanged?: () => void
-  /** Abre el diálogo de alta alojado por la página del evento. */
-  onCreateTicketType?: () => void
-  /** Reporta cuántos tipos hay cargados (para ocultar el resto de Entradas hasta tener ≥1). */
   onCountChange?: (count: number) => void
+  /** Permite a la página ocultar el resto de Entradas mientras se edita. */
+  onEditingChange?: (editing: boolean) => void
 }
 
-function formatPrice(price: string | number): string {
-  const n = typeof price === "string" ? Number.parseFloat(price) : price
-  if (Number.isNaN(n)) return "—"
-  return (
-    "$ " +
-    new Intl.NumberFormat("es-AR", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(Math.round(n))
-  )
-}
+type EditorState =
+  | { mode: "create" }
+  | { mode: "edit"; type: ApiTicketType }
 
-function parsePrice(v: string): number | null {
-  const n = Number(v.replace(",", "."))
-  return Number.isNaN(n) || n < 0 ? null : n
-}
+const fieldInputClass =
+  "h-11 rounded-xl border-white/[0.12] bg-white/[0.04] px-3 text-[15px] text-white placeholder:text-white/25 shadow-none focus-visible:border-[#FF9500] focus-visible:ring-0"
+const primaryButtonClass =
+  "h-10 rounded-xl bg-[#FF9500] px-4 font-semibold text-[#18120a] hover:bg-[#FFAB36]"
+const switchClass =
+  "h-6 w-11 data-[state=checked]:bg-[#FF9500] data-[state=unchecked]:bg-white/[0.16]"
+const headClass = "text-[11px] font-normal lowercase text-white/45"
 
-function parseStock(v: string): { value: number | null; ok: boolean } {
-  if (v.trim() === "") return { value: null, ok: true }
-  const n = parseInt(v, 10)
-  if (Number.isNaN(n) || n < 1) return { value: null, ok: false }
-  return { value: n, ok: true }
-}
-
-const fieldClass =
-  "h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-[15px] text-white outline-none transition-colors focus:border-white/25"
-
-// ───────────────────────────────────────────────────────────────────────────
-// Editor de tandas: la escalera se escribe como frase que se completa. El sistema
-// la ejecuta solo (backend, evaluación perezosa). Se reemplaza entera vía PUT.
-// ───────────────────────────────────────────────────────────────────────────
-
-type TierDraft = {
-  name: string
-  price: string
-  stockLimit: string
-}
-
-function tierToDraft(t: ApiTier): TierDraft {
-  return {
-    name: t.name,
-    price: String(Number.parseFloat(t.price)),
-    stockLimit: t.stockLimit != null ? String(t.stockLimit) : "",
+function formatPrice(price: string): string {
+  try {
+    return (
+      "$ " +
+      new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 }).format(
+        new Decimal(price).toNumber()
+      )
+    )
+  } catch {
+    return "—"
   }
 }
 
-function TierLadder({
-  eventId,
-  type,
-  onChanged,
+function admissionSummary(type: ApiTicketType): string | null {
+  const format = (value: string) =>
+    new Intl.DateTimeFormat("es-AR", {
+      timeZone: "America/Argentina/Buenos_Aires",
+      hourCycle: "h23",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value))
+  if (type.validFrom && type.validUntil)
+    return `${format(type.validFrom)} — ${format(type.validUntil)}`
+  if (type.validFrom) return `Desde ${format(type.validFrom)}`
+  if (type.validUntil) return `Hasta ${format(type.validUntil)}`
+  return null
+}
+
+function formatPriceInput(price: string): string {
+  try {
+    const value = new Decimal(price)
+    return value.isInteger() ? value.toFixed(0) : value.toFixed(2)
+  } catch {
+    return price
+  }
+}
+
+function availabilityCaption(type: ApiTicketType): string {
+  if (type.remaining === 0) return "Agotada"
+  if (type.remaining == null) return "Sin límite"
+  return `${type.remaining.toLocaleString("es-AR")} disponibles`
+}
+
+function FormField({
+  label,
+  hint,
+  htmlFor,
+  children,
 }: {
-  eventId: string
-  type: ApiTicketType
-  onChanged: () => void
+  label: string
+  hint?: string
+  htmlFor?: string
+  children: React.ReactNode
 }) {
-  const token = useAuthStore((s) => s.token)
-  const [drafts, setDrafts] = useState<TierDraft[]>(
-    () => (type.tiers ?? []).map(tierToDraft)
-  )
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const lastSaved = useRef<string>(JSON.stringify((type.tiers ?? []).map(tierToDraft)))
-
-  const persist = useCallback(
-    async (next: TierDraft[]) => {
-      if (!token) return
-      const clean = next
-        .map((d) => ({
-          name: d.name.trim(),
-          price: parsePrice(d.price),
-          stock: parseStock(d.stockLimit),
-        }))
-        .filter((d) => d.name !== "")
-      // No persistir si hay algún precio/cupo inválido en una fila con nombre.
-      if (clean.some((d) => d.price == null || !d.stock.ok)) {
-        setError("Revisá precio o cupo de la escalera")
-        return
-      }
-      setError(null)
-      const payload = {
-        tiers: clean.map((d) => ({
-          name: d.name,
-          price: d.price as number,
-          stockLimit: d.stock.value,
-        })),
-      }
-      const sig = JSON.stringify(next)
-      if (sig === lastSaved.current) return
-      setSaving(true)
-      try {
-        await apiFetch(`/events/${eventId}/ticket-types/${type.id}/tiers`, {
-          method: "PUT",
-          token,
-          body: JSON.stringify(payload),
-        })
-        lastSaved.current = sig
-        onChanged()
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : "No se pudo guardar la escalera")
-      } finally {
-        setSaving(false)
-      }
-    },
-    [token, eventId, type.id, onChanged]
-  )
-
-  function update(i: number, patch: Partial<TierDraft>) {
-    setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...patch } : d)))
-  }
-  function addTier() {
-    setDrafts((prev) => [...prev, { name: "", price: "", stockLimit: "" }])
-  }
-  function removeTier(i: number) {
-    setDrafts((prev) => {
-      const next = prev.filter((_, idx) => idx !== i)
-      void persist(next)
-      return next
-    })
-  }
-
-  const activeId = type.activeTier?.id ?? null
-
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium uppercase tracking-wide text-white/35">
-          Tandas
-        </span>
-        <span aria-live="polite" className="text-[11px] text-white/30">
-          {saving ? "Guardando…" : error ? "" : ""}
-        </span>
-      </div>
-
-      {drafts.length === 0 ? (
-        <p className="text-[13px] text-white/35">
-          Precio único: {formatPrice(type.price)}. Agregá una tanda para armar una escalera
-          (ej: Early → General).
-        </p>
-      ) : (
-        <div className="space-y-1.5">
-          {drafts.map((d, i) => {
-            const originalId = type.tiers?.[i]?.id
-            const isActive = originalId != null && originalId === activeId
-            return (
-              <div
-                key={i}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg border px-2 py-1.5",
-                  isActive
-                    ? "border-[#FF9500]/40 bg-[#FF9500]/[0.06]"
-                    : "border-white/[0.06] bg-white/[0.02]"
-                )}
-              >
-                <span className="w-5 shrink-0 text-center text-[12px] text-white/25">
-                  {i + 1}
-                </span>
-                <input
-                  value={d.name}
-                  onChange={(e) => update(i, { name: e.target.value })}
-                  onBlur={() => persist(drafts)}
-                  placeholder="Nombre"
-                  className={cn(fieldClass, "flex-1")}
-                />
-                <input
-                  value={d.price}
-                  onChange={(e) => update(i, { price: e.target.value })}
-                  onBlur={() => persist(drafts)}
-                  inputMode="decimal"
-                  placeholder="Precio"
-                  className={cn(fieldClass, "w-24")}
-                />
-                <input
-                  value={d.stockLimit}
-                  onChange={(e) => update(i, { stockLimit: e.target.value })}
-                  onBlur={() => persist(drafts)}
-                  inputMode="numeric"
-                  placeholder="Cupos"
-                  className={cn(fieldClass, "w-20")}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeTier(i)}
-                  className="shrink-0 rounded-md p-1.5 text-white/25 transition-colors hover:bg-white/[0.05] hover:text-red-400"
-                  aria-label="Quitar tanda"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
-
-      <button
-        type="button"
-        onClick={addTier}
-        className="inline-flex items-center gap-1 text-[13px] text-white/45 transition-colors hover:text-white/70"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Agregar tanda
-      </button>
+    <div className="min-w-0 space-y-2">
+      <label htmlFor={htmlFor} className="block text-[13px] font-medium text-white/70">
+        {label}
+      </label>
+      {children}
+      {hint ? <p className="text-[12px] leading-relaxed text-white/45">{hint}</p> : null}
     </div>
   )
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Fila de un tipo de entrada: pieza horizontal que se abre para su profundidad.
-// Edición al blur (sin "Guardar"): PATCH del tipo. Adentro, el editor de tandas.
-// ───────────────────────────────────────────────────────────────────────────
+function FormBlock({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="grid gap-4 border-t border-white/[0.07] pt-7 sm:grid-cols-[170px_minmax(0,1fr)] sm:gap-8">
+      <div>
+        <h3 className="text-[14px] font-semibold text-white">{title}</h3>
+        {description ? (
+          <p className="mt-1.5 text-[12px] leading-relaxed text-white/45">{description}</p>
+        ) : null}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  )
+}
 
-function TypeRow({
+function ToggleRow({
+  title,
+  description,
+  checked,
+  onCheckedChange,
+  disabled,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-start justify-between gap-6">
+      <div className="min-w-0">
+        <p className="text-[14px] font-medium text-white">{title}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-white/45">{description}</p>
+      </div>
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+        aria-label={title}
+        className={cn(switchClass, "mt-0.5 shrink-0")}
+      />
+    </div>
+  )
+}
+
+function TicketTypeEditor({
   eventId,
-  eventDate,
   type,
-  expanded,
-  onToggle,
-  onChanged,
-  canManage,
+  onSaved,
+  onCancel,
 }: {
   eventId: string
-  type: ApiTicketType
-  eventDate: string
-  expanded: boolean
-  onToggle: () => void
-  onChanged: () => void
-  canManage: boolean
+  type?: ApiTicketType
+  onSaved: () => void
+  onCancel: () => void
 }) {
   const token = useAuthStore((s) => s.token)
-  const [name, setName] = useState(type.name)
-  const [price, setPrice] = useState(String(Number.parseFloat(type.price)))
-  const [stock, setStock] = useState(type.stockLimit != null ? String(type.stockLimit) : "")
-  const [promoBuy, setPromoBuy] = useState(type.promoBuy != null ? String(type.promoBuy) : "")
-  const [promoPay, setPromoPay] = useState(type.promoPay != null ? String(type.promoPay) : "")
+  const id = type?.id ?? "new"
+  const [name, setName] = useState(type?.name ?? "")
+  const [price, setPrice] = useState(type ? formatPriceInput(type.price) : "")
+  const [stock, setStock] = useState(type?.stockLimit?.toString() ?? "")
+  const [active, setActive] = useState(type?.isActive !== false)
+  const [promoEnabled, setPromoEnabled] = useState(type?.promoBuy != null)
+  const [promoBuy, setPromoBuy] = useState(type?.promoBuy?.toString() ?? "2")
+  const [promoPay, setPromoPay] = useState(type?.promoPay?.toString() ?? "1")
+  const [admissionEnabled, setAdmissionEnabled] = useState(
+    Boolean(type?.validFrom || type?.validUntil)
+  )
+  const [from, setFrom] = useState(toAdmissionInput(type?.validFrom ?? null))
+  const [until, setUntil] = useState(toAdmissionInput(type?.validUntil ?? null))
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastSaved = useRef<string>("")
 
   useEffect(() => {
-    setName(type.name)
-    setPrice(String(Number.parseFloat(type.price)))
-    setStock(type.stockLimit != null ? String(type.stockLimit) : "")
-    setPromoBuy(type.promoBuy != null ? String(type.promoBuy) : "")
-    setPromoPay(type.promoPay != null ? String(type.promoPay) : "")
-    lastSaved.current = JSON.stringify({
-      name: type.name,
-      price: String(Number.parseFloat(type.price)),
-      stock: type.stockLimit != null ? String(type.stockLimit) : "",
-      promoBuy: type.promoBuy != null ? String(type.promoBuy) : "",
-      promoPay: type.promoPay != null ? String(type.promoPay) : "",
-    })
-  }, [type.id, type.name, type.price, type.stockLimit, type.promoBuy, type.promoPay])
-
-  useEffect(() => () => {
-    if (savedTimer.current) clearTimeout(savedTimer.current)
+    window.scrollTo({ top: 0, behavior: "auto" })
   }, [])
 
-  const persist = useCallback(async () => {
-    if (!token) return
-    const parsedPrice = parsePrice(price)
-    const parsedStock = parseStock(stock)
-    if (name.trim() === "") {
-      setError("El nombre no puede quedar vacío")
-      return
-    }
-    if (parsedPrice == null) {
-      setError("Precio inválido")
-      return
-    }
-    if (!parsedStock.ok) {
-      setError("El cupo debe ser un entero positivo o vacío")
-      return
-    }
-    const buyN = promoBuy.trim() === "" ? null : Number(promoBuy)
-    const payN = promoPay.trim() === "" ? null : Number(promoPay)
-    if ((buyN == null) !== (payN == null)) {
-      setError("La promo necesita 'llevás' y 'pagás', o dejar ambos vacíos")
-      return
-    }
-    if (buyN != null && payN != null && !(Number.isInteger(buyN) && Number.isInteger(payN) && buyN >= 2 && buyN <= 20 && payN >= 1 && payN < buyN)) {
-      setError("Promo inválida: 'pagás' debe ser menor que 'llevás' (ej: llevás 2, pagás 1)")
-      return
-    }
-    const sig = JSON.stringify({ name: name.trim(), price, stock, promoBuy: promoBuy.trim(), promoPay: promoPay.trim() })
-    if (sig === lastSaved.current) {
-      setError(null)
-      return
-    }
-    setError(null)
-    setSaving(true)
-    try {
-      await apiFetch(`/events/${eventId}/ticket-types/${type.id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          name: name.trim(),
-          price: parsedPrice,
-          stockLimit: parsedStock.value,
-          promoBuy: buyN,
-          promoPay: payN,
-        }),
-      })
-      lastSaved.current = sig
-      setSaved(true)
-      if (savedTimer.current) clearTimeout(savedTimer.current)
-      savedTimer.current = setTimeout(() => setSaved(false), 2000)
-      onChanged()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo guardar")
-    } finally {
-      setSaving(false)
-    }
-  }, [token, eventId, type.id, name, price, stock, promoBuy, promoPay, onChanged])
-
-  async function remove() {
-    if (!token) return
-    if (!confirm(`¿Eliminar el tipo "${type.name}"?`)) return
-    setError(null)
-    try {
-      await apiFetch(`/events/${eventId}/ticket-types/${type.id}`, {
-        method: "DELETE",
-        token,
-      })
-      onChanged()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo eliminar")
-    }
-  }
-
-  const soldText =
-    type.stockLimit == null
-      ? `${type.sold} vendidas`
-      : `${type.sold} / ${type.stockLimit}`
-  const displayPrice = type.effectivePrice ?? type.price
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-[16px] font-medium text-white">
-              {type.name}
-            </span>
-            {type.activeTier ? (
-              <span className="shrink-0 rounded-full bg-[#FF9500]/15 px-2 py-0.5 text-[11px] font-medium text-[#FF9500]">
-                {type.activeTier.name}
-              </span>
-            ) : null}
-            {type.promoBuy != null && type.promoPay != null ? (
-              <span className="shrink-0 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-                {type.promoBuy}x{type.promoPay}
-              </span>
-            ) : null}
-          </div>
-          <span className="text-[13px] text-white/40">{soldText}</span>
-          {formatAdmissionWindow(type) && <p className="mt-1 text-xs text-amber-300">{formatAdmissionWindow(type)}</p>}
-        </div>
-        <span className="shrink-0 text-[16px] font-semibold text-white">
-          {formatPrice(displayPrice)}
-        </span>
-        {canManage ? (
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 shrink-0 text-white/30 transition-transform",
-              expanded && "rotate-180"
-            )}
-          />
-        ) : null}
-      </button>
-
-      {expanded && canManage ? (
-        <div className="space-y-4 border-t border-white/[0.06] px-4 py-4">
-          <div className="grid grid-cols-[1fr_auto_auto] gap-2">
-            <div className="space-y-1">
-              <label className="text-[11px] text-white/35">nombre</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={persist}
-                className={fieldClass}
-              />
-            </div>
-            <div className="w-28 space-y-1">
-              <label className="text-[11px] text-white/35">precio base</label>
-              <input
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                onBlur={persist}
-                inputMode="decimal"
-                className={fieldClass}
-              />
-            </div>
-            <div className="w-24 space-y-1">
-              <label className="text-[11px] text-white/35">cupo</label>
-              <input
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-                onBlur={persist}
-                inputMode="numeric"
-                placeholder="∞"
-                className={fieldClass}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] text-white/35">promo (ej: 2x1 = llevás 2, pagás 1)</label>
-            <div className="flex items-center gap-2 text-[13px] text-white/50">
-              llevás
-              <input
-                value={promoBuy}
-                onChange={(e) => setPromoBuy(e.target.value)}
-                onBlur={persist}
-                inputMode="numeric"
-                placeholder="—"
-                className={cn(fieldClass, "w-16")}
-              />
-              pagás
-              <input
-                value={promoPay}
-                onChange={(e) => setPromoPay(e.target.value)}
-                onBlur={persist}
-                inputMode="numeric"
-                placeholder="—"
-                className={cn(fieldClass, "w-16")}
-              />
-            </div>
-          </div>
-
-          <TierLadder eventId={eventId} type={type} onChanged={onChanged} />
-          <TicketAdmissionEditor key={`${type.id}:${type.validFrom}:${type.validUntil}`} eventId={eventId} eventDate={eventDate} type={type} onChanged={onChanged} />
-
-          <div className="flex items-center justify-between">
-            <span aria-live="polite" className="text-[12px]">
-              {saving ? (
-                <span className="text-white/40">Guardando…</span>
-              ) : saved ? (
-                <span className="text-emerald-400">Guardado</span>
-              ) : error ? (
-                <span className="text-red-400">{error}</span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              onClick={remove}
-              className="inline-flex items-center gap-1.5 text-[13px] text-white/40 transition-colors hover:text-red-400"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Eliminar tipo
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// Alta de tipo de entrada: el formulario vive en un diálogo para no desplazar el listado.
-// ───────────────────────────────────────────────────────────────────────────
-
-export function TicketTypeCreateDialog({
-  eventId,
-  eventDate,
-  open,
-  onOpenChange,
-  onCreated,
-}: {
-  eventId: string
-  open: boolean
-  eventDate: string
-  onOpenChange: (open: boolean) => void
-  onCreated: () => void
-}) {
-  const token = useAuthStore((s) => s.token)
-  const nameInputRef = useRef<HTMLInputElement>(null)
-  const [name, setName] = useState("")
-  const [price, setPrice] = useState("")
-  const [stock, setStock] = useState("")
-  const [validFrom, setValidFrom] = useState("")
-  const [validUntil, setValidUntil] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const focusInput = window.setTimeout(() => nameInputRef.current?.focus(), 150)
-    return () => window.clearTimeout(focusInput)
-  }, [open])
-
-  function close() {
-    if (saving) return
-    onOpenChange(false)
-    setError(null)
-  }
-
-  async function create(event: FormEvent<HTMLFormElement>) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token || saving) return
-    if (name.trim() === "") return
-    if (validFrom && validUntil && validFrom >= validUntil) {
+    if (!token || saving || deleting) return
+    setError(null)
+    const normalizedPrice = price.trim().replace(",", ".")
+    if (!/^\d{1,8}(\.\d{1,2})?$/.test(normalizedPrice)) {
+      setError("Ingresá un precio válido, con hasta dos decimales.")
+      return
+    }
+    if (
+      stock.trim() !== "" &&
+      (!/^\d+$/.test(stock.trim()) ||
+        !Number.isSafeInteger(Number(stock)) ||
+        Number(stock) < 1 ||
+        Number(stock) > 2147483647)
+    ) {
+      setError("El cupo debe ser un número entero mayor a cero.")
+      return
+    }
+    if (admissionEnabled && from && until && from >= until) {
       setError("El horario hasta debe ser posterior al horario desde.")
       return
     }
-    const parsedPrice = parsePrice(price)
-    if (parsedPrice == null) {
-      setError("Precio inválido")
+    const buy = promoEnabled ? Number(promoBuy) : null
+    const pay = promoEnabled ? Number(promoPay) : null
+    if (
+      promoEnabled &&
+      (buy == null ||
+        pay == null ||
+        !Number.isInteger(buy) ||
+        !Number.isInteger(pay) ||
+        buy < 2 ||
+        buy > 20 ||
+        pay < 1 ||
+        pay >= buy)
+    ) {
+      setError("Revisá la promoción: llevás entre 2 y 20, y pagás una cantidad menor.")
       return
     }
-    const parsedStock = parseStock(stock)
-    if (!parsedStock.ok) {
-      setError("Cupo inválido")
-      return
-    }
-    setError(null)
     setSaving(true)
     try {
-      await apiFetch(`/events/${eventId}/ticket-types`, {
-        method: "POST",
+      await apiFetch(`/events/${eventId}/ticket-types${type ? `/${type.id}` : ""}`, {
+        method: type ? "PATCH" : "POST",
         token,
         body: JSON.stringify({
           name: name.trim(),
-          price: parsedPrice,
-          stockLimit: parsedStock.value,
-          validFrom: admissionInputToIso(validFrom),
-          validUntil: admissionInputToIso(validUntil),
+          price: new Decimal(normalizedPrice).toFixed(2),
+          stockLimit: stock.trim() === "" ? null : Number(stock),
+          promoBuy: buy,
+          promoPay: pay,
+          validFrom: admissionEnabled ? admissionInputToIso(from) : null,
+          validUntil: admissionEnabled ? admissionInputToIso(until) : null,
+          ...(type ? { isActive: active } : {}),
         }),
       })
-      setName("")
-      setPrice("")
-      setStock("")
-      setValidFrom("")
-      setValidUntil("")
-      onOpenChange(false)
-      onCreated()
+      onSaved()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo crear")
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "No se pudo guardar el tipo de entrada. Volvé a intentar."
+      )
     } finally {
       setSaving(false)
     }
   }
 
+  async function remove() {
+    if (!token || !type || deleting || saving) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await apiFetch(`/events/${eventId}/ticket-types/${type.id}`, { method: "DELETE", token })
+      onSaved()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo eliminar el tipo de entrada.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const promoPercent =
+    promoEnabled && Number(promoBuy) > Number(promoPay) && Number(promoBuy) > 0
+      ? Math.round((1 - Number(promoPay) / Number(promoBuy)) * 100)
+      : null
+
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
-      <DialogContent className="max-w-md rounded-2xl border border-white/[0.12] bg-black text-white">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-bold tracking-tight">Nuevo tipo de entrada</DialogTitle>
-          <DialogDescription className="text-white/45">
-            Definí el nombre, precio y cupo inicial de la entrada.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={create} className="space-y-4">
-          <div className="space-y-1.5">
-            <label htmlFor="ticket-type-name" className="text-[13px] text-white/60">Nombre</label>
-            <input ref={nameInputRef} id="ticket-type-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. General" className={fieldClass} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label htmlFor="ticket-type-price" className="text-[13px] text-white/60">Precio</label>
-              <input id="ticket-type-price" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0" className={fieldClass} />
+    <div className="space-y-7">
+      <header className="space-y-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium text-white/45 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#FF9500]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Tipos de entrada
+        </button>
+        <h2 className="text-2xl font-bold tracking-tight text-white">
+          {type ? type.name : "Nuevo tipo de entrada"}
+        </h2>
+      </header>
+
+      <form onSubmit={save} className="max-w-3xl space-y-7 pb-2" aria-label={type ? `Editar ${type.name}` : "Nuevo tipo de entrada"}>
+        <fieldset disabled={saving || deleting} className="space-y-7">
+          <FormBlock title="Datos de la entrada">
+            <div className="grid gap-5">
+              <FormField label="Nombre" htmlFor={`type-name-${id}`}>
+                <Input
+                  autoFocus
+                  id={`type-name-${id}`}
+                  required
+                  maxLength={100}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="General, VIP, Campo…"
+                  className={fieldInputClass}
+                />
+              </FormField>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <FormField label="Precio" htmlFor={`type-price-${id}`}>
+                  <div className="relative">
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[15px] text-white/35"
+                    >
+                      $
+                    </span>
+                    <Input
+                      id={`type-price-${id}`}
+                      required
+                      inputMode="decimal"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      placeholder="0"
+                      className={cn(fieldInputClass, "pl-7 tabular-nums")}
+                    />
+                  </div>
+                </FormField>
+                <FormField
+                  label="Cupo"
+                  htmlFor={`type-stock-${id}`}
+                  hint="Dejalo vacío para no limitar la cantidad."
+                >
+                  <Input
+                    id={`type-stock-${id}`}
+                    inputMode="numeric"
+                    value={stock}
+                    onChange={(e) => setStock(e.target.value)}
+                    placeholder="Sin límite"
+                    className={cn(fieldInputClass, "tabular-nums")}
+                  />
+                </FormField>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <label htmlFor="ticket-type-stock" className="text-[13px] text-white/60">Cupo</label>
-              <input id="ticket-type-stock" value={stock} onChange={(e) => setStock(e.target.value)} inputMode="numeric" placeholder="Sin límite" className={fieldClass} />
-            </div>
+          </FormBlock>
+
+          <FormBlock title="Promoción">
+            <ToggleRow
+              title="Llevá varias y pagá menos"
+              description="Se aplica sola al comprar la cantidad de entradas indicada."
+              checked={promoEnabled}
+              onCheckedChange={setPromoEnabled}
+              disabled={saving || deleting}
+            />
+            {promoEnabled ? (
+              <div className="mt-5 space-y-3">
+                <div className="grid grid-cols-2 gap-3 sm:max-w-[280px]">
+                  <FormField label="Llevás" htmlFor={`type-buy-${id}`}>
+                    <Input
+                      id={`type-buy-${id}`}
+                      inputMode="numeric"
+                      value={promoBuy}
+                      onChange={(e) => setPromoBuy(e.target.value)}
+                      className={cn(fieldInputClass, "tabular-nums")}
+                    />
+                  </FormField>
+                  <FormField label="Pagás" htmlFor={`type-pay-${id}`}>
+                    <Input
+                      id={`type-pay-${id}`}
+                      inputMode="numeric"
+                      value={promoPay}
+                      onChange={(e) => setPromoPay(e.target.value)}
+                      className={cn(fieldInputClass, "tabular-nums")}
+                    />
+                  </FormField>
+                </div>
+                <p className="text-[12px] text-white/50" aria-live="polite">
+                  {promoPercent != null
+                    ? `Llevando ${promoBuy} pagás ${promoPay}: ${promoPercent}% menos.`
+                    : "Llevás entre 2 y 20 entradas y pagás una cantidad menor."}
+                </p>
+              </div>
+            ) : null}
+          </FormBlock>
+
+          <FormBlock title="Horario de ingreso">
+            <ToggleRow
+              title="Restringir horario"
+              description="Limita desde y hasta cuándo se puede usar esta entrada."
+              checked={admissionEnabled}
+              onCheckedChange={setAdmissionEnabled}
+              disabled={saving || deleting}
+            />
+            {admissionEnabled ? (
+              <div className="mt-5">
+                <TicketAdmissionFields
+                  from={from}
+                  until={until}
+                  onFromChange={setFrom}
+                  onUntilChange={setUntil}
+                  disabled={saving || deleting}
+                />
+              </div>
+            ) : null}
+          </FormBlock>
+
+          {type ? (
+            <FormBlock title="Disponibilidad">
+              <ToggleRow
+                title="Activa en la tienda"
+                description="Si la desactivás, no se puede comprar. Las entradas ya emitidas siguen valiendo."
+                checked={active}
+                onCheckedChange={setActive}
+                disabled={saving || deleting}
+              />
+            </FormBlock>
+          ) : null}
+        </fieldset>
+
+        {error ? (
+          <p role="alert" className="text-[13px] leading-relaxed text-rose-300">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.07] pt-6">
+          <div>
+            {type ? (
+              confirmDelete ? (
+                <div className="flex flex-wrap items-center gap-2 text-[13px] text-rose-200/90">
+                  <span>¿Eliminar esta entrada?</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={saving || deleting}
+                    onClick={() => setConfirmDelete(false)}
+                    className="h-9 rounded-lg px-2.5 text-white/60 hover:text-white"
+                  >
+                    Volver
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={saving || deleting}
+                    onClick={() => void remove()}
+                    className="h-9 rounded-lg bg-rose-500/15 px-3 text-rose-200 hover:bg-rose-500/25"
+                  >
+                    {deleting ? "Eliminando…" : "Eliminar"}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={saving || deleting}
+                  onClick={() => setConfirmDelete(true)}
+                  className="h-9 rounded-lg px-2.5 text-white/40 hover:bg-rose-500/10 hover:text-rose-300"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Eliminar
+                </Button>
+              )
+            ) : null}
           </div>
-          <TicketAdmissionFields from={validFrom} until={validUntil} onFromChange={setValidFrom} onUntilChange={setValidUntil} eventDate={eventDate} disabled={saving} />
-          {error ? <p className="text-[13px] text-red-400">{error}</p> : null}
-          <DialogFooter className="gap-2">
-            <button type="button" onClick={close} disabled={saving} className="h-10 rounded-lg px-4 text-[14px] text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40">Cancelar</button>
-            <button type="submit" disabled={saving || name.trim() === ""} className="h-10 rounded-lg bg-[#FF9500] px-4 text-[14px] font-semibold text-white transition-opacity hover:bg-[#FF9500]/90 disabled:opacity-40">{saving ? "Creando…" : "Crear tipo"}</button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={saving || deleting}
+              onClick={onCancel}
+              className="h-10 rounded-xl px-4 text-white/60 hover:text-white"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={saving || deleting || !name.trim()}
+              className={primaryButtonClass}
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : type ? null : (
+                <Plus className="h-4 w-4" />
+              )}
+              {saving ? "Guardando…" : type ? "Guardar cambios" : "Crear tipo"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </div>
   )
 }
 
-export function TicketTypes({ eventId, eventDate, refreshTrigger, onChanged, onCountChange, onCreateTicketType }: TicketTypesProps) {
+export function TicketTypes({
+  eventId,
+  refreshTrigger,
+  onChanged,
+  onCountChange,
+  onEditingChange
+}: TicketTypesProps) {
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
   const canManage = role === "ADMIN" || role === "MANAGER"
-
   const [types, setTypes] = useState<ApiTicketType[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [editor, setEditor] = useState<EditorState | null>(null)
+  const loaded = useRef(false)
 
   const load = useCallback(async () => {
     if (!token || !eventId) return
     setError(null)
-    setLoading(true)
+    if (!loaded.current) setLoading(true)
     try {
-      const data = await apiFetch<TicketTypesResponse>(
-        `/events/${eventId}/ticket-types`,
-        { method: "GET", token }
-      )
+      const data = await apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, {
+        method: "GET",
+        token
+      })
       setTypes(data.ticketTypes)
       onCountChange?.(data.ticketTypes.length)
+      loaded.current = true
     } catch (err) {
-      setTypes([])
-      onCountChange?.(0)
-      setError(err instanceof ApiError ? err.message : "No se pudieron cargar los tipos")
+      setError(
+        err instanceof ApiError ? err.message : "No se pudieron cargar los tipos de entrada."
+      )
     } finally {
       setLoading(false)
     }
@@ -676,54 +565,287 @@ export function TicketTypes({ eventId, eventDate, refreshTrigger, onChanged, onC
     void load()
   }, [load, refreshTrigger])
 
+  useEffect(() => {
+    onEditingChange?.(editor !== null)
+  }, [editor, onEditingChange])
+
   const handleChanged = useCallback(() => {
-    void load()
-    onChanged?.()
+    if (onChanged) onChanged()
+    else void load()
   }, [load, onChanged])
 
+  const closeEditor = useCallback(() => setEditor(null), [])
+
+  const handleSaved = useCallback(() => {
+    setEditor(null)
+    handleChanged()
+  }, [handleChanged])
+
+  if (editor) {
+    return (
+      <TicketTypeEditor
+        key={editor.mode === "edit" ? editor.type.id : "new"}
+        eventId={eventId}
+        type={editor.mode === "edit" ? editor.type : undefined}
+        onSaved={handleSaved}
+        onCancel={closeEditor}
+      />
+    )
+  }
+
   return (
-    <section className="w-full">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">
+    <section className="w-full space-y-5" aria-labelledby="ticket-types-title">
+      <header className="flex flex-wrap items-center gap-3">
+        <h2
+          id="ticket-types-title"
+          className="mr-auto flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground"
+        >
           Tipos de entrada
+          {!loading ? (
+            <span className="text-[13px] font-medium text-white/45 tabular-nums">
+              {types.length}
+            </span>
+          ) : null}
         </h2>
-        {canManage && onCreateTicketType ? (
+        {canManage && (loading || types.length > 0) ? (
           <Button
             type="button"
-            onClick={onCreateTicketType}
-            className="h-10 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
+            onClick={() => setEditor({ mode: "create" })}
+            className={primaryButtonClass}
           >
-            <Plus className="mr-1.5 h-4 w-4" />
+            <Plus className="h-4 w-4" />
             Nuevo tipo
           </Button>
         ) : null}
-      </div>
+      </header>
 
       {error ? (
-        <p className="mt-4 text-[15px] text-red-400">{error}</p>
-      ) : loading ? (
-        <p className="mt-4 text-[15px] text-white/40">Cargando tipos…</p>
-      ) : types.length === 0 ? (
-        <p className="mt-4 text-[15px] text-white/40">
-          {canManage ? "Todavía no tienes tipos de entradas" : "No hay tipos de entrada."}
-        </p>
-      ) : (
-        <div className="mt-4 space-y-2">
-          {types.map((t) => (
-            <TypeRow
-              key={t.id}
-              eventId={eventId}
-              type={t}
-              eventDate={eventDate}
-              expanded={expandedId === t.id}
-              onToggle={() =>
-                setExpandedId((cur) => (cur === t.id ? null : t.id))
-              }
-              onChanged={handleChanged}
-              canManage={canManage}
-            />
-          ))}
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-rose-500/20 bg-rose-500/[0.05] px-4 py-3">
+          <p role="alert" className="text-[13px] text-rose-300">
+            {error}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void load()}
+            className="ml-auto h-8 rounded-lg px-2.5 text-white/60 hover:text-white"
+          >
+            Reintentar
+          </Button>
         </div>
+      ) : null}
+
+      {error && types.length === 0 ? null : loading ? (
+        <div className="overflow-hidden rounded-2xl" aria-busy="true" aria-label="Cargando tipos de entrada">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                <TableHead className={cn(headClass, "pl-4")}>Entrada</TableHead>
+                <TableHead className={cn(headClass, "text-right")}>Precio</TableHead>
+                <TableHead className={headClass}>Vendidas / cupo</TableHead>
+                <TableHead className={cn(headClass, "hidden sm:table-cell")}>Estado</TableHead>
+                <TableHead className="w-10 pr-4" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <TableRow key={i} className="border-0 hover:bg-transparent">
+                  <TableCell className="py-5 pl-4" colSpan={5}>
+                    <div className="h-5 animate-pulse rounded-lg bg-white/[0.06]" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : types.length === 0 ? (
+        <div className="border-y border-white/[0.06] py-16 text-center">
+          <Ticket className="mx-auto h-6 w-6 text-white/25" strokeWidth={1.5} />
+          <h3 className="mt-4 text-[16px] font-semibold text-white">Todavía no hay tipos de entrada</h3>
+          <p className="mx-auto mt-1.5 max-w-sm text-[13px] leading-relaxed text-white/50">
+            Creá el primero para abrir la venta en la tienda y habilitar la emisión desde Asistentes.
+          </p>
+          {canManage ? (
+            <Button
+              type="button"
+              onClick={() => setEditor({ mode: "create" })}
+              className={cn(primaryButtonClass, "mt-5")}
+            >
+              <Plus className="h-4 w-4" />
+              Crear primera entrada
+            </Button>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <div className="hidden overflow-hidden rounded-2xl sm:block">
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                  <TableHead className={cn(headClass, "pl-4")}>Entrada</TableHead>
+                  <TableHead className={cn(headClass, "w-[18%]")}>Precio</TableHead>
+                  <TableHead className={cn(headClass, "w-[22%]")}>Vendidas / cupo</TableHead>
+                  <TableHead className={cn(headClass, "w-[15%]")}>Estado</TableHead>
+                  <TableHead className="w-10 pr-4" />
+                </TableRow>
+              </TableHeader>
+              <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
+                {types.map((type) => {
+                  const admission = admissionSummary(type)
+                  const inactive = type.isActive === false
+                  return (
+                    <TableRow
+                      key={type.id}
+                      tabIndex={canManage ? 0 : undefined}
+                      aria-label={canManage ? `Editar ${type.name}` : type.name}
+                      onClick={() => {
+                        if (canManage) setEditor({ mode: "edit", type })
+                      }}
+                      onKeyDown={(e) => {
+                        if (!canManage) return
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          setEditor({ mode: "edit", type })
+                        }
+                      }}
+                      className={cn(
+                        "border-0 transition-colors duration-150 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#FF9500]",
+                        canManage && "cursor-pointer"
+                      )}
+                    >
+                      <TableCell className="max-w-0 py-4 pl-4 whitespace-normal">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              "text-[15px] font-medium",
+                              inactive ? "text-white/55" : "text-foreground"
+                            )}
+                          >
+                            {type.name}
+                          </span>
+                          {type.promoBuy != null && type.promoPay != null ? (
+                            <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-medium text-white/65 tabular-nums">
+                              {type.promoBuy}×{type.promoPay}
+                            </span>
+                          ) : null}
+                        </div>
+                        {admission ? (
+                          <span className="mt-1 flex items-center gap-1.5 text-[12px] text-white/50">
+                            <Clock3 className="h-3 w-3 shrink-0" />
+                            {admission}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="py-4 text-[15px] font-medium text-white/80 tabular-nums whitespace-nowrap">
+                        {formatPrice(type.price)}
+                      </TableCell>
+                      <TableCell className="py-4 tabular-nums whitespace-nowrap">
+                        <span className="text-[14px] text-white/70">
+                          {type.sold.toLocaleString("es-AR")}
+                          <span className="text-white/45">
+                            {" / "}
+                            {type.stockLimit == null ? "∞" : type.stockLimit.toLocaleString("es-AR")}
+                          </span>
+                        </span>
+                        <span
+                          className={cn(
+                            "mt-0.5 block text-[12px]",
+                            type.remaining === 0 ? "text-amber-300/80" : "text-white/50"
+                          )}
+                        >
+                          {availabilityCaption(type)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <span
+                          className={cn(
+                            "text-[12px] font-normal lowercase",
+                            inactive ? "text-white/45" : "text-white/65"
+                          )}
+                        >
+                          {inactive ? "inactiva" : "activa"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-4 pr-4 text-right">
+                        {canManage ? (
+                          <ChevronRight className="ml-auto h-4 w-4 text-white/25" aria-hidden />
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <ul className="divide-y divide-white/[0.06] border-y border-white/[0.06] sm:hidden">
+            {types.map((type) => {
+              const admission = admissionSummary(type)
+              const inactive = type.isActive === false
+              return (
+                <li key={type.id}>
+                  <button
+                    type="button"
+                    disabled={!canManage}
+                    onClick={() => setEditor({ mode: "edit", type })}
+                    aria-label={`Editar ${type.name}`}
+                    className="flex w-full items-start justify-between gap-4 py-4 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#FF9500] disabled:cursor-default"
+                  >
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "text-[15px] font-medium",
+                            inactive ? "text-white/55" : "text-foreground"
+                          )}
+                        >
+                          {type.name}
+                        </span>
+                        {type.promoBuy != null && type.promoPay != null ? (
+                          <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-medium text-white/65 tabular-nums">
+                            {type.promoBuy}×{type.promoPay}
+                          </span>
+                        ) : null}
+                        {inactive ? (
+                          <span className="text-[11px] font-normal lowercase text-white/50">
+                            inactiva
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] tabular-nums">
+                        <span className="text-white/75">{formatPrice(type.price)}</span>
+                        <span className="text-white/20" aria-hidden>
+                          ·
+                        </span>
+                        <span className="text-white/55">
+                          {type.sold.toLocaleString("es-AR")} /{" "}
+                          {type.stockLimit == null ? "∞" : type.stockLimit.toLocaleString("es-AR")}
+                        </span>
+                        <span
+                          className={cn(
+                            type.remaining === 0 ? "text-amber-300/80" : "text-white/50"
+                          )}
+                        >
+                          {availabilityCaption(type)}
+                        </span>
+                      </span>
+                      {admission ? (
+                        <span className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-white/50">
+                          <Clock3 className="mt-0.5 h-3 w-3 shrink-0" />
+                          {admission}
+                        </span>
+                      ) : null}
+                    </span>
+                    {canManage ? (
+                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-white/25" aria-hidden />
+                    ) : null}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </>
       )}
     </section>
   )

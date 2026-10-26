@@ -98,7 +98,7 @@ export function ProductImageUploader({ product, onUpdated }: Props) {
 
       <div
         className={cn(
-          "relative overflow-hidden rounded-xl border-2 border-dashed border-zinc-600 bg-zinc-950",
+          "relative overflow-hidden rounded-xl bg-white/[0.03]",
           "min-h-[200px] transition-colors duration-200",
           !imageUrl && "flex flex-col items-center justify-center gap-4 px-6 py-14"
         )}
@@ -125,7 +125,7 @@ export function ProductImageUploader({ product, onUpdated }: Props) {
                 variant="secondary"
                 disabled={busy || !token}
                 onClick={pickFile}
-                className="h-9 rounded-lg border border-zinc-600 bg-zinc-900/90 text-[13px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-zinc-800"
+                className="h-9 rounded-lg bg-black/70 text-[13px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-black/85"
               >
                 <Upload className="mr-1.5 h-3.5 w-3.5" />
                 Cambiar
@@ -145,7 +145,7 @@ export function ProductImageUploader({ product, onUpdated }: Props) {
           </>
         ) : (
           <>
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-700 bg-black">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black">
               <ImagePlus className="h-7 w-7 text-zinc-400" strokeWidth={1.25} aria-hidden />
             </div>
             <div className="text-center">

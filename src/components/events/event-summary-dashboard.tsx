@@ -207,35 +207,6 @@ function PreparationMap({
 
 /* Ventas y proyección */
 
-type TierLine = { key: string; label: string }
-
-/** Deriva la escalera de tandas de un tipo a partir de `sold` y los cupos por tramo. */
-function tierLines(type: ApiTicketType): TierLine[] {
-  const tiers = (type.tiers ?? []).slice().sort((a, b) => a.position - b.position)
-  if (tiers.length === 0) {
-    const label =
-      type.stockLimit != null
-        ? `${type.name} · ${formatInt(type.sold)}/${formatInt(type.stockLimit)}`
-        : `${type.name} · ${formatInt(type.sold)}`
-    return [{ key: type.id, label }]
-  }
-  let soldLeft = type.sold
-  return tiers.map((tier) => {
-    if (tier.stockLimit == null) {
-      const label = `${tier.name} · ${formatInt(soldLeft)}`
-      soldLeft = 0
-      return { key: tier.id, label }
-    }
-    const consumed = Math.min(soldLeft, tier.stockLimit)
-    soldLeft -= consumed
-    const label =
-      consumed >= tier.stockLimit
-        ? `${tier.name} agotada`
-        : `${tier.name} · ${formatInt(consumed)}/${formatInt(tier.stockLimit)}`
-    return { key: tier.id, label }
-  })
-}
-
 function CommercialPulse({ summary, types }: { summary: EventSummaryResponse; types: ApiTicketType[] }) {
   const sold = summary.ticketsSold
 
@@ -272,17 +243,13 @@ function CommercialPulse({ summary, types }: { summary: EventSummaryResponse; ty
 
   return (
     <div className="space-y-8">
-      {/* Escalera de tandas por tipo */}
+      {/* Ventas por tipo de entrada */}
       {types.length > 0 && (
         <div className="space-y-3">
           {types.map((t) => (
             <div key={t.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[15px]">
-              {tierLines(t).map((tl, i) => (
-                <span key={tl.key} className="flex items-center gap-2.5">
-                  {i > 0 && <span className="text-white/20" aria-hidden>·</span>}
-                  <span className="text-white/70">{tl.label}</span>
-                </span>
-              ))}
+              <span className="text-white/70">{t.name} · {formatInt(t.sold)}{t.stockLimit != null ? `/${formatInt(t.stockLimit)}` : ""}</span>
+              {t.isActive === false && <span className="text-xs text-zinc-400">Inactiva</span>}
             </div>
           ))}
         </div>

@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Check,
-  Pencil,
-  Store,
-  X,
-} from "lucide-react";
+import Decimal from "decimal.js";
+import { AlertTriangle, ArrowLeft, Check, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -28,8 +22,7 @@ import { BarStockPanel } from "./bar-stock-panel";
 import { BarTeamPanel } from "./bar-team-panel";
 import { BarSalesPanel } from "./bar-sales-panel";
 import { BarProductEditor } from "./bar-product-editor";
-import { productAvailability } from "./bar-workspace-model";
-
+import { moneyLabel } from "./bar-workspace-model";
 type Props = {
   eventId: string;
   barId: string;
@@ -149,7 +142,7 @@ export function BarDetailView({
     onChanged?.();
   }
   async function toggleProduct(productId: string, active: boolean) {
-    if (!token || busy) return;
+    if (!token || busy) return false;
     setBusy(productId);
     try {
       await apiFetch(`/bars/${barId}/products/toggle`, {
@@ -163,10 +156,12 @@ export function BarDetailView({
           ? "Producto agregado a esta barra"
           : "Producto quitado de esta barra",
       );
+      return true;
     } catch (e) {
       toast.error(
         e instanceof ApiError ? e.message : "No se pudo actualizar el menú",
       );
+      return false;
     } finally {
       setBusy(null);
     }
@@ -229,15 +224,19 @@ export function BarDetailView({
     menu.filter((row) => row.isActiveForBar).map((row) => row.id),
   );
   const activeProducts = catalog.filter((product) => activeIds.has(product.id));
-  const shortages = trackStock
-    ? activeProducts.filter(
-        (product) =>
-          productAvailability(
-            product,
-            inventory,
-            menu.find((row) => row.id === product.id)?.directStock,
-          ) === 0,
-      ).length
+  // El contador de Stock cuenta existencias agotadas, no productos: es el mismo
+  // número que ve el operador en esa pestaña.
+  const emptyStock = trackStock
+    ? inventory.filter((item) => new Decimal(item.barCurrentStock).lte(0))
+        .length +
+      menu.filter((row) => {
+        const product = catalog.find((item) => item.id === row.id);
+        return (
+          product?.recipes.length === 0 &&
+          row.directStock != null &&
+          new Decimal(row.directStock).lte(0)
+        );
+      }).length
     : 0;
   const members = staff.filter(
     (member) => member.barId === barId && member.isAssigned,
@@ -271,9 +270,6 @@ export function BarDetailView({
       ) : (
         <>
           <header className="bw-detail-header">
-            <span className="bw-bar-icon">
-              <Store size={24} />
-            </span>
             <div className="bw-grow">
               {rename ? (
                 <form
@@ -323,16 +319,21 @@ export function BarDetailView({
                   </button>
                 </div>
               )}
-              <span
-                className={`bw-live-state ${bar.isActive === false ? "inactive" : ""}`}
-              >
-                <span />
-                {bar.isActive === false ? "Barra inactiva" : "Barra activa"}
-              </span>
+              <div className="bw-detail-meta">
+                <span
+                  className={`bw-live-state ${bar.isActive === false ? "inactive" : ""}`}
+                >
+                  <span />
+                  {bar.isActive === false ? "Barra inactiva" : "Barra activa"}
+                </span>
+                <span className="bw-detail-sales">
+                  Vendido <strong>{moneyLabel(bar.totalSales ?? "0")}</strong>
+                </span>
+              </div>
             </div>
             {!bar.isDefault && (
               <button
-                className="bw-secondary"
+                className="bw-quiet-button"
                 disabled={busy !== null}
                 onClick={() =>
                   void updateBar({ isActive: bar.isActive === false })
@@ -351,7 +352,7 @@ export function BarDetailView({
                       {
                         id: "stock",
                         label: "Stock",
-                        count: shortages || undefined,
+                        count: emptyStock || undefined,
                       },
                     ]
                   : []),
@@ -369,18 +370,18 @@ export function BarDetailView({
                 {item.count != null && (
                   <span
                     className={
-                      item.id === "stock" && shortages ? "warning" : ""
+                      item.id === "stock" && emptyStock ? "warning" : ""
                     }
                     title={
                       item.id === "stock"
-                        ? `${shortages} productos sin stock`
+                        ? `${emptyStock} ${emptyStock === 1 ? "existencia sin stock" : "existencias sin stock"}`
                         : undefined
                     }
                   >
-                    {item.id === "stock" && shortages > 0 && (
+                    {item.id === "stock" && emptyStock > 0 && (
                       <AlertTriangle
                         size={12}
-                        aria-label="Productos sin stock"
+                        aria-label="Existencias sin stock"
                       />
                     )}
                     {item.count}
@@ -389,7 +390,19 @@ export function BarDetailView({
               </button>
             ))}
           </nav>
-          <div className="bw-section">
+          <div
+            className="bw-section"
+            role="region"
+            aria-label={
+              section === "menu"
+                ? "Menú"
+                : section === "stock"
+                  ? "Stock"
+                  : section === "team"
+                    ? "Equipo"
+                    : "Ventas"
+            }
+          >
             {section === "menu" &&
               (editing !== undefined ? (
                 <BarProductEditor
@@ -412,6 +425,7 @@ export function BarDetailView({
                   materials={materials}
                   onMaterialsChange={materialCreated}
                   onCancel={() => setEditing(undefined)}
+                  onRemove={editing ? () => toggleProduct(editing.id, false) : undefined}
                   onSaved={(_id, hasStock) => {
                     const created = editing === null;
                     setEditing(undefined);
@@ -433,7 +447,6 @@ export function BarDetailView({
                   onToggle={(id, active) => void toggleProduct(id, active)}
                   onCreate={() => setEditing(null)}
                   onEdit={setEditing}
-                  onStock={() => setSection("stock")}
                   query={menuQuery}
                   onQueryChange={setMenuQuery}
                 />

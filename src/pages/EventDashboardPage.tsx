@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useParams } from "react-router"
 import { EventLayout } from "@/components/events/event-layout"
-import {
-  TicketTypeCreateDialog,
-  TicketTypes,
-} from "@/components/events/ticket-types"
+import { TicketTypes } from "@/components/events/ticket-types"
 import { CourtesiesPanel } from "@/components/events/courtesies-panel"
-import {
-  EventMessagesEntry,
-  EventMessagesPanel,
-} from "@/components/events/event-messages-panel"
 import {
   AttendeeTable,
   type AttendeeTableHandle,
@@ -27,7 +20,6 @@ import { EventClosedReport } from "@/components/events/event-closed-report"
 import { EventFlyerMailPreview } from "@/components/events/event-flyer-mail-preview"
 import { EventSalesConfig } from "@/components/events/event-sales-config"
 import { AdmissionBlacklistPanel } from "@/components/events/admission-blacklist-panel"
-import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { apiFetch, ApiError } from "@/lib/api"
@@ -92,7 +84,6 @@ export function EventDashboardPage() {
   const { id } = useParams<{ id: string }>()
   const token = useAuthStore((s) => s.token)
   const role = useAuthStore((s) => s.staff?.role)
-  const tenantId = useAuthStore((s) => s.staff?.tenantId ?? null)
 
   const [event, setEvent] = useState<ApiEvent | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -100,9 +91,6 @@ export function EventDashboardPage() {
 
   const [activeSection, setActiveSection] = useState<SectionId>("resumen")
   const [financeView, setFinanceView] = useState<"summary" | "sales">("summary")
-  // Entradas tiene una pantalla interna, "Mensajes" (recordatorio de WhatsApp), que reemplaza todo el
-  // contenido de la sección hasta que se vuelve con el botón.
-  const [ticketsView, setTicketsView] = useState<"main" | "messages">("main")
   const [refreshTick, setRefreshTick] = useState(0)
   // Las herramientas y los reportes se abren desde el mismo espacio de trabajo.
   const [view, setView] = useState<"workspace" | "balance" | "cash" | "report">("workspace")
@@ -113,7 +101,11 @@ export function EventDashboardPage() {
   // (cortesías, tabla de asistentes) se oculta. null = todavía no sabemos (cargando).
   const [ticketTypeCount, setTicketTypeCount] = useState<number | null>(null)
   const hasTicketTypes = (ticketTypeCount ?? 0) > 0
-  const [ticketTypeDialogOpen, setTicketTypeDialogOpen] = useState(false)
+  // Los editores de Entradas viven dentro de la página (sin diálogos). Mientras uno está abierto,
+  // se oculta el resto de la sección para que la tarea tenga una sola superficie.
+  const [ticketTypeEditorOpen, setTicketTypeEditorOpen] = useState(false)
+  const [courtesyEditorOpen, setCourtesyEditorOpen] = useState(false)
+  const [attendeeEditorOpen, setAttendeeEditorOpen] = useState(false)
 
   // Tarea 3.1 — Restricción de edad (+18): toggle en la sección Entradas; persiste
   // `events.ageRestriction` (18 o null). Lo lee el escáner de DNI en la puerta.
@@ -123,10 +115,15 @@ export function EventDashboardPage() {
   const attendeeTableRef = useRef<AttendeeTableHandle>(null)
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
   const navigateToSection = useCallback((section: SectionId) => {
+    if (section !== activeSection) {
+      // Al cambiar de sección, los editores en página vuelven al listado.
+      setTicketTypeEditorOpen(false)
+      setCourtesyEditorOpen(false)
+      setAttendeeEditorOpen(false)
+    }
     setActiveSection(section)
     if (section === "finanzas") setFinanceView("summary")
-    if (section === "entradas") setTicketsView("main")
-  }, [])
+  }, [activeSection])
 
   const loadEvent = useCallback(async () => {
     if (!token || !id) return
@@ -215,10 +212,7 @@ export function EventDashboardPage() {
     switch (activeSection) {
       case "resumen":
         return (
-          <SectionShell
-            title="Resumen"
-            action={<MpConnectionCard tenantId={tenantId} token={token} variant="inline" />}
-          >
+          <SectionShell title="Resumen">
             <EventSummaryDashboard
               eventId={id}
               operationMode={operationMode}
@@ -231,90 +225,61 @@ export function EventDashboardPage() {
       case "transporte":
         return <SectionShell title="Transporte"><EventTransportsTab eventId={id} /></SectionShell>
       case "entradas":
-        if (ticketsView === "messages") {
-          return (
-            <SectionShell
-              title="Mensajes"
-              action={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setTicketsView("main")}
-                  className="cursor-pointer gap-1.5 border border-white/[0.10] bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Volver a entradas
-                </Button>
-              }
-            >
-              <EventMessagesPanel
-                event={event}
-                onEnabledChange={(enabled) =>
-                  setEvent((prev) =>
-                    prev ? { ...prev, whatsappReminderEnabled: enabled } : prev
-                  )
-                }
-              />
-            </SectionShell>
-          )
-        }
         return (
-          <SectionShell
-            title="Entradas"
-            action={
-              <div className="flex flex-col items-end gap-1 pb-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold text-white/60">
-                    Evento +18
-                  </span>
+          <SectionShell title="Entradas">
+            {!courtesyEditorOpen && !attendeeEditorOpen && (
+              <TicketTypes
+                eventId={id}
+                refreshTrigger={refreshTick}
+                onChanged={bump}
+                onCountChange={setTicketTypeCount}
+                onEditingChange={setTicketTypeEditorOpen}
+              />
+            )}
+            {!ticketTypeEditorOpen && !courtesyEditorOpen && (
+              <AttendeeTable
+                ref={attendeeTableRef}
+                eventId={id}
+                refreshTrigger={refreshTick}
+                layout="canvas"
+                hideExportButton
+                allowSale={hasTicketTypes}
+                onSaleCompleted={bump}
+                onEditingChange={setAttendeeEditorOpen}
+              />
+            )}
+            {!ticketTypeEditorOpen && !attendeeEditorOpen && (
+              <CourtesiesPanel
+                eventId={id}
+                refreshTrigger={refreshTick}
+                supportsConsumptions={supportsConsumptions}
+                onChanged={bump}
+                onEditingChange={setCourtesyEditorOpen}
+              />
+            )}
+            {!ticketTypeEditorOpen && !courtesyEditorOpen && !attendeeEditorOpen && (
+              <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.07] pt-6">
+                <div className="max-w-xl">
+                  <h2 className="text-[15px] font-semibold text-white">Restricción de edad</h2>
+                  <p className="mt-1 text-[13px] leading-relaxed text-white/45">
+                    Con el evento +18, la puerta pide documento y bloquea el ingreso de menores.
+                  </p>
+                  {ageRestrictionError && (
+                    <p className="mt-1 text-[12px] text-rose-300">{ageRestrictionError}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[13px] font-medium text-white/60">Evento +18</span>
                   <Switch
                     checked={event.ageRestriction != null && event.ageRestriction > 0}
                     onCheckedChange={() => void toggleAgeRestriction()}
                     disabled={ageRestrictionBusy}
                     aria-label="Evento +18"
+                    className="h-6 w-11 data-[state=checked]:bg-[#FF9500] data-[state=unchecked]:bg-white/[0.16]"
                   />
                 </div>
-                {ageRestrictionError && (
-                  <p className="text-[11px] text-red-400">{ageRestrictionError}</p>
-                )}
               </div>
-            }
-          >
-            <TicketTypeCreateDialog
-              eventDate={event.date}
-              eventId={id}
-              open={ticketTypeDialogOpen}
-              onOpenChange={setTicketTypeDialogOpen}
-              onCreated={bump}
-            />
-            <TicketTypes
-              eventDate={event.date}
-              eventId={id}
-              refreshTrigger={refreshTick}
-              onChanged={bump}
-              onCountChange={setTicketTypeCount}
-              onCreateTicketType={() => setTicketTypeDialogOpen(true)}
-            />
-            <AttendeeTable
-              ref={attendeeTableRef}
-              eventId={id}
-              refreshTrigger={refreshTick}
-              layout="canvas"
-              hideExportButton
-              allowSale={hasTicketTypes}
-              onSaleCompleted={bump}
-            />
-            <CourtesiesPanel
-              eventId={id}
-              refreshTrigger={refreshTick}
-              supportsConsumptions={supportsConsumptions}
-              onChanged={bump}
-            />
-            <EventMessagesEntry
-              enabled={event.whatsappReminderEnabled ?? false}
-              onOpen={() => setTicketsView("messages")}
-            />
+            )}
           </SectionShell>
         )
       case "barra":
@@ -406,7 +371,7 @@ export function EventDashboardPage() {
 
   return (
     <EventLayout>
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8">
+      <div className={cn("mx-auto max-w-7xl px-4 py-6 sm:px-8", activeSection === "entradas" && "tickets-page")}>
         {/* Header permanente del evento (spec §4) */}
         <header className="flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.08] pb-6">
           <div className="min-w-0">

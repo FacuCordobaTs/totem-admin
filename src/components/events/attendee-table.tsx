@@ -1,11 +1,4 @@
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useState,
-} from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -14,27 +7,34 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
+  TableRow
 } from "@/components/ui/table"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
+  SelectValue
 } from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { TicketQrDialog } from "@/components/events/ticket-qr-dialog"
 import type { ApiTicketType } from "@/components/events/ticket-types"
 import type { ApiPromoter } from "@/components/events/promoters-panel"
-import { Mail, Plus, Search } from "lucide-react"
+import {
+  ArrowLeft,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Mail,
+  Plus,
+  QrCode,
+  Search,
+  Ticket,
+  Trash2
+} from "lucide-react"
+import "./tickets-workspace.css"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -65,20 +65,21 @@ type TicketTypesResponse = { ticketTypes: ApiTicketType[] }
 const filterTriggerClass =
   "h-9 min-w-[130px] rounded-xl border-white/[0.1] bg-white/[0.05] px-3 text-[13px] text-foreground shadow-none"
 
+const primaryButtonClass =
+  "h-10 rounded-xl bg-[#FF9500] px-4 font-semibold text-[#18120a] hover:bg-[#FFAB36]"
+const outlineButtonClass =
+  "h-10 rounded-xl border-white/[0.14] bg-transparent px-4 text-white/80 hover:bg-white/[0.06] hover:text-white"
+const fieldInputClass =
+  "h-11 rounded-xl border-white/[0.12] bg-white/[0.04] px-3 text-[15px] text-white placeholder:text-white/25 shadow-none focus-visible:border-[#FF9500] focus-visible:ring-0"
+const detailLabelClass = "text-[12px] text-white/45"
+const detailValueClass = "mt-1 text-[14px] leading-relaxed text-white"
+
 function statusPill(status: ApiTicketRow["status"]) {
   switch (status) {
     case "PENDING":
-      return (
-        <span className="text-[11px] font-normal lowercase text-white/40">
-          emitida
-        </span>
-      )
+      return <span className="text-[11px] font-normal lowercase text-white/40">emitida</span>
     case "USED":
-      return (
-        <span className="text-[11px] font-normal lowercase text-white/20">
-          usada
-        </span>
-      )
+      return <span className="text-[11px] font-normal lowercase text-white/20">usada</span>
     case "CANCELLED":
       return (
         <span className="inline-flex rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-500">
@@ -97,7 +98,7 @@ function formatPrice(price: string | number): string {
     "$ " +
     new Intl.NumberFormat("es-AR", {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(Math.round(n))
   )
 }
@@ -110,6 +111,10 @@ function formatShortDate(value: string | null): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "America/Argentina/Buenos_Aires"
   })
 }
 
@@ -122,6 +127,8 @@ type AttendeeTableProps = {
   onSaleCompleted?: () => void
   /** Si es false, no se muestra el formulario de venta embebido. */
   allowSale?: boolean
+  /** Avisa a la página que hay una vista enfocada (detalle o venta) abierta. */
+  onEditingChange?: (editing: boolean) => void
 }
 
 export type AttendeeTableHandle = {
@@ -130,7 +137,7 @@ export type AttendeeTableHandle = {
 
 export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>(
   function AttendeeTable(
-    { eventId, refreshTrigger, hideExportButton = false, onSaleCompleted, allowSale = true },
+    { eventId, refreshTrigger, hideExportButton = false, onSaleCompleted, allowSale = true, onEditingChange },
     ref
   ) {
     const token = useAuthStore((s) => s.token)
@@ -142,6 +149,8 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(25)
     const [searchQuery, setSearchQuery] = useState("")
     const [filterStatus, setFilterStatus] = useState<"all" | "PENDING" | "USED">("all")
     const [filterTicketTypeId, setFilterTicketTypeId] = useState<"all" | string>("all")
@@ -170,7 +179,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       try {
         const data = await apiFetch<{ promoters: ApiPromoter[] }>("/promoters", {
           method: "GET",
-          token,
+          token
         })
         setPromoters(data.promoters.filter((p) => p.isActive))
       } catch {
@@ -181,10 +190,10 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     const loadTicketTypes = useCallback(async () => {
       if (!token || !eventId) return
       try {
-        const data = await apiFetch<TicketTypesResponse>(
-          `/events/${eventId}/ticket-types`,
-          { method: "GET", token }
-        )
+        const data = await apiFetch<TicketTypesResponse>(`/events/${eventId}/ticket-types`, {
+          method: "GET",
+          token
+        })
         setTicketTypes(data.ticketTypes)
       } catch {
         setTicketTypes([])
@@ -203,15 +212,14 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           q.set("orderBy", "createdAt")
           q.set("order", "desc")
           if (filterStatus !== "all") q.set("status", filterStatus)
-          if (filterTicketTypeId !== "all")
-            q.set("ticketTypeId", filterTicketTypeId)
+          if (filterTicketTypeId !== "all") q.set("ticketTypeId", filterTicketTypeId)
           const data = await apiFetch<TicketsResponse>(
             `/events/${eventId}/tickets?${q.toString()}`,
             { method: "GET", token }
           )
           const next = data.tickets.map((t) => ({
             ...t,
-            emailSentAt: t.emailSentAt ?? null,
+            emailSentAt: t.emailSentAt ?? null
           }))
           setRows(next.filter((t) => t.status !== "CANCELLED"))
           setDetail((d) => {
@@ -223,23 +231,17 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
         } catch (err) {
           if (!opts?.silent) {
             setRows([])
-            setError(
-              err instanceof ApiError
-                ? err.message
-                : "No se pudieron cargar las entradas"
-            )
+            setError(err instanceof ApiError ? err.message : "No se pudieron cargar las entradas")
           } else {
             toast.error(
-              err instanceof ApiError
-                ? err.message
-                : "No se pudo actualizar la lista de entradas"
+              err instanceof ApiError ? err.message : "No se pudo actualizar la lista de entradas"
             )
           }
         } finally {
           if (!opts?.silent) setLoading(false)
         }
       },
-      [token, eventId, filterStatus, filterTicketTypeId, refreshTrigger]
+      [token, eventId, filterStatus, filterTicketTypeId]
     )
 
     useEffect(() => {
@@ -252,7 +254,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
 
     useEffect(() => {
       void loadTickets()
-    }, [loadTickets])
+    }, [loadTickets, refreshTrigger])
 
     const filtered = useMemo(() => {
       const q = searchQuery.toLowerCase().trim()
@@ -270,16 +272,13 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       })
     }, [rows, searchQuery, filterSource, filterPromoterId])
 
+    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+    const currentPage = Math.min(page, pageCount)
+    const pageOffset = (currentPage - 1) * pageSize
+    const visibleRows = filtered.slice(pageOffset, pageOffset + pageSize)
+
     const exportCsv = useCallback(() => {
-      const header = [
-        "Nombre",
-        "Correo",
-        "Tipo",
-        "Fecha compra",
-        "Fecha uso",
-        "Hash QR",
-        "Estado",
-      ]
+      const header = ["Nombre", "Correo", "Tipo", "Fecha compra", "Fecha uso", "Hash QR", "Estado"]
       const lines = filtered.map((r) =>
         [
           r.buyerName ?? "",
@@ -288,7 +287,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           r.createdAt ?? "",
           r.scannedAt ?? "",
           r.qrHash,
-          r.status,
+          r.status
         ]
           .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
           .join(",")
@@ -311,14 +310,12 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       try {
         await apiFetch<{ message?: string }>(`/tickets/${detail.id}/send-email`, {
           method: "POST",
-          token,
+          token
         })
         toast.success("Email con QR enviado")
         await loadTickets({ silent: true })
       } catch (e) {
-        toast.error(
-          e instanceof ApiError ? e.message : "No se pudo enviar el email"
-        )
+        toast.error(e instanceof ApiError ? e.message : "No se pudo enviar el email")
       } finally {
         setActionLoading(null)
       }
@@ -330,19 +327,19 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       try {
         await apiFetch<{ message?: string }>(`/tickets/${detail.id}/cancel`, {
           method: "POST",
-          token,
+          token
         })
         setCancelConfirming(false)
+        setDetail(null)
         toast.success("Entrada anulada")
         await loadTickets({ silent: true })
+        onSaleCompleted?.()
       } catch (e) {
-        toast.error(
-          e instanceof ApiError ? e.message : "No se pudo anular la entrada"
-        )
+        toast.error(e instanceof ApiError ? e.message : "No se pudo anular la entrada")
       } finally {
         setActionLoading(null)
       }
-    }, [token, detail, loadTickets])
+    }, [token, detail, loadTickets, onSaleCompleted])
 
     useEffect(() => {
       if (detail == null) setCancelConfirming(false)
@@ -353,7 +350,9 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       setSaleName("")
       setSaleEmail("")
       setSalePromoterId("")
-      const first = ticketTypes.find((t) => t.stockLimit == null || t.sold < t.stockLimit)
+      const first = ticketTypes.find(
+        (t) => t.isActive !== false && (t.stockLimit == null || t.sold < t.stockLimit)
+      )
       setSaleTypeId(first?.id ?? "")
       setSaleOpen(true)
     }, [ticketTypes])
@@ -371,10 +370,8 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
             ticketTypeId: saleTypeId,
             buyerName: saleName.trim(),
             buyerEmail: saleEmail.trim(),
-            ...(salePromoterId !== ""
-              ? { promoterId: salePromoterId }
-              : {}),
-          }),
+            ...(salePromoterId !== "" ? { promoterId: salePromoterId } : {})
+          })
         })
         setSaleOpen(false)
         setQrTicketId(result.ticket.id)
@@ -397,23 +394,102 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
       } finally {
         setSelling(false)
       }
-    }, [token, saleTypeId, selling, eventId, saleName, saleEmail, loadTickets, loadTicketTypes, onSaleCompleted])
+    }, [
+      token,
+      saleTypeId,
+      selling,
+      eventId,
+      saleName,
+      saleEmail,
+      salePromoterId,
+      loadTickets,
+      loadTicketTypes,
+      onSaleCompleted
+    ])
 
     const saleSelected = ticketTypes.find((t) => t.id === saleTypeId)
     const saleSoldOut =
       saleSelected != null &&
-      saleSelected.stockLimit != null &&
-      saleSelected.sold >= saleSelected.stockLimit
+      (saleSelected.isActive === false ||
+        (saleSelected.stockLimit != null && saleSelected.sold >= saleSelected.stockLimit))
 
     const showFilters = true
+    const showDetail = detail !== null
+    const showSale = allowSale && saleOpen
+
+    useEffect(() => {
+      onEditingChange?.(showDetail || showSale)
+    }, [showDetail, showSale, onEditingChange])
+
+    useEffect(() => {
+      if (showDetail || showSale) window.scrollTo({ top: 0, behavior: "auto" })
+    }, [showDetail, showSale])
+
+    if (detail) {
+      return (
+        <>
+          <AttendeeDetail
+            detail={detail}
+            actionLoading={actionLoading}
+            cancelConfirming={cancelConfirming}
+            onBack={() => {
+              setDetail(null)
+              setCancelConfirming(false)
+            }}
+            onSendEmail={() => void handleSendQrEmail()}
+            onOpenQr={() => {
+              setQrTicketId(detail.id)
+              setQrBuyerName(detail.buyerName)
+              setQrOpen(true)
+            }}
+            onAskCancel={() => setCancelConfirming(true)}
+            onCancelBack={() => setCancelConfirming(false)}
+            onConfirmCancel={() => void handleConfirmCancelTicket()}
+          />
+          <TicketQrDialog
+            open={qrOpen}
+            onOpenChange={(open) => {
+              setQrOpen(open)
+              if (!open) {
+                setQrTicketId(null)
+                setQrBuyerName(null)
+              }
+            }}
+            ticketId={qrTicketId}
+            buyerName={qrBuyerName}
+            token={token}
+          />
+        </>
+      )
+    }
+
+    if (showSale) {
+      return (
+        <SaleEditor
+          ticketTypes={ticketTypes}
+          promoters={promoters}
+          saleTypeId={saleTypeId}
+          onSelectType={setSaleTypeId}
+          saleName={saleName}
+          onNameChange={setSaleName}
+          saleEmail={saleEmail}
+          onEmailChange={setSaleEmail}
+          salePromoterId={salePromoterId}
+          onPromoterChange={setSalePromoterId}
+          error={saleError}
+          selling={selling}
+          soldOut={saleSoldOut}
+          onSubmit={() => void submitSale()}
+          onCancel={() => setSaleOpen(false)}
+        />
+      )
+    }
 
     return (
       <section className="w-full space-y-5">
         {/* Header: title + filters (ocultos hasta que haya asistentes) */}
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">
-            Asistentes
-          </h2>
+          <h2 className="mr-auto text-2xl font-bold tracking-tight text-foreground">Asistentes</h2>
           {showFilters && !hideExportButton && (
             <Button
               variant="ghost"
@@ -429,7 +505,13 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
             <Button
               type="button"
               onClick={openSale}
-              className="h-10 rounded-xl bg-[#FF9500] px-4 text-white hover:bg-[#FF9500]/90"
+              disabled={
+                loading ||
+                !ticketTypes.some(
+                  (t) => t.isActive !== false && (t.remaining == null || t.remaining > 0)
+                )
+              }
+              className="h-10 rounded-xl bg-[#FF9500] px-4 text-[#18120a] hover:bg-[#FF9500]/90"
             >
               <Plus className="mr-1.5 h-4 w-4" />
               Nueva venta
@@ -442,13 +524,19 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                 <Input
                   placeholder="Buscar asistente"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    setPage(1)
+                  }}
                   className="h-9 w-full rounded-xl border-white/[0.1] bg-white/[0.05] pl-8 text-[13px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
                 />
               </div>
               <Select
                 value={filterTicketTypeId}
-                onValueChange={(v) => setFilterTicketTypeId(v)}
+                onValueChange={(v) => {
+                  setFilterTicketTypeId(v)
+                  setPage(1)
+                }}
               >
                 <SelectTrigger className={filterTriggerClass}>
                   <SelectValue placeholder="Tipo" />
@@ -464,7 +552,10 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               </Select>
               <Select
                 value={filterStatus}
-                onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}
+                onValueChange={(v) => {
+                  setFilterStatus(v as typeof filterStatus)
+                  setPage(1)
+                }}
               >
                 <SelectTrigger className={cn(filterTriggerClass, "min-w-[100px]")}>
                   <SelectValue placeholder="Estado" />
@@ -475,8 +566,16 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   <SelectItem value="USED">Usadas</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={filterSource} onValueChange={(v) => setFilterSource(v as typeof filterSource)}>
-                <SelectTrigger className={cn(filterTriggerClass, "min-w-[115px]")}><SelectValue placeholder="Origen" /></SelectTrigger>
+              <Select
+                value={filterSource}
+                onValueChange={(v) => {
+                  setFilterSource(v as typeof filterSource)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger className={cn(filterTriggerClass, "min-w-[115px]")}>
+                  <SelectValue placeholder="Origen" />
+                </SelectTrigger>
                 <SelectContent className="rounded-xl">
                   <SelectItem value="all">Todos los orígenes</SelectItem>
                   <SelectItem value="promoter">Promotores</SelectItem>
@@ -484,122 +583,30 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                   <SelectItem value="direct">Directa</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={filterPromoterId} onValueChange={setFilterPromoterId}>
-                <SelectTrigger className={cn(filterTriggerClass, "min-w-[135px]")}><SelectValue placeholder="Promotor" /></SelectTrigger>
+              <Select
+                value={filterPromoterId}
+                onValueChange={(v) => {
+                  setFilterPromoterId(v)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger className={cn(filterTriggerClass, "min-w-[135px]")}>
+                  <SelectValue placeholder="Promotor" />
+                </SelectTrigger>
                 <SelectContent className="rounded-xl">
                   <SelectItem value="all">Todos los promotores</SelectItem>
-                  {promoters.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  {promoters.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </>
           )}
         </div>
 
-        {error ? (
-          <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p>
-        ) : null}
-
-        {allowSale ? (
-          <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
-              <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto rounded-2xl border-white/[0.10] bg-black p-0 text-white">
-              <div className="space-y-4 p-5">
-                <p className="text-[15px] font-semibold text-white">Nueva venta</p>
-
-                {saleError ? (
-                  <p className="rounded-xl border border-red-900/50 bg-red-500/10 px-3 py-2 text-[13px] text-red-400">
-                    {saleError}
-                  </p>
-                ) : null}
-
-                <div className="flex flex-wrap gap-2">
-                  {ticketTypes.map((t) => {
-                    const isSoldOut = t.stockLimit != null && t.sold >= t.stockLimit
-                    const isSelected = saleTypeId === t.id
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        disabled={isSoldOut}
-                        onClick={() => setSaleTypeId(t.id)}
-                        className={cn(
-                          "rounded-xl border px-3.5 py-2 text-left transition-colors",
-                          isSelected
-                            ? "border-[#FF9500]/50 bg-[#FF9500]/[0.08]"
-                            : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]",
-                          isSoldOut && "opacity-40"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "block text-[14px] font-medium",
-                            isSelected ? "text-white" : "text-white/60"
-                          )}
-                        >
-                          {t.name}
-                        </span>
-                        <span className="text-[12px] text-white/35">
-                          {isSoldOut ? "agotado" : formatPrice(t.effectivePrice ?? t.price)}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Input
-                    value={saleName}
-                    onChange={(e) => setSaleName(e.target.value)}
-                    placeholder="Nombre (opcional)"
-                    autoComplete="name"
-                    className="h-10 rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
-                  />
-                  <Input
-                    type="email"
-                    value={saleEmail}
-                    onChange={(e) => setSaleEmail(e.target.value)}
-                    placeholder="Correo (opcional)"
-                    autoComplete="email"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !saleSoldOut) void submitSale()
-                    }}
-                    className="h-10 rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0"
-                  />
-                </div>
-
-                {/* Tarea 9.1 — Atribución de la venta manual a un promotor (opcional). */}
-                <Select
-                  value={salePromoterId === "" ? "none" : salePromoterId}
-                  onValueChange={(v) =>
-                    setSalePromoterId(v === "none" ? "" : v)
-                  }
-                >
-                  <SelectTrigger className="h-10 w-full rounded-xl border-white/[0.1] bg-white/[0.05] text-[14px] shadow-none placeholder:text-white/25 focus-visible:border-white/20 focus-visible:ring-0">
-                    <SelectValue placeholder="Promotor (opcional)" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="none" className="rounded-lg">
-                      Sin promotor
-                    </SelectItem>
-                    {promoters.map((p) => (
-                      <SelectItem key={p.id} value={p.id} className="rounded-lg">
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  type="button"
-                  onClick={() => void submitSale()}
-                  disabled={selling || !saleTypeId || saleSoldOut}
-                  className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-40"
-                >
-                  {selling ? "Emitiendo…" : "Confirmar venta"}
-                </Button>
-              </div>
-              </DialogContent>
-            </Dialog>
-        ) : null}
+        {error ? <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p> : null}
 
         <div className="overflow-hidden rounded-2xl">
           <Table>
@@ -639,22 +646,31 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
               <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
                 {filtered.length === 0 ? (
                   <TableRow className="border-0 hover:bg-transparent">
-                    <TableCell
-                      colSpan={6}
-                      className="py-14 text-center text-[15px] text-white/40"
-                    >
+                    <TableCell colSpan={6} className="py-14 text-center text-[15px] text-white/40">
                       Sin resultados
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((t, index) => (
+                  visibleRows.map((t, index) => (
                     <TableRow
                       key={t.id}
-                      onClick={() => { setCancelConfirming(false); setDetail(t) }}
-                      className="cursor-pointer border-0 transition-colors duration-150 hover:bg-white/[0.03]"
+                      tabIndex={0}
+                      aria-label={`Ver entrada de ${t.buyerName ?? "asistente"}`}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault()
+                          setCancelConfirming(false)
+                          setDetail(t)
+                        }
+                      }}
+                      onClick={() => {
+                        setCancelConfirming(false)
+                        setDetail(t)
+                      }}
+                      className="cursor-pointer border-0 transition-colors duration-150 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
                     >
                       <TableCell className="py-3.5 pl-4 font-mono text-[12px] tabular-nums text-zinc-600">
-                        {filtered.length - index}
+                        {filtered.length - pageOffset - index}
                       </TableCell>
                       <TableCell className="py-3.5 pl-4 text-[15px] font-medium text-foreground">
                         {t.buyerName ?? "—"}
@@ -667,7 +683,11 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                         {t.buyerEmail ?? "—"}
                       </TableCell>
                       <TableCell className="py-3.5 pr-4 text-[12px] text-white/45">
-                        {t.promoterName ? `Promotor · ${t.promoterName}` : t.customerId ? "Web" : "Directa"}
+                        {t.promoterName
+                          ? `Promotor · ${t.promoterName}`
+                          : t.customerId
+                            ? "Web"
+                            : "Directa"}
                         {t.transferredFrom ? " · traspasada" : ""}
                       </TableCell>
                     </TableRow>
@@ -678,162 +698,51 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
           </Table>
         </div>
 
-        <p className="px-1 text-[13px] text-white/35">
-          {loading
-            ? "Cargando…"
-            : `${filtered.length} ${filtered.length === 1 ? "resultado" : "resultados"}`}
-        </p>
-
-        {/* Detail dialog */}
-        <Dialog
-          open={detail !== null}
-          onOpenChange={(o) => {
-            if (!o) {
-              setDetail(null)
-              setCancelConfirming(false)
-            }
-          }}
-        >
-          <DialogContent
-            showCloseButton
-            className="w-full max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] p-0 sm:max-w-[440px]"
-          >
-            {detail ? (
-              <>
-                <div className="border-b border-white/[0.06] px-6 py-5">
-                  <DialogHeader className="gap-1 text-left sm:text-left">
-                    <DialogTitle className="text-[20px] font-bold tracking-tight text-foreground">
-                      {detail.buyerName ?? "Sin nombre"}
-                    </DialogTitle>
-                    <p className="text-[14px] text-white/40">{detail.ticketTypeName}</p>
-                  </DialogHeader>
-                </div>
-
-                {!cancelConfirming ? (
-                  <>
-                    <div className="space-y-5 px-6 py-5">
-                      <div className="flex flex-wrap items-center gap-3">
-                        {statusPill(detail.status)}
-                        {detail.emailSentAt ? (
-                          <span className="text-[11px] text-white/35">email enviado</span>
-                        ) : (
-                          <span className="text-[11px] text-white/25">email pendiente</span>
-                        )}
-                      </div>
-
-                      <DetailRow label="correo">
-                        {detail.buyerEmail ? (
-                          <a
-                            href={`mailto:${detail.buyerEmail}`}
-                            className="break-words text-[15px] text-foreground underline-offset-2 hover:underline"
-                          >
-                            {detail.buyerEmail}
-                          </a>
-                        ) : (
-                          <span className="text-[15px] text-foreground">—</span>
-                        )}
-                      </DetailRow>
-
-                      <DetailRow label="fecha de compra">
-                        <span className="text-[15px] text-foreground">
-                          {formatShortDate(detail.createdAt)}
-                        </span>
-                      </DetailRow>
-
-                      {detail.transferredFrom ? (
-                        <DetailRow label="traspasada por">
-                          <span className="text-[15px] text-foreground">
-                            {detail.transferredFrom.name}
-                          </span>
-                          <span className="ml-2 text-[12px] text-white/35">
-                            {formatShortDate(detail.transferredFrom.at)}
-                          </span>
-                        </DetailRow>
-                      ) : null}
-
-                      <DetailRow label="fecha de uso">
-                        <span className="text-[15px] text-foreground">
-                          {formatShortDate(detail.scannedAt)}
-                        </span>
-                      </DetailRow>
-                    </div>
-
-                    <div className="space-y-2 border-t border-white/[0.06] p-4">
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          setQrTicketId(detail.id)
-                          setQrBuyerName(detail.buyerName)
-                          setQrOpen(true)
-                        }}
-                        className="h-11 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white transition-all duration-200 active:opacity-70"
-                      >
-                        Ver QR
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={
-                          actionLoading !== null ||
-                          detail.status === "CANCELLED" ||
-                          (detail.buyerEmail?.trim() ?? "") === ""
-                        }
-                        onClick={() => void handleSendQrEmail()}
-                        className="h-11 w-full gap-2 rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 hover:border-white/25"
-                      >
-                        <Mail className="h-4 w-4 shrink-0" />
-                        {actionLoading === "email" ? "Enviando…" : "Enviar QR por Email"}
-                      </Button>
-                      <div className="pt-4 text-center">
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading !== null ||
-                            detail.status === "USED" ||
-                            detail.status === "CANCELLED"
-                          }
-                          onClick={() => setCancelConfirming(true)}
-                          className="text-[14px] text-red-500/60 transition-colors hover:text-red-500/90 disabled:pointer-events-none disabled:opacity-40"
-                        >
-                          Anular Entrada
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="px-6 py-5">
-                      <p className="text-[15px] leading-relaxed text-white/60">
-                        ¿Confirmás que querés anular esta entrada? Esta acción no se puede
-                        deshacer.
-                      </p>
-                    </div>
-                    <div className="space-y-2 border-t border-white/[0.06] p-4">
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        className="h-11 w-full rounded-xl text-[15px] font-semibold"
-                        disabled={actionLoading === "cancel"}
-                        onClick={() => void handleConfirmCancelTicket()}
-                      >
-                        {actionLoading === "cancel" ? "Anulando…" : "Anular entrada"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11 w-full rounded-xl border-white/[0.15] bg-transparent text-[15px] font-semibold text-white/70 hover:border-white/25"
-                        disabled={actionLoading === "cancel"}
-                        onClick={() => setCancelConfirming(false)}
-                      >
-                        Volver
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </>
-            ) : null}
-          </DialogContent>
-        </Dialog>
+        <nav className="attendee-pagination" aria-label="Paginación de asistentes">
+          <span role="status" aria-live="polite">
+            {loading
+              ? "Cargando…"
+              : filtered.length === 0
+                ? "0 asistentes"
+                : `${pageOffset + 1}–${Math.min(pageOffset + pageSize, filtered.length)} de ${filtered.length} asistentes`}
+          </span>
+          <label className="attendee-page-size">
+            Por página
+            <select
+              aria-label="Asistentes por página"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPage(1)
+              }}
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+          <div className="attendee-page-controls">
+            <button
+              type="button"
+              aria-label="Página anterior"
+              disabled={loading || currentPage <= 1}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span>
+              {currentPage} de {pageCount}
+            </span>
+            <button
+              type="button"
+              aria-label="Página siguiente"
+              disabled={loading || currentPage >= pageCount}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </nav>
 
         <TicketQrDialog
           open={qrOpen}
@@ -853,17 +762,436 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
   }
 )
 
-function DetailRow({
-  label,
+function DetailBlock({
+  title,
+  description,
   children,
 }: {
-  label: string
+  title: string
+  description?: string
   children: React.ReactNode
 }) {
   return (
-    <div className="space-y-1">
-      <p className="text-[13px] font-medium text-white/40">{label}</p>
+    <section className="grid gap-4 border-t border-white/[0.07] pt-7 sm:grid-cols-[170px_minmax(0,1fr)] sm:gap-8">
+      <div>
+        <h3 className="text-[14px] font-semibold text-white">{title}</h3>
+        {description ? (
+          <p className="mt-1.5 text-[12px] leading-relaxed text-white/45">{description}</p>
+        ) : null}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  )
+}
+
+function Field({
+  label,
+  hint,
+  htmlFor,
+  children,
+}: {
+  label: string
+  hint?: string
+  htmlFor?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <label htmlFor={htmlFor} className="block text-[13px] font-medium text-white/70">
+        {label}
+      </label>
       {children}
+      {hint ? <p className="text-[12px] leading-relaxed text-white/45">{hint}</p> : null}
     </div>
+  )
+}
+
+function AttendeeDetail({
+  detail,
+  actionLoading,
+  cancelConfirming,
+  onBack,
+  onSendEmail,
+  onOpenQr,
+  onAskCancel,
+  onCancelBack,
+  onConfirmCancel,
+}: {
+  detail: ApiTicketRow
+  actionLoading: "email" | "cancel" | null
+  cancelConfirming: boolean
+  onBack: () => void
+  onSendEmail: () => void
+  onOpenQr: () => void
+  onAskCancel: () => void
+  onCancelBack: () => void
+  onConfirmCancel: () => void
+}) {
+  const used = detail.status === "USED"
+  const hasEmail = Boolean(detail.buyerEmail?.trim())
+  const canCancel = detail.status === "PENDING"
+
+  return (
+    <section className="w-full" aria-labelledby="attendee-detail-title">
+      <header className="space-y-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium text-white/45 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#FF9500]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Asistentes
+        </button>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2
+              id="attendee-detail-title"
+              className="break-words text-2xl font-bold tracking-tight text-white"
+            >
+              {detail.buyerName?.trim() || "Sin nombre"}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="inline-flex items-center gap-1.5 text-[13px] text-white/55">
+                <Ticket className="h-3.5 w-3.5" />
+                {detail.ticketTypeName}
+              </span>
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium",
+                  used
+                    ? "bg-emerald-500/10 text-emerald-300"
+                    : "bg-[#FF9500]/10 text-[#FFB340]"
+                )}
+              >
+                {used ? <Check className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
+                {used ? "Ingresó" : "Pendiente de ingreso"}
+              </span>
+              <span className="text-[12px] text-white/45">
+                {detail.emailSentAt ? "Email enviado" : "Sin email enviado"}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={onOpenQr} className={primaryButtonClass}>
+              <QrCode className="h-4 w-4" />
+              Ver QR
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actionLoading !== null || !hasEmail}
+              onClick={onSendEmail}
+              className={outlineButtonClass}
+            >
+              <Mail className="h-4 w-4" />
+              {actionLoading === "email"
+                ? "Enviando…"
+                : detail.emailSentAt
+                  ? "Reenviar por email"
+                  : "Enviar por email"}
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mt-7 max-w-3xl pb-2">
+        <DetailBlock title="Información">
+          <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <dt className={detailLabelClass}>Correo electrónico</dt>
+              <dd className="mt-1 break-all text-[14px] text-white">
+                {detail.buyerEmail ? (
+                  <a
+                    href={`mailto:${detail.buyerEmail}`}
+                    className="underline decoration-white/20 underline-offset-4 hover:decoration-[#FF9500]"
+                  >
+                    {detail.buyerEmail}
+                  </a>
+                ) : (
+                  <span className="text-white/45">Sin correo</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className={detailLabelClass}>Fecha de compra</dt>
+              <dd className={detailValueClass}>{formatShortDate(detail.createdAt)}</dd>
+            </div>
+            <div>
+              <dt className={detailLabelClass}>Ingreso</dt>
+              <dd className={detailValueClass}>
+                {detail.scannedAt ? formatShortDate(detail.scannedAt) : "Todavía no ingresó"}
+              </dd>
+            </div>
+            <div>
+              <dt className={detailLabelClass}>Origen</dt>
+              <dd className={detailValueClass}>
+                {detail.promoterName ? "Promotor" : detail.customerId ? "Web" : "Venta directa"}
+              </dd>
+            </div>
+            {detail.promoterName ? (
+              <div>
+                <dt className={detailLabelClass}>Promotor</dt>
+                <dd className={detailValueClass}>{detail.promoterName}</dd>
+              </div>
+            ) : null}
+            {detail.transferredFrom ? (
+              <div className="sm:col-span-2">
+                <dt className={detailLabelClass}>Traspasada por</dt>
+                <dd className={detailValueClass}>
+                  {detail.transferredFrom.name}
+                  <span className="mt-0.5 block text-[12px] text-white/45">
+                    {formatShortDate(detail.transferredFrom.at)}
+                  </span>
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </DetailBlock>
+
+        <DetailBlock
+          title="Anular entrada"
+          description={
+            canCancel
+              ? "El QR deja de permitir el ingreso. No se puede deshacer."
+              : "Esta entrada ya ingresó: no se puede anular."
+          }
+        >
+          {cancelConfirming ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-[13px] text-rose-200/90">¿Confirmás la anulación?</span>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={actionLoading !== null}
+                onClick={onCancelBack}
+                className="h-9 rounded-lg px-2.5 text-white/60 hover:text-white"
+              >
+                Volver
+              </Button>
+              <Button
+                type="button"
+                disabled={actionLoading !== null}
+                onClick={onConfirmCancel}
+                className="h-9 rounded-lg bg-rose-500/15 px-3 text-rose-200 hover:bg-rose-500/25"
+              >
+                {actionLoading === "cancel" ? "Anulando…" : "Confirmar anulación"}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={actionLoading !== null || !canCancel}
+              onClick={onAskCancel}
+              className="h-9 rounded-lg px-2.5 text-rose-300/80 hover:bg-rose-500/10 hover:text-rose-300"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Anular entrada
+            </Button>
+          )}
+        </DetailBlock>
+      </div>
+    </section>
+  )
+}
+
+function SaleEditor({
+  ticketTypes,
+  promoters,
+  saleTypeId,
+  onSelectType,
+  saleName,
+  onNameChange,
+  saleEmail,
+  onEmailChange,
+  salePromoterId,
+  onPromoterChange,
+  error,
+  selling,
+  soldOut,
+  onSubmit,
+  onCancel,
+}: {
+  ticketTypes: ApiTicketType[]
+  promoters: ApiPromoter[]
+  saleTypeId: string
+  onSelectType: (id: string) => void
+  saleName: string
+  onNameChange: (value: string) => void
+  saleEmail: string
+  onEmailChange: (value: string) => void
+  salePromoterId: string
+  onPromoterChange: (value: string) => void
+  error: string | null
+  selling: boolean
+  soldOut: boolean
+  onSubmit: () => void
+  onCancel: () => void
+}) {
+  const availableTypes = ticketTypes.filter((type) => type.isActive !== false)
+  const selected = availableTypes.find((type) => type.id === saleTypeId)
+
+  return (
+    <section className="w-full" aria-labelledby="sale-title">
+      <header className="space-y-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium text-white/45 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#FF9500]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Asistentes
+        </button>
+        <h2 id="sale-title" className="text-2xl font-bold tracking-tight text-white">
+          Nueva venta
+        </h2>
+      </header>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit()
+        }}
+        className="mt-7 max-w-3xl space-y-7 pb-2"
+        aria-label="Nueva venta"
+      >
+        <DetailBlock title="Entrada">
+          {availableTypes.length === 0 ? (
+            <p className="text-[13px] leading-relaxed text-white/45">
+              No hay tipos de entrada disponibles para vender.
+            </p>
+          ) : (
+            <div role="radiogroup" aria-label="Tipo de entrada" className="grid gap-2 sm:grid-cols-2">
+              {availableTypes.map((type) => {
+                const isSoldOut =
+                  type.stockLimit != null && type.sold >= type.stockLimit
+                const isSelected = saleTypeId === type.id
+                return (
+                  <button
+                    key={type.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    disabled={isSoldOut}
+                    onClick={() => onSelectType(type.id)}
+                    className={cn(
+                      "flex items-start justify-between gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF9500] disabled:cursor-not-allowed disabled:opacity-40",
+                      isSelected
+                        ? "border-[#FF9500]/60 bg-[#FF9500]/[0.08]"
+                        : "border-white/[0.1] bg-white/[0.03] hover:bg-white/[0.06]"
+                    )}
+                  >
+                    <span className="min-w-0">
+                      <span
+                        className={cn(
+                          "block text-[14px] font-medium",
+                          isSelected ? "text-white" : "text-white/70"
+                        )}
+                      >
+                        {type.name}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] text-white/40">
+                        {isSoldOut
+                          ? "Agotada"
+                          : type.remaining == null
+                            ? "Sin límite"
+                            : `${type.remaining.toLocaleString("es-AR")} disponibles`}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[14px] font-medium text-white/80 tabular-nums">
+                      {formatPrice(type.price)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </DetailBlock>
+
+        <DetailBlock title="Comprador">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Nombre (opcional)" htmlFor="sale-name">
+              <Input
+                id="sale-name"
+                value={saleName}
+                onChange={(event) => onNameChange(event.target.value)}
+                placeholder="Nombre del comprador"
+                autoComplete="name"
+                className={fieldInputClass}
+              />
+            </Field>
+            <Field
+              label="Correo (opcional)"
+              htmlFor="sale-email"
+              hint="Si lo cargás, enviamos el QR."
+            >
+              <Input
+                id="sale-email"
+                type="email"
+                value={saleEmail}
+                onChange={(event) => onEmailChange(event.target.value)}
+                placeholder="comprador@correo.com"
+                autoComplete="email"
+                className={fieldInputClass}
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Promotor">
+                <Select
+                  value={salePromoterId === "" ? "none" : salePromoterId}
+                  onValueChange={(value) => onPromoterChange(value === "none" ? "" : value)}
+                >
+                  <SelectTrigger className="h-11 w-full rounded-xl border-white/[0.12] bg-white/[0.04] text-[15px] shadow-none focus-visible:border-[#FF9500] focus-visible:ring-0">
+                    <SelectValue placeholder="Sin promotor" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="none" className="rounded-lg">
+                      Sin promotor
+                    </SelectItem>
+                    {promoters.map((promoter) => (
+                      <SelectItem key={promoter.id} value={promoter.id} className="rounded-lg">
+                        {promoter.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+          </div>
+        </DetailBlock>
+
+        {error ? (
+          <p role="alert" className="text-[13px] leading-relaxed text-rose-300">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.07] pt-6">
+          <p className="text-[12px] text-white/45 tabular-nums">
+            {selected
+              ? `${selected.name} · ${formatPrice(selected.price)}`
+              : "Elegí un tipo de entrada"}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={selling}
+              onClick={onCancel}
+              className="h-10 rounded-xl px-4 text-white/60 hover:text-white"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={selling || !saleTypeId || soldOut}
+              className={primaryButtonClass}
+            >
+              {selling ? "Emitiendo…" : "Confirmar venta"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </section>
   )
 }

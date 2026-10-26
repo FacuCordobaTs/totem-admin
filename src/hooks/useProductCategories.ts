@@ -12,7 +12,7 @@ export function useProductCategories(token: string | null, enabled = true) {
     setError(null)
     try {
       const res = await apiFetch<{ categories: ApiProductCategory[] }>("/inventory/categories", { token })
-      setCategories(res.categories)
+      setCategories(res.categories ?? [])
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudieron cargar las categorías")
     } finally {

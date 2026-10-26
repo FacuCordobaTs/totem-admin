@@ -13,15 +13,23 @@ export function BarMaterialForm({
   onCreated,
   onCancel,
   item,
+  initialName = "",
+  embedded = false,
+  submitLabel,
+  onBusyChange,
 }: {
   item?: ApiInventoryItem;
   token: string | null;
   materials: ApiInventoryItem[];
   onCreated: (item: ApiInventoryItem) => void;
   onCancel: () => void;
+  initialName?: string;
+  embedded?: boolean;
+  submitLabel?: string;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const id = useId();
-  const [name, setName] = useState(item?.name ?? "");
+  const [name, setName] = useState(item?.name ?? initialName);
   const [kind, setKind] = useState<"UNIT" | "ML" | "GRAMS">(
     item?.baseUnit ?? "UNIT",
   );
@@ -54,6 +62,7 @@ export function BarMaterialForm({
       return;
     }
     setBusy(true);
+    onBusyChange?.(true);
     try {
       const result = await apiFetch<{ item: ApiInventoryItem }>(
         "/inventory/items",
@@ -82,11 +91,12 @@ export function BarMaterialForm({
       );
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
   return (
-    <div className="bw-material-form">
-      <h4>{item ? "Editar insumo" : "Nuevo insumo"}</h4>
+    <div className={embedded ? "bw-material-form bw-material-form-embedded" : "bw-material-form"}>
+      {!embedded && <h4>{item ? "Editar insumo" : "Nuevo insumo"}</h4>}
       <div className="bw-fields">
         <label htmlFor={`${id}-name`}>
           Nombre
@@ -152,7 +162,7 @@ export function BarMaterialForm({
           disabled={busy || !name.trim()}
           onClick={() => void save()}
         >
-          {busy ? "Guardando…" : item ? "Guardar insumo" : "Crear insumo"}
+          {busy ? "Guardando…" : submitLabel ?? (item ? "Guardar insumo" : "Crear insumo")}
         </button>
         <button
           type="button"

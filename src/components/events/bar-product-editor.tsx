@@ -1,22 +1,31 @@
 import { useId, useRef, useState } from "react";
 import Decimal from "decimal.js";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { ApiProduct } from "@/components/inventory/recipe-config";
 import type { ApiInventoryItem } from "@/components/inventory/raw-materials";
 import { ProductCategoryField } from "@/components/inventory/product-category-field";
 import { ProductImageUploader } from "@/components/inventory/product-image-uploader";
-import { BarMaterialForm } from "./bar-material-form";
+import { BarRecipeMaterialPicker } from "./bar-recipe-material-picker";
 import {
   consumptionPerSale,
   decimalInput,
+  moneyLabel,
   packageFactor,
   packageDescription,
-  quantityLabel,
+  priceInput,
   singularStockUnit,
 } from "./bar-workspace-model";
 
 type RecipeDraft = { id: string; yield: string; quantity: string };
+function pricesDiffer(a: string | undefined, b: string): boolean {
+  if (a == null) return false;
+  try {
+    return !new Decimal(a).eq(b);
+  } catch {
+    return a !== b;
+  }
+}
 type Props = {
   token: string | null;
   eventId: string;
@@ -28,6 +37,7 @@ type Props = {
   materials: ApiInventoryItem[];
   onMaterialsChange: (item: ApiInventoryItem) => void;
   onCancel: () => void;
+  onRemove?: () => Promise<boolean>;
   onSaved: (productId: string, hasStock: boolean) => void;
 };
 
@@ -42,11 +52,19 @@ export function BarProductEditor({
   materials,
   onMaterialsChange,
   onCancel,
+  onRemove,
   onSaved,
 }: Props) {
   const id = useId();
   const [name, setName] = useState(product?.name ?? "");
-  const [amount, setAmount] = useState(price ?? product?.price ?? "");
+  const initialPrice = price ?? product?.price ?? "";
+  const [amount, setAmount] = useState(() => {
+    try {
+      return initialPrice ? priceInput(initialPrice) : "";
+    } catch {
+      return initialPrice;
+    }
+  });
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? null);
   const [categoryBusy, setCategoryBusy] = useState(false);
   const [saleType, setSaleType] = useState(product?.saleType ?? "GLASS");
@@ -77,14 +95,26 @@ export function BarProductEditor({
       }) ?? [],
   );
   const originalLines = useRef(lines.map((line) => ({ ...line })));
-  const [creatingMaterial, setCreatingMaterial] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const lastYieldInput = useRef<HTMLInputElement>(null);
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [materialBusy, setMaterialBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const busy = saving || removing || materialBusy;
   const [error, setError] = useState("");
   // Keep identities after a partial network failure so retry never creates a second product/insumo.
   const savedId = useRef<string | null>(product?.id ?? null);
 
+  function addMaterial(item: ApiInventoryItem) {
+    setLines((prev) => [...prev, { id: item.id, yield: "1", quantity: "1" }]);
+    requestAnimationFrame(() => {
+      lastYieldInput.current?.focus();
+      lastYieldInput.current?.select();
+    });
+  }
+
   async function save() {
-    if (!token || busy || categoryBusy) return;
+    if (!token || busy || categoryBusy || materialPickerOpen) return;
     setError("");
     const normalizedPrice = decimalInput(amount);
     if (!name.trim() || !/^\d{1,8}(\.\d{1,2})?$/.test(normalizedPrice)) {
@@ -115,7 +145,7 @@ export function BarProductEditor({
       setError("Cada insumo debe aparecer una sola vez en la receta.");
       return;
     }
-    setBusy(true);
+    setSaving(true);
     try {
       let recipes: {
         inventoryItemId: string;
@@ -211,7 +241,7 @@ export function BarProductEditor({
           : "No se pudo guardar. Podés volver a intentarlo.",
       );
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
 
@@ -258,6 +288,11 @@ export function BarProductEditor({
               onChange={(e) => setAmount(e.target.value)}
             />
           </span>
+          {product && pricesDiffer(price, product.price) ? (
+            <small className="bw-field-hint">
+              En el catálogo: {moneyLabel(product.price)}
+            </small>
+          ) : null}
         </label>
       </div>
       <ProductCategoryField
@@ -266,6 +301,7 @@ export function BarProductEditor({
         onChange={setCategoryId}
         disabled={busy}
         onBusyChange={setCategoryBusy}
+        appearance="workspace"
       />
       {trackStock && (
         <fieldset className="bw-stock-choice" disabled={busy}>
@@ -302,6 +338,7 @@ export function BarProductEditor({
                   value={choice.value}
                   checked={mode === choice.value}
                   onChange={() => setMode(choice.value)}
+                  disabled={materialPickerOpen}
                 />
                 <span>
                   <strong>{choice.title}</strong>
@@ -322,7 +359,8 @@ export function BarProductEditor({
         <section className="bw-recipe-editor">
           <div className="bw-heading">
             <div>
-              <h4>Insumos por producto</h4>
+              <h4>Receta del producto</h4>
+              <p>Definí cuántos productos rinde cada insumo.</p>
             </div>
             <label className="bw-inline-label">
               Venta
@@ -370,23 +408,25 @@ export function BarProductEditor({
                 </label>
                 <label htmlFor={`${id}-yield-${index}`}>
                   1 {item ? singularStockUnit(item) : "envase"} rinde
-                  <input
-                    id={`${id}-yield-${index}`}
-                    inputMode="decimal"
-                    value={line.yield}
-                    disabled={busy}
-                    onChange={(e) =>
-                      setLines((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, yield: e.target.value } : row,
-                        ),
-                      )
-                    }
-                  />
+                  <span className="bw-yield-input">
+                    <input
+                      ref={index === lines.length - 1 ? lastYieldInput : undefined}
+                      id={`${id}-yield-${index}`}
+                      inputMode="decimal"
+                      value={line.yield}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setLines((prev) =>
+                          prev.map((row, i) =>
+                            i === index ? { ...row, yield: e.target.value } : row,
+                          ),
+                        )
+                      }
+                      aria-describedby={`${id}-yield-unit-${index}`}
+                    />
+                    <span id={`${id}-yield-unit-${index}`}>productos</span>
+                  </span>
                 </label>
-                <span className="bw-yield-label">
-                  {name.trim() || "productos"}
-                </span>
                 <button
                   className="bw-icon-button"
                   disabled={busy}
@@ -405,49 +445,19 @@ export function BarProductEditor({
               Elegí los ingredientes que se descuentan con cada venta.
             </p>
           )}
-          <div className="bw-form-actions">
-            <button
-              className="bw-secondary"
-              disabled={busy || creatingMaterial}
-              onClick={() =>
-                setLines((prev) => [
-                  ...prev,
-                  { id: "", yield: "1", quantity: "1" },
-                ])
-              }
-            >
-              <Plus size={16} />
-              Agregar insumo existente
-            </button>
-            <button
-              className="bw-text-button"
-              disabled={busy}
-              onClick={() => setCreatingMaterial(true)}
-            >
-              Crear insumo
-            </button>
-          </div>
-          {creatingMaterial && (
-            <BarMaterialForm
-              token={token}
-              materials={materials}
-              onCancel={() => setCreatingMaterial(false)}
-              onCreated={(item) => {
-                onMaterialsChange(item);
-                setLines((prev) => {
-                  const index = prev.findIndex((line) => !line.id);
-                  return index < 0
-                    ? [...prev, { id: item.id, yield: "1", quantity: "1" }]
-                    : prev.map((line, i) =>
-                        i === index
-                          ? { id: item.id, yield: "1", quantity: "1" }
-                          : line,
-                      );
-                });
-                setCreatingMaterial(false);
-              }}
-            />
-          )}
+          <BarRecipeMaterialPicker
+            token={token}
+            materials={materials}
+            selectedIds={lines.map((line) => line.id)}
+            disabled={busy}
+            onOpenChange={setMaterialPickerOpen}
+            onBusyChange={setMaterialBusy}
+            onSelect={addMaterial}
+            onCreated={(item) => {
+              onMaterialsChange(item);
+              addMaterial(item);
+            }}
+          />
         </section>
       )}
       {product && (
@@ -469,6 +479,23 @@ export function BarProductEditor({
         </p>
       )}
       <div className="bw-editor-footer">
+        {product && onRemove && (
+          <button
+            type="button"
+            className="bw-danger-text bw-remove-product"
+            disabled={busy || categoryBusy || materialPickerOpen}
+            onClick={async () => {
+              setRemoving(true);
+              try {
+                if (await onRemove()) onCancel();
+              } finally {
+                setRemoving(false);
+              }
+            }}
+          >
+            {removing ? "Quitando…" : "Quitar de esta barra"}
+          </button>
+        )}
         <button className="bw-secondary" disabled={busy} onClick={onCancel}>
           Cancelar
         </button>
@@ -479,31 +506,17 @@ export function BarProductEditor({
             categoryBusy ||
             !name.trim() ||
             !amount.trim() ||
-            creatingMaterial
+            materialPickerOpen
           }
           onClick={() => void save()}
         >
-          {busy
+          {saving
             ? "Guardando…"
             : product
               ? "Guardar producto"
               : "Crear y agregar al menú"}
         </button>
       </div>
-      {trackStock &&
-        mode === "recipe" &&
-        lines.some((line) => Number(line.yield) > 1) && (
-          <p className="bw-muted">
-            Rendimiento por insumo:{" "}
-            {lines
-              .filter((line) => line.id)
-              .map(
-                (line) =>
-                  `${materials.find((m) => m.id === line.id)?.name}: ${quantityLabel(decimalInput(line.yield) || "0")}`,
-              )
-              .join(" · ")}
-          </p>
-        )}
     </section>
   );
 }

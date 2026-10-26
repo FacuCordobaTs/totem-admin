@@ -13,9 +13,10 @@ type SetupResponse = {
 type ProductoraSetupCardProps = {
   className?: string
   onSuccess?: () => void
+  variant?: "default" | "account"
 }
 
-export function ProductoraSetupCard({ className, onSuccess }: ProductoraSetupCardProps) {
+export function ProductoraSetupCard({ className, onSuccess, variant = "default" }: ProductoraSetupCardProps) {
   const token = useAuthStore((s) => s.token)
   const updateStaff = useAuthStore((s) => s.updateStaff)
 
@@ -49,17 +50,18 @@ export function ProductoraSetupCard({ className, onSuccess }: ProductoraSetupCar
   }
 
   return (
-    <div className={cn("mx-auto w-full max-w-sm", className)}>
-      <div className="mb-8 text-center">
+    <div className={cn(variant === "account" ? "account-setup" : "mx-auto w-full max-w-sm", className)}>
+      {variant !== "account" ? <div className="mb-8 text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">Productora</h1>
         <p className="mt-3 text-[15px] text-white/40">
           Poné un nombre para comenzar a gestionar eventos.
         </p>
-      </div>
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      </div> : <p className="account-setup-description">Poné un nombre para comenzar a gestionar eventos.</p>}
+      <form onSubmit={onSubmit} className={variant === "account" ? "account-form" : "flex flex-col gap-4"}>
         {error ? (
           <p className="text-sm text-red-400 text-center" role="alert">{error}</p>
         ) : null}
+        {variant === "account" ? <label htmlFor="productora-name">Nombre de la productora</label> : null}
         <Input
           id="productora-name"
           value={name}
@@ -67,12 +69,12 @@ export function ProductoraSetupCard({ className, onSuccess }: ProductoraSetupCar
           required
           autoComplete="organization"
           placeholder="Nombre de tu productora"
-          className="h-12 rounded-xl border-white/[0.08] bg-white/[0.04] text-base text-white placeholder:text-white/25 focus-visible:ring-[#FF9500]/50"
+          className={variant === "account" ? "account-setup-input" : "h-12 rounded-xl border-white/[0.08] bg-white/[0.04] text-base text-white placeholder:text-white/25 focus-visible:ring-[#FF9500]/50"}
         />
         <Button
           type="submit"
           disabled={loading}
-          className="h-12 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"
+          className={variant === "account" ? "account-button account-button-primary" : "h-12 w-full rounded-xl bg-[#FF9500] text-[15px] font-semibold text-white hover:bg-[#FF9500]/90 disabled:opacity-50"}
         >
           {loading ? "Guardando…" : "Continuar"}
         </Button>
@@ -81,7 +83,8 @@ export function ProductoraSetupCard({ className, onSuccess }: ProductoraSetupCar
   )
 }
 
-export function ProductoraWaitingCard({ className }: { className?: string }) {
+export function ProductoraWaitingCard({ className, variant = "default" }: { className?: string; variant?: "default" | "account" }) {
+  if (variant === "account") return <div className="account-empty"><h3>Sin productora</h3><p>Tu cuenta todavía no está vinculada a una productora. Pedile a un administrador que complete la configuración.</p></div>
   return (
     <div className={cn("mx-auto w-full max-w-sm text-center", className)}>
       <p className="text-[13px] font-semibold uppercase tracking-widest text-[#FF9500] mb-3">Crow</p>

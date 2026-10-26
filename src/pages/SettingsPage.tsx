@@ -1,48 +1,52 @@
 import { useEffect, useRef, useState } from "react"
+import { Link, useSearchParams } from "react-router"
+import { Building2, CreditCard, MessageCircle, Monitor, UserRound } from "lucide-react"
 import { isTauri } from "@tauri-apps/api/core"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { LogoutButton } from "@/components/auth/logout-button"
 import { Header } from "@/components/dashboard/header"
 import { useAuthStore } from "@/stores/auth-store"
 import { staffRoleLabel } from "@/lib/role-labels"
 import { ApiError, apiFetch } from "@/lib/api"
-import {
-  ProductoraSetupCard,
-  ProductoraWaitingCard,
-} from "@/components/onboarding/productora-setup-card"
+import { ProductoraSetupCard, ProductoraWaitingCard } from "@/components/onboarding/productora-setup-card"
 import { CucuruConnectionCard } from "@/components/settings/cucuru-connection-card"
 import { DesktopAppCard } from "@/components/settings/desktop-app-card"
 import { MpConnectionCard } from "@/components/settings/mp-connection-card"
 import { WhatsAppConnectionCard } from "@/components/settings/whatsapp-connection-card"
+import "@/components/settings/account-workspace.css"
 
-function Panel({ children }: { children: React.ReactNode }) {
-  return <section className="rounded-2xl bg-background p-6 sm:p-8">{children}</section>
-}
+const ACCOUNT_SECTIONS = [
+  { id: "perfil", label: "Perfil", icon: UserRound, description: "Tus datos de acceso a Crow." },
+  { id: "productora", label: "Productora", icon: Building2, description: "La identidad de tu equipo en Crow." },
+  { id: "cobros", label: "Cobros", icon: CreditCard, description: "Administrá las cuentas donde recibís los pagos de tus eventos." },
+  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, description: "El canal de comunicación con tus clientes y tu equipo." },
+  { id: "app", label: "App de escritorio", icon: Monitor, description: "Crow para la computadora de la caja, la barra o la puerta." },
+] as const
 
 export function SettingsPage() {
   const mpToastHandled = useRef(false)
-  const tenantId = useAuthStore((s) => s.staff?.tenantId)
-  const tenantName = useAuthStore((s) => s.staff?.tenantName)
   const staff = useAuthStore((s) => s.staff)
+  const tenantId = staff?.tenantId ?? null
+  const tenantName = staff?.tenantName
   const token = useAuthStore((s) => s.token)
   const updateStaff = useAuthStore((s) => s.updateStaff)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [productoraName, setProductoraName] = useState(tenantName ?? "")
   const [savingProductora, setSavingProductora] = useState(false)
-  const role = staff?.role
-  const isAdmin = role === "ADMIN"
-  const restrictedSettings =
-    role === "BARTENDER" || role === "SECURITY" || role === "TRANSPORTER" || role === "GENERAL_PROMOTER"
+  const isAdmin = staff?.role === "ADMIN"
+  const restrictedSettings = ["BARTENDER", "SECURITY", "TRANSPORTER", "GENERAL_PROMOTER"].includes(staff?.role ?? "")
   const hasTenant = tenantId != null && tenantId !== ""
+  const visibleSections = ACCOUNT_SECTIONS.filter((section) => {
+    if (section.id === "app") return !isTauri()
+    return !restrictedSettings || section.id === "perfil"
+  })
+  const requestedSection = searchParams.has("mp_status") ? "cobros" : searchParams.get("tab")
+  const activeSection = visibleSections.find((section) => section.id === requestedSection) ?? visibleSections[0]
+
+  useEffect(() => { setProductoraName(tenantName ?? "") }, [tenantName])
 
   useEffect(() => {
-    setProductoraName(tenantName ?? "")
-  }, [tenantName])
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const mpStatus = params.get("mp_status")
+    const mpStatus = searchParams.get("mp_status")
     if (mpStatus !== "success" && mpStatus !== "error") {
       mpToastHandled.current = false
       return
@@ -56,103 +60,105 @@ export function SettingsPage() {
         config_error: "Mercado Pago no está configurado correctamente. Contactá al administrador de Crow.",
         oauth_failed: "Mercado Pago no pudo completar la vinculación. Iniciá la conexión nuevamente.",
       }
-      toast.error(messages[params.get("mp_error") ?? ""] ?? "No se pudo conectar Mercado Pago")
+      toast.error(messages[searchParams.get("mp_error") ?? ""] ?? "No se pudo conectar Mercado Pago")
     }
-    params.delete("mp_status")
-    params.delete("mp_error")
-    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`)
-  }, [])
+    const next = new URLSearchParams(searchParams)
+    next.delete("mp_status")
+    next.delete("mp_error")
+    next.set("tab", "cobros")
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  useEffect(() => {
+    document.querySelector<HTMLElement>('.account-nav [aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }, [activeSection.id])
 
   async function saveProductoraName(e: React.FormEvent) {
     e.preventDefault()
-    if (!token || !staff || !hasTenant) return
+    if (!token || !staff || !hasTenant || !isAdmin) return
     const name = productoraName.trim()
-    if (!name) {
-      toast.error("Ingresá el nombre de la productora")
-      return
-    }
+    if (!name) { toast.error("Ingresá el nombre de la productora"); return }
     setSavingProductora(true)
     try {
       const data = await apiFetch<{ tenant: { name: string } }>("/tenants/me", {
-        method: "PUT",
-        token,
-        body: JSON.stringify({ name }),
+        method: "PUT", token, body: JSON.stringify({ name }),
       })
       updateStaff({ ...staff, tenantName: data.tenant.name })
       toast.success("Nombre de la productora actualizado")
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "No se pudo guardar el nombre")
-    } finally {
-      setSavingProductora(false)
-    }
+    } finally { setSavingProductora(false) }
+  }
+
+  function sectionLink(id: string) {
+    const next = new URLSearchParams(searchParams)
+    next.delete("mp_status")
+    next.delete("mp_error")
+    next.set("tab", id)
+    return `?${next}`
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F2F2F7] dark:bg-black">
+    <div className="account-workspace">
       <Header showLogout={false} />
-      <main className="flex-1 px-6 py-10 lg:px-10 lg:py-12">
-        <div className="mx-auto max-w-2xl space-y-8">
-          <header className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              {restrictedSettings ? "Mi perfil" : "Cuenta"}
-            </h1>
-            {!restrictedSettings ? (
-              <p className="text-sm text-[#8E8E93] dark:text-[#98989D]">
-                Administrá los datos y las integraciones de tu productora.
-              </p>
-            ) : null}
-          </header>
-
-          <Panel>
-            <h2 className="text-xl font-bold tracking-tight text-foreground">Perfil</h2>
-            <div className="mt-8 space-y-6">
-              <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Nombre</p><p className="mt-1 text-[17px] text-foreground">{staff?.name ?? "—"}</p></div>
-              <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Correo</p><p className="mt-1 text-[17px] text-foreground">{staff?.email ?? "—"}</p></div>
-              <div><p className="text-[13px] font-medium text-[#8E8E93] dark:text-[#98989D]">Rol</p><p className="mt-1 text-[17px] text-foreground">{staff ? staffRoleLabel(staff.role) : "—"}</p></div>
+      <main className="account-container">
+        <header className="account-page-heading">
+          <div>
+            <h1>{restrictedSettings ? "Mi perfil" : "Cuenta"}</h1>
+            <p>{restrictedSettings ? "Tu perfil y las herramientas para trabajar." : "Tu perfil, tu productora y sus conexiones."}</p>
+          </div>
+          {hasTenant && !restrictedSettings ? <span className="account-tenant"><Building2 aria-hidden="true" />{tenantName ?? "Tu productora"}</span> : null}
+        </header>
+        <div className="account-layout">
+          <nav className="account-nav" aria-label="Secciones de cuenta">
+            {visibleSections.map(({ id, label, icon: Icon }) => (
+              <Link key={id} to={sectionLink(id)} aria-current={activeSection.id === id ? "page" : undefined}>
+                <Icon aria-hidden="true" /><span>{label}</span>
+              </Link>
+            ))}
+          </nav>
+          <div className="account-content">
+            <header className="account-content-heading">
+              <h2 id="account-section-title">{activeSection.label}</h2>
+              <p>{activeSection.description}</p>
+            </header>
+            {/* Keep forms mounted so switching sections preserves unfinished edits. */}
+            <div hidden={activeSection.id !== "perfil"} className="account-panel" aria-labelledby="account-section-title">
+              <dl className="account-details">
+                <div><dt>Nombre</dt><dd>{staff?.name ?? "—"}</dd></div>
+                <div><dt>Correo electrónico</dt><dd>{staff?.email ?? "—"}</dd></div>
+                <div><dt>Rol</dt><dd><span className="account-role">{staff ? staffRoleLabel(staff.role) : "—"}</span></dd></div>
+              </dl>
+              <section className="account-session">
+                <div><h3>Sesión</h3><p>Cerrá tu sesión en este dispositivo.</p></div>
+                <LogoutButton variant="ghost" className="account-button account-button-secondary" />
+              </section>
             </div>
-          </Panel>
-
-          {/* En Tauri la app de escritorio ya está instalada: ahí sólo queda el updater. */}
-          {isTauri() ? null : (
-            <section className="space-y-4">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-foreground">App de escritorio</h2>
-                <p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">
-                  Si trabajás desde el navegador, instalala en la computadora de la caja, la
-                  barra o la puerta.
-                </p>
+            {!restrictedSettings ? <>
+              <div hidden={activeSection.id !== "productora"} className="account-panel" aria-labelledby="account-section-title">
+                {hasTenant ? <form onSubmit={saveProductoraName} className="account-productora-form">
+                  <label htmlFor="account-productora-name">Nombre de la productora</label>
+                  <p id="account-productora-help">Así se identifica tu productora en Crow.</p>
+                  <input id="account-productora-name" value={productoraName} onChange={(e) => setProductoraName(e.target.value)} required maxLength={255} autoComplete="organization" readOnly={!isAdmin} aria-describedby="account-productora-help" />
+                  {!isAdmin ? <p>Solo un administrador puede cambiar el nombre.</p> : null}
+                  <div className="account-form-footer"><button type="submit" disabled={savingProductora || !isAdmin} className="account-button account-button-primary">{savingProductora ? "Guardando…" : "Guardar cambios"}</button></div>
+                </form> : isAdmin ? <ProductoraSetupCard variant="account" /> : <ProductoraWaitingCard variant="account" />}
               </div>
-              <DesktopAppCard />
-            </section>
-          )}
-
-          {!restrictedSettings ? (
-            <>
-              <Panel>
-                <h2 className="text-xl font-bold tracking-tight text-foreground">Productora</h2>
-                {hasTenant ? (
-                  <form onSubmit={saveProductoraName} className="mt-6 flex flex-col gap-3 sm:flex-row">
-                    <Input value={productoraName} onChange={(e) => setProductoraName(e.target.value)} required maxLength={255} autoComplete="organization" className="h-11 rounded-xl" aria-label="Nombre de la productora" />
-                    <Button type="submit" disabled={savingProductora || !isAdmin} className="h-11 rounded-xl bg-[#FF9500] text-white hover:bg-[#FF9500]/90 disabled:opacity-50">{savingProductora ? "Guardando…" : "Guardar"}</Button>
-                  </form>
-                ) : isAdmin ? <div className="mt-6"><ProductoraSetupCard className="max-w-none" /></div> : <div className="mt-6"><ProductoraWaitingCard className="max-w-none" /></div>}
-              </Panel>
-
-              <section className="space-y-4">
-                <div><h2 className="text-xl font-bold tracking-tight text-foreground">Pagos</h2><p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">Conectá las plataformas para cobrar entradas y consumiciones.</p></div>
-                {hasTenant ? <><MpConnectionCard tenantId={tenantId} token={token} /><CucuruConnectionCard tenantId={tenantId} token={token} /></> : null}
-              </section>
-
-              <section className="space-y-4">
-                <div><h2 className="text-xl font-bold tracking-tight text-foreground">WhatsApp</h2><p className="mt-1 text-sm text-[#8E8E93] dark:text-[#98989D]">Así salen los mensajes a tus clientes y tu equipo.</p></div>
-                {hasTenant ? <WhatsAppConnectionCard tenantId={tenantId} token={token} /> : null}
-              </section>
-            </>
-          ) : null}
-
-          <LogoutButton className="h-11 w-full rounded-xl" />
+              <div hidden={activeSection.id !== "cobros"} className="account-panel" aria-labelledby="account-section-title">
+                {hasTenant ? <><MpConnectionCard tenantId={tenantId} token={token} /><CucuruConnectionCard tenantId={tenantId} token={token} /></> : <AccountTenantRequired href={sectionLink("productora")} />}
+              </div>
+              <div hidden={activeSection.id !== "whatsapp"} className="account-panel" aria-labelledby="account-section-title">
+                {hasTenant ? <WhatsAppConnectionCard tenantId={tenantId} token={token} /> : <AccountTenantRequired href={sectionLink("productora")} />}
+              </div>
+            </> : null}
+            {!isTauri() ? <div hidden={activeSection.id !== "app"} className="account-panel" aria-labelledby="account-section-title"><DesktopAppCard /></div> : null}
+          </div>
         </div>
       </main>
     </div>
   )
+}
+
+function AccountTenantRequired({ href }: { href: string }) {
+  return <div className="account-empty"><Building2 aria-hidden="true" /><h3>Primero, tu productora</h3><p>Configurá tu productora para acceder a esta conexión.</p><Link to={href} className="account-button account-button-secondary">Ir a Productora</Link></div>
 }

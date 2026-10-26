@@ -4,6 +4,7 @@ import type { BarInventoryItemRow } from "../src/types/event-dashboard";
 import {
   consumptionPerSale,
   productAvailability,
+  productAvailabilityDetail,
   stockInPackages,
   stockUnit,
 } from "../src/components/events/bar-workspace-model";
@@ -83,6 +84,22 @@ describe("Disponibilidad física de una barra", () => {
   test("el stock parcial nunca se redondea a una botella entera", () => {
     expect(stockInPackages(item("fernet", "375"))).toBe("0.5");
     expect(stockInPackages(item("fernet", "0"))).toBe("0");
+  });
+  test("identifica el insumo que limita la venta", () => {
+    const detail = productAvailabilityDetail(product(), [
+      item("fernet", "1500"),
+      item("cola", "1500", "1500"),
+    ]);
+    expect(detail.count).toBe(10);
+    expect(detail.limiter?.inventoryItemName).toBe("Cola");
+  });
+  test("un producto por unidad informa su conteo sin insumo límite", () => {
+    const detail = productAvailabilityDetail(
+      { ...product(), recipes: [] },
+      [],
+      "0",
+    );
+    expect(detail).toEqual({ count: 0, limiter: null });
   });
   test("respeta latas y paquetes en lugar de llamar botella a todo", () => {
     expect(
