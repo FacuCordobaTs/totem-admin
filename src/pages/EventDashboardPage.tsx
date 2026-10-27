@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useParams } from "react-router"
 import { EventLayout } from "@/components/events/event-layout"
+import { useEventNestedActive } from "@/components/events/event-mobile-nav"
 import { TicketTypes } from "@/components/events/ticket-types"
 import { CourtesiesPanel } from "@/components/events/courtesies-panel"
 import {
@@ -33,6 +34,7 @@ import {
 import {
   ExternalLink,
   ChevronLeft,
+  ChevronRight,
   Loader2,
   ArrowRight,
   Share2,
@@ -90,6 +92,9 @@ export function EventDashboardPage() {
   const [loading, setLoading] = useState(true)
 
   const [activeSection, setActiveSection] = useState<SectionId>("resumen")
+  // En mobile la página funciona por pasos: primero el índice de secciones y después
+  // una sola sección ocupando todo el espacio. En desktop se ignora.
+  const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
   const [financeView, setFinanceView] = useState<"summary" | "sales">("summary")
   const [refreshTick, setRefreshTick] = useState(0)
   // Las herramientas y los reportes se abren desde el mismo espacio de trabajo.
@@ -114,16 +119,26 @@ export function EventDashboardPage() {
 
   const attendeeTableRef = useRef<AttendeeTableHandle>(null)
   const bump = useCallback(() => setRefreshTick((t) => t + 1), [])
+  const resetInlineEditors = useCallback(() => {
+    setTicketTypeEditorOpen(false)
+    setCourtesyEditorOpen(false)
+    setAttendeeEditorOpen(false)
+  }, [])
   const navigateToSection = useCallback((section: SectionId) => {
     if (section !== activeSection) {
       // Al cambiar de sección, los editores en página vuelven al listado.
-      setTicketTypeEditorOpen(false)
-      setCourtesyEditorOpen(false)
-      setAttendeeEditorOpen(false)
+      resetInlineEditors()
     }
     setActiveSection(section)
+    setMobileSectionOpen(true)
     if (section === "finanzas") setFinanceView("summary")
-  }, [activeSection])
+  }, [activeSection, resetInlineEditors])
+  const closeMobileSection = useCallback(() => {
+    resetInlineEditors()
+    setFinanceView("summary")
+    setMobileSectionOpen(false)
+    window.scrollTo({ top: 0, behavior: "auto" })
+  }, [resetInlineEditors])
 
   const loadEvent = useCallback(async () => {
     if (!token || !id) return
@@ -206,13 +221,49 @@ export function EventDashboardPage() {
   const subtitle = [formatEventDate(event.date), event.venue ?? event.location]
     .filter(Boolean)
     .join(" · ")
+  // Las herramientas (balance, caja, reporte) y el detalle de ventas reemplazan todo el
+  // contenido en mobile y traen su propio botón de volver: el encabezado no compite con ellos.
+  const mobilePageNested =
+    view !== "workspace" ||
+    (activeSection === "finanzas" && financeView === "sales")
+  const mobileFocus = mobileSectionOpen || view !== "workspace"
+  const mobileBack = mobilePageNested
+    ? null
+    : !mobileSectionOpen
+      ? { to: "/eventos", label: "Eventos" }
+      : { onClick: closeMobileSection, label: "Secciones" }
 
   function renderSection() {
     if (!event || !id) return null
     switch (activeSection) {
       case "resumen":
         return (
-          <SectionShell title="Resumen">
+          <SectionShell
+            title="Resumen"
+            action={
+              <div className="flex flex-wrap items-center gap-2">
+                {(role === "ADMIN" || role === "MANAGER") && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setView("cash")}
+                    className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/55 hover:bg-white/[0.06] hover:text-white"
+                  >
+                    Caja por fechas
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setView("balance")}
+                  className="h-9 rounded-xl bg-white/[0.06] px-3.5 text-[13px] font-medium text-white hover:bg-white/[0.1]"
+                >
+                  Balance del evento
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </div>
+            }
+          >
             <EventSummaryDashboard
               eventId={id}
               operationMode={operationMode}
@@ -317,13 +368,14 @@ export function EventDashboardPage() {
         return (
           <SectionShell
             title="Página"
+            description="Cómo se ve y se comparte el evento en el link público."
             action={
               event.slug ? (
                 <a
                   href={`https://crow.ar/${event.slug}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 rounded-lg border border-white/[0.15] bg-white/[0.05] px-4 py-2 text-[13px] font-medium text-white/70 transition-all hover:bg-white/[0.08] hover:text-white active:opacity-70"
+                  className="flex items-center gap-1.5 rounded-xl bg-[#FF9500] px-4 py-2 text-[13px] font-semibold text-black transition-colors hover:bg-[#FFAD33] active:opacity-80"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Visitar página
@@ -332,9 +384,13 @@ export function EventDashboardPage() {
             }
           >
             {event.slug ? (
-              <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
-                <EventFlyerMailPreview event={event} onUpdated={loadEvent} />
-                <EventSalesConfig event={event} onUpdated={loadEvent} />
+              <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-12">
+                <div className="min-w-0">
+                  <EventSalesConfig event={event} onUpdated={loadEvent} />
+                </div>
+                <aside className="xl:sticky xl:top-20 xl:h-fit">
+                  <EventFlyerMailPreview event={event} onUpdated={loadEvent} />
+                </aside>
               </div>
             ) : (
               <div className="max-w-xl">
@@ -345,23 +401,40 @@ export function EventDashboardPage() {
         )
       case "finanzas":
         return (
-          <SectionShell title="Finanzas">
+          <SectionShell
+            title="Finanzas"
+            description="Ingresos, gastos y ventas del evento."
+          >
             {financeView === "sales" ? (
-              <EventSalesList eventId={id} supportsConsumptions={supportsConsumptions} onBack={() => setFinanceView("summary")} />
+              <EventSalesList
+                eventId={id}
+                supportsConsumptions={supportsConsumptions}
+                onBack={() => setFinanceView("summary")}
+              />
             ) : (
-              <div className="space-y-10">
-                <EventIncomeSummary eventId={id} refreshTrigger={refreshTick} supportsConsumptions={supportsConsumptions} onNavigate={navigateToSection} />
-                <div className="flex items-center justify-between border-y border-white/[0.06] py-5">
-                  <div>
-                    <h2 className="text-lg font-semibold text-white">Últimas ventas</h2>
-                    <p className="mt-1 text-sm text-white/45">{supportsConsumptions ? "Consultá el detalle y filtrá entradas o consumos." : "Consultá el detalle de las entradas vendidas."}</p>
-                  </div>
-                  <Button variant="outline" onClick={() => setFinanceView("sales")} className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]">
-                    Ver ventas
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
-                <EventExpensesTab eventId={id} embedded onExpensesChanged={bump} />
+              <div className="space-y-12">
+                <EventIncomeSummary
+                  eventId={id}
+                  refreshTrigger={refreshTick}
+                  supportsConsumptions={supportsConsumptions}
+                  onNavigate={navigateToSection}
+                  action={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setFinanceView("sales")}
+                      className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/55 hover:bg-white/[0.06] hover:text-white"
+                    >
+                      Ver todas las ventas
+                      <ArrowRight className="ml-1.5 h-4 w-4" />
+                    </Button>
+                  }
+                />
+
+                <EventExpensesTab
+                  eventId={id}
+                  onExpensesChanged={bump}
+                />
               </div>
             )}
           </SectionShell>
@@ -370,10 +443,18 @@ export function EventDashboardPage() {
   }
 
   return (
-    <EventLayout>
+    <EventLayout
+      mobileBack={mobileBack}
+      mobileNestedEnabled={mobileSectionOpen && view === "workspace"}
+    >
       <div className={cn("mx-auto max-w-7xl px-4 py-6 sm:px-8", activeSection === "entradas" && "tickets-page")}>
-        {/* Header permanente del evento (spec §4) */}
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.08] pb-6">
+        {/* Header permanente del evento (spec §4). En mobile se oculta al entrar a un paso. */}
+        <header
+          className={cn(
+            "flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.08] pb-6",
+            mobileFocus && "hidden lg:flex"
+          )}
+        >
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="break-words text-3xl font-extrabold tracking-tight sm:text-4xl">
@@ -388,23 +469,6 @@ export function EventDashboardPage() {
             )}
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-3">
-            {(role === "ADMIN" || role === "MANAGER") && view !== "cash" && (
-              <Button type="button" variant="outline" onClick={() => setView("cash")}
-                className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]">
-                Caja por fechas
-              </Button>
-            )}
-            {view !== "balance" && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setView("balance")}
-                className="border-white/[0.15] bg-transparent text-white hover:bg-white/[0.08]"
-              >
-                Balance del evento
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            )}
             {event.closingReport && (
               <>
                 <Button type="button" variant="outline" onClick={() => setView((current) => current === "report" ? "workspace" : "report")}
@@ -435,6 +499,16 @@ export function EventDashboardPage() {
           </div>
         </header>
 
+        {!mobileFocus ? (
+          <MobileSectionNav
+            sections={visibleSections}
+            onSelect={(sectionId) => {
+              navigateToSection(sectionId)
+              window.scrollTo({ top: 0, behavior: "auto" })
+            }}
+          />
+        ) : null}
+
         {/* Balance, caja y reportes conservan sus herramientas dentro del evento. */}
         {view === "cash" ? (
           <EventCashPeriod key={id} eventId={id} eventName={event.name} onBack={() => setView("workspace")} />
@@ -449,6 +523,14 @@ export function EventDashboardPage() {
           />
         ) : view === "report" && event.closingReport ? (
           <div className="space-y-6 pt-8">
+            <button
+              type="button"
+              onClick={() => setView("workspace")}
+              className="inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium text-white/45 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#FF9500]"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Volver al evento
+            </button>
             <div>
               <h2 className="text-2xl font-bold text-white">Reporte guardado</h2>
               <p className="mt-2 text-sm text-zinc-400">Cifras guardadas el {formatEventDate(event.closingReport.closedAt)}.</p>
@@ -462,10 +544,15 @@ export function EventDashboardPage() {
             />
           </div>
         ) : (
-        <div className="flex flex-col gap-8 pt-6 lg:flex-row lg:gap-10">
-          {/* Nav lateral fija (spec §3.2 / §4): siempre visible, no colapsable */}
-          <nav className="lg:sticky lg:top-20 lg:h-fit lg:w-44 lg:shrink-0">
-            <div className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+        <div
+          className={cn(
+            "flex flex-col gap-8 pt-6 lg:flex-row lg:gap-10",
+            !mobileSectionOpen && "hidden lg:flex"
+          )}
+        >
+          {/* Nav lateral fija (spec §3.2 / §4): sólo desktop. En mobile se navega por pasos. */}
+          <nav className="hidden lg:sticky lg:top-20 lg:block lg:h-fit lg:w-44 lg:shrink-0">
+            <div className="flex flex-col gap-1">
               {visibleSections.map(({ id: sectionId, label, Icon }) => {
                 const isActive = activeSection === sectionId
                 return (
@@ -501,21 +588,67 @@ export function EventDashboardPage() {
   )
 }
 
+function MobileSectionNav({
+  sections,
+  onSelect,
+}: {
+  sections: { id: SectionId; label: string; Icon: LucideIcon }[]
+  onSelect: (section: SectionId) => void
+}) {
+  return (
+    <nav aria-label="Secciones del evento" className="pt-6 lg:hidden">
+      <ul className="overflow-hidden rounded-2xl bg-white/[0.02]">
+        {sections.map(({ id, label, Icon }, index) => (
+          <li key={id}>
+            <button
+              type="button"
+              onClick={() => onSelect(id)}
+              className={cn(
+                "flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#FF9500]",
+                index > 0 && "border-t border-white/[0.06]"
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0 text-white/35" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-white">
+                {label}
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-white/25" aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
 function SectionShell({
   title,
+  description,
   action,
   children,
 }: {
   title: string
+  description?: string
   action?: React.ReactNode
   children: React.ReactNode
 }) {
+  const nestedActive = useEventNestedActive()
   return (
     <section className="space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <h2 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
-          {title}
-        </h2>
+      <div
+        className={cn(
+          "flex flex-wrap items-end justify-between gap-4",
+          nestedActive && "hidden"
+        )}
+      >
+        <div className="min-w-0">
+          <h2 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
+            {title}
+          </h2>
+          {description ? (
+            <p className="mt-2 text-[14px] text-white/45">{description}</p>
+          ) : null}
+        </div>
         {action}
       </div>
       {children}

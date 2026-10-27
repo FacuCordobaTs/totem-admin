@@ -244,10 +244,12 @@ export function BarDetailView({
 
   return (
     <div className="bw-detail">
-      <button className="bw-back" onClick={onBack}>
-        <ArrowLeft size={16} />
-        Todas las barras
-      </button>
+      {editing === undefined && (
+        <button className="bw-back" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Todas las barras
+        </button>
+      )}
       {loading ? (
         <div className="bw-skeleton" aria-label="Cargando barra" />
       ) : error ? (

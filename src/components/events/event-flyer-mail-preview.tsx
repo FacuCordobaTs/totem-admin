@@ -45,28 +45,31 @@ export function EventFlyerMailPreview({ event, onUpdated }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="inline-flex rounded-lg border border-white/[0.10] bg-white/[0.04] p-1">
-        {(
-          [
-            { id: "flyer" as const, label: "Flyer" },
-            { id: "mail" as const, label: "Mail" },
-          ]
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setView(t.id)}
-            aria-pressed={view === t.id}
-            className={cn(
-              "rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition-colors",
-              view === t.id
-                ? "bg-[#FF9500] text-white"
-                : "text-white/50 hover:text-white/80"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-[13px] font-normal text-white/45">Vista previa</h3>
+        <div className="inline-flex rounded-lg bg-white/[0.04] p-1">
+          {(
+            [
+              { id: "flyer" as const, label: "Flyer" },
+              { id: "mail" as const, label: "Mail" },
+            ]
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setView(t.id)}
+              aria-pressed={view === t.id}
+              className={cn(
+                "rounded-md px-3.5 py-1.5 text-[12px] font-medium transition-colors",
+                view === t.id
+                  ? "bg-white/[0.1] text-white"
+                  : "text-white/45 hover:text-white/75"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {view === "flyer" ? (

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Copy, Loader2 } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { ApiEvent } from "@/types/events"
 import { eventSupportsConsumptions } from "@/lib/event-operation-mode"
 import { isValidSlug, slugify } from "@/lib/event-slug"
+import { cn } from "@/lib/utils"
 
 /** Converts an ISO instant from the API to `datetime-local` value in the browser timezone. */
 function toDatetimeLocalValue(iso: string | null | undefined): string {
@@ -57,6 +59,31 @@ type Props = {
   onlySlug?: boolean
 }
 
+type TabId = "contenido" | "ventas" | "acceso"
+
+const PAGE_TABS: { id: TabId; label: string }[] = [
+  { id: "contenido", label: "Contenido" },
+  { id: "ventas", label: "Ventas" },
+  { id: "acceso", label: "Acceso" },
+]
+
+const DESIGN_OPTIONS = [
+  {
+    value: "GLASS" as const,
+    title: "Glass",
+    desc: "Flyer a pantalla completa con capas translúcidas.",
+  },
+  {
+    value: "MINIMAL" as const,
+    title: "Clásico",
+    desc: "Diseño plano, elegante y sobrio.",
+  },
+]
+
+/** Superficie de campo compartida: negra con un velo sutil, foco naranja. */
+const fieldClass =
+  "w-full rounded-xl bg-white/[0.04] px-3.5 py-2.5 text-[15px] text-white outline-none transition-colors placeholder:text-white/30 focus:bg-white/[0.06] focus:ring-2 focus:ring-[#FF9500]/40"
+
 /**
  * Campo de fecha + hora usable: dos inputs nativos separados (calendario y reloj) en vez del
  * `datetime-local` combinado, con `color-scheme: dark` para que se vean bien sobre fondo oscuro.
@@ -86,12 +113,9 @@ function DateTimeField({
     onChange(`${nextDate}T${nextTime || "00:00"}`)
   }
 
-  const fieldClass =
-    "rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] transition-shadow focus:ring-white/25 [color-scheme:dark]"
-
   return (
     <div className="space-y-2">
-      <label htmlFor={`${id}-date`} className="block text-md font-medium text-[#98989D]">
+      <label htmlFor={`${id}-date`} className="block text-[14px] font-medium text-white/70">
         {label}
       </label>
       <div className="flex flex-wrap gap-2">
@@ -101,7 +125,7 @@ function DateTimeField({
           value={datePart}
           onChange={(e) => emit(e.target.value, timePart)}
           onBlur={onCommit}
-          className={`${fieldClass} min-w-0 flex-1`}
+          className={cn(fieldClass, "min-w-0 flex-1 [color-scheme:dark]")}
         />
         <input
           id={`${id}-time`}
@@ -110,10 +134,10 @@ function DateTimeField({
           onChange={(e) => emit(datePart || todayLocalDate(), e.target.value)}
           onBlur={onCommit}
           aria-label={`${label} — hora`}
-          className={`${fieldClass} w-32`}
+          className={cn(fieldClass, "w-32 [color-scheme:dark]")}
         />
       </div>
-      {hint ? <p className="text-[12px] text-[#98989D]">{hint}</p> : null}
+      {hint ? <p className="text-[12px] leading-relaxed text-white/35">{hint}</p> : null}
     </div>
   )
 }
@@ -121,6 +145,10 @@ function DateTimeField({
 /**
  * Config de la página pública. Sin botón de guardar (spec §0/§3.1): cada campo persiste
  * al perder el foco, con una confirmación visual mínima ("Guardado" efímero).
+ *
+ * La sección agrupa los campos en tres pestañas para que sólo se vea la tarea en curso:
+ * contenido público, ventanas de venta y acceso del cliente. El link público queda siempre
+ * visible porque es la identidad de la página.
  */
 export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) {
   const token = useAuthStore((s) => s.token)
@@ -137,6 +165,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedAccess, setCopiedAccess] = useState(false)
+  const [tab, setTab] = useState<TabId>("contenido")
   const supportsConsumptions = eventSupportsConsumptions(
     event.operationMode ?? "FULL_OPERATION"
   )
@@ -144,6 +173,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   /** Firma de lo último persistido, para saltear PATCH sin cambios reales. */
   const lastSavedRef = useRef<string>("")
   const savedTimerRef = useRef<number | null>(null)
+  const copiedTimerRef = useRef<number | null>(null)
+  const copiedAccessTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     const tickets = toDatetimeLocalValue(event.ticketsAvailableFrom)
@@ -177,6 +208,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   useEffect(() => {
     return () => {
       if (savedTimerRef.current) window.clearTimeout(savedTimerRef.current)
+      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current)
+      if (copiedAccessTimerRef.current) window.clearTimeout(copiedAccessTimerRef.current)
     }
   }, [])
 
@@ -270,28 +303,49 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
     [token, venue, location, description, ticketsLocal, ticketsCloseLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
   )
 
+  const copy = useCallback(
+    async (value: string, kind: "page" | "access") => {
+      try {
+        await navigator.clipboard.writeText(value)
+      } catch {
+        return
+      }
+      if (kind === "page") {
+        setCopied(true)
+        if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current)
+        copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000)
+      } else {
+        setCopiedAccess(true)
+        if (copiedAccessTimerRef.current) window.clearTimeout(copiedAccessTimerRef.current)
+        copiedAccessTimerRef.current = window.setTimeout(() => setCopiedAccess(false), 2000)
+      }
+    },
+    []
+  )
+
   return (
-    <div className="rounded-xl bg-transparent py-5">
-      {/* URL / slug — siempre lo primero. */}
-      <div className="space-y-2">
-        {onlySlug ? (
-          <div className="mb-3">
-            <h3 className="text-[17px] font-semibold text-foreground">
-              Elegí la URL de tu página
+    <div className="space-y-8">
+      {/* Link público: identidad de la página, siempre visible. */}
+      <section aria-labelledby={`event-link-title-${event.id}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3
+              id={`event-link-title-${event.id}`}
+              className="text-[15px] font-semibold text-white"
+            >
+              {onlySlug ? "Elegí la URL de tu página" : "Link público"}
             </h3>
-            <p className="text-[13px] text-[#98989D]">
-              Es el primer paso. Definí el link público y después configurás fechas y diseño.
+            <p className="mt-1 text-[13px] leading-relaxed text-white/45">
+              {onlySlug
+                ? "Es el primer paso. Definí el link y después configurás contenido, ventas y diseño."
+                : "La dirección que compartís con tu público."}
             </p>
           </div>
-        ) : null}
-        <label
-          htmlFor={`event-slug-${event.id}`}
-          className="block text-md font-medium text-[#98989D]"
-        >
-          URL del evento
-        </label>
-        <div className="flex items-center gap-0 rounded-lg bg-zinc-950 py-3 ring-1 ring-white/[0.06] focus-within:ring-white/25">
-          <span className="select-none whitespace-nowrap pl-3 text-lg text-[#98989D]">
+          <SaveStatus saving={saving} savedAt={savedAt} />
+        </div>
+
+        <div className="mt-3 flex items-center gap-2 rounded-xl bg-white/[0.04] px-3.5 py-2 focus-within:ring-2 focus-within:ring-[#FF9500]/40">
+          <span className="select-none whitespace-nowrap text-[15px] text-white/35">
             crow.ar/
           </span>
           <input
@@ -314,247 +368,283 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
               setSlug(cleaned)
               void persist({ slug: cleaned })
             }}
-            className="min-w-0 flex-1 bg-transparent pr-3 text-lg text-foreground outline-none"
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-[15px] text-white outline-none placeholder:text-white/30"
           />
-        </div>
-        {slugError ? (
-          <p className="text-md text-red-500 dark:text-red-400">{slugError}</p>
-        ) : slugTrimmed ? (
-          <p className="flex items-center gap-2 text-md text-[#8E8E93] dark:text-[#98989D]">
-            <span>
-              Link público:{" "}
-              <span className="font-mono">crow.ar/{slugTrimmed}</span>
-            </span>
+          {slugTrimmed ? (
             <button
               type="button"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(`https://crow.ar/${slugTrimmed}`)
-                  setCopied(true)
-                  window.setTimeout(() => setCopied(false), 2000)
-                } catch {
-                  /* clipboard unavailable */
-                }
-              }}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-white/40 transition-colors hover:text-white/70"
+              onClick={() => void copy(`https://crow.ar/${slugTrimmed}`, "page")}
+              aria-label="Copiar link público"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
             >
               {copied ? (
-                <Check className="h-3 w-3 text-emerald-400" />
+                <Check className="h-3.5 w-3.5 text-emerald-400" />
               ) : (
-                <Copy className="h-3 w-3" />
+                <Copy className="h-3.5 w-3.5" />
               )}
               {copied ? "Copiado" : "Copiar"}
             </button>
+          ) : null}
+        </div>
+
+        {slugError ? (
+          <p className="mt-2 text-[12px] text-red-400" role="alert">
+            {slugError}
           </p>
         ) : (
-          <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-            Sin slug — el link usa el ID del evento.
+          <p className="mt-2 text-[12px] text-white/35">
+            {slugTrimmed
+              ? "El link público ya está activo."
+              : "Sin slug — el link usa el ID del evento."}
           </p>
         )}
-      </div>
+      </section>
 
       {!onlySlug ? (
-        <>
-          <div className="mt-8 grid gap-6">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as TabId)} className="gap-0">
+          <TabsList className="h-auto w-full justify-start gap-1 rounded-xl bg-white/[0.04] p-1 sm:w-fit">
+            {PAGE_TABS.map((option) => (
+              <TabsTrigger
+                key={option.id}
+                value={option.id}
+                className="h-11 flex-none rounded-lg px-3.5 text-[13px] font-medium text-white/50 transition-colors hover:text-white/80 data-[state=active]:bg-white/[0.09] data-[state=active]:text-white data-[state=active]:shadow-none sm:h-9"
+              >
+                {option.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {/* Contenido: lo que lee el público en la página. */}
+          <TabsContent value="contenido" className="mt-6 space-y-8">
             <div className="space-y-2">
-              <label htmlFor={`event-venue-${event.id}`} className="block text-md font-medium text-[#98989D]">
-                Dirección textual (opcional)
+              <label
+                htmlFor={`event-description-${event.id}`}
+                className="block text-[14px] font-medium text-white/70"
+              >
+                Descripción
               </label>
-              <input
-                id={`event-venue-${event.id}`}
-                value={venue}
-                maxLength={255}
-                placeholder="Ej. Salón del Puerto"
-                onChange={(e) => setVenue(e.target.value)}
+              <textarea
+                id={`event-description-${event.id}`}
+                value={description}
+                placeholder={"Cont\u00e1 de qu\u00e9 se trata el evento: artistas, horarios, qu\u00e9 incluye\u2026"}
+                maxLength={500}
+                rows={4}
+                onChange={(e) => setDescription(e.target.value)}
                 onBlur={() => void persist()}
-                className="w-full rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] focus:ring-white/25"
+                className={cn(fieldClass, "resize-y leading-relaxed")}
               />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor={`event-location-${event.id}`} className="block text-md font-medium text-[#98989D]">
-                Ubicación para el mapa (opcional)
-              </label>
-              <input
-                id={`event-location-${event.id}`}
-                value={location}
-                maxLength={255}
-                placeholder="Dirección y ciudad, o coordenadas"
-                onChange={(e) => setLocation(e.target.value)}
-                onBlur={() => void persist()}
-                className="w-full rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] focus:ring-white/25"
-              />
-              <p className="text-[12px] text-[#98989D]">
-                Podés indicar la ubicación sin completar la dirección textual.
+              <p className="text-[12px] text-white/35">
+                Se muestra en la página pública, debajo del nombre del evento.{" "}
+                {description.length}/500
               </p>
-              {location.trim() ? (
-                <iframe
-                  src={`https://maps.google.com/maps?q=${encodeURIComponent(location.trim())}&z=16&output=embed`}
-                  title="Vista previa de la ubicación del evento"
-                  loading="lazy"
-                  className="h-40 w-full rounded-xl border border-white/[0.06]"
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label
+                  htmlFor={`event-venue-${event.id}`}
+                  className="block text-[14px] font-medium text-white/70"
+                >
+                  Dirección textual
+                </label>
+                <input
+                  id={`event-venue-${event.id}`}
+                  value={venue}
+                  maxLength={255}
+                  placeholder="Ej. Salón del Puerto"
+                  onChange={(e) => setVenue(e.target.value)}
+                  onBlur={() => void persist()}
+                  className={fieldClass}
+                />
+                <p className="text-[12px] text-white/35">
+                  Opcional. Se muestra como texto en la página.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label
+                  htmlFor={`event-location-${event.id}`}
+                  className="block text-[14px] font-medium text-white/70"
+                >
+                  Ubicación para el mapa
+                </label>
+                <input
+                  id={`event-location-${event.id}`}
+                  value={location}
+                  maxLength={255}
+                  placeholder="Dirección y ciudad, o coordenadas"
+                  onChange={(e) => setLocation(e.target.value)}
+                  onBlur={() => void persist()}
+                  className={fieldClass}
+                />
+                <p className="text-[12px] text-white/35">
+                  Opcional. Podés indicar el mapa sin completar la dirección textual.
+                </p>
+              </div>
+            </div>
+
+            {location.trim() ? (
+              <iframe
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(location.trim())}&z=16&output=embed`}
+                title="Vista previa de la ubicación del evento"
+                loading="lazy"
+                className="h-44 w-full rounded-xl"
+              />
+            ) : null}
+
+            <div className="space-y-3">
+              <div>
+                <h4 className="text-[14px] font-medium text-white/70">
+                  Diseño de la página pública
+                </h4>
+                <p className="mt-1 text-[12px] text-white/35">
+                  Cómo se presenta el flyer y la información en el link público.
+                </p>
+              </div>
+              <div
+                role="group"
+                aria-label="Diseño de la página pública"
+                className="grid gap-3 sm:grid-cols-2"
+              >
+                {DESIGN_OPTIONS.map((option) => {
+                  const active = designType === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        if (designType === option.value) return
+                        setDesignType(option.value)
+                        void persist({ designType: option.value })
+                      }}
+                      className={cn(
+                        "rounded-xl px-4 py-3.5 text-left transition-colors",
+                        active
+                          ? "bg-[#FF9500]/10"
+                          : "bg-white/[0.03] hover:bg-white/[0.06]"
+                      )}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-[14px] font-semibold text-white">
+                          {option.title}
+                        </span>
+                        {active ? (
+                          <Check className="h-4 w-4 shrink-0 text-[#FF9500]" aria-hidden />
+                        ) : null}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] leading-snug text-white/45">
+                        {option.desc}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Ventas: ventanas de venta anticipada, agrupadas en un solo lugar. */}
+          <TabsContent value="ventas" className="mt-6 space-y-6">
+            <div className="grid gap-6 sm:grid-cols-2">
+              <DateTimeField
+                id={`sales-tickets-${event.id}`}
+                label="Inicio de venta de entradas"
+                hint="Cuándo se abre la compra de entradas al público."
+                value={ticketsLocal}
+                onChange={setTicketsLocal}
+                onCommit={() => void persist()}
+              />
+              <DateTimeField
+                id={`sales-tickets-close-${event.id}`}
+                label="Cierre de venta de entradas"
+                hint="Pasada esta fecha no se pueden comprar más entradas. Vacío = sin cierre."
+                value={ticketsCloseLocal}
+                onChange={setTicketsCloseLocal}
+                onCommit={() => void persist()}
+              />
+              {supportsConsumptions ? (
+                <DateTimeField
+                  id={`sales-consumptions-${event.id}`}
+                  label="Inicio de venta de consumiciones"
+                  hint="Cuándo se abre la compra anticipada de barra."
+                  value={consumptionsLocal}
+                  onChange={setConsumptionsLocal}
+                  onCommit={() => void persist()}
                 />
               ) : null}
             </div>
-          </div>
-
-          {/* Descripcion publica: texto libre de la pagina de venta. Persiste al perder el foco,
-              sin "Guardar" global, igual que el resto de la seccion. */}
-          <div className="mt-8 space-y-2">
-            <label
-              htmlFor={`event-description-${event.id}`}
-              className="block text-md font-medium text-[#98989D]"
-            >
-              Descripci{"\u00f3"}n
-            </label>
-            <textarea
-              id={`event-description-${event.id}`}
-              value={description}
-              placeholder={"Cont\u00e1 de qu\u00e9 se trata el evento: artistas, horarios, qu\u00e9 incluye\u2026"}
-              maxLength={500}
-              rows={4}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={() => void persist()}
-              className="w-full resize-y rounded-lg bg-zinc-950 p-3 text-[15px] text-foreground outline-none ring-1 ring-white/[0.06] transition-shadow placeholder:text-[#8E8E93] focus:ring-white/25 dark:placeholder:text-[#98989D]"
-            />
-            <p className="text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-              Se muestra en la p{"\u00e1"}gina p{"\u00fa"}blica, debajo del nombre del evento. {description.length}/500
+            <p className="text-[12px] text-white/35">
+              Los cambios se guardan al salir de cada campo.
             </p>
-          </div>
+          </TabsContent>
 
-          {/* Link de acceso del cliente (`crow.ar/{slug}/acceso`): es el que se imprime para la
-              barra. El cliente lo escanea, entra con su DNI o celular y recibe un código por
-              WhatsApp — sin depender del link que le llegó al mail. */}
-          <div className="mt-8 space-y-3 rounded-xl bg-zinc-950 p-4 ring-1 ring-white/[0.06]">
-            <div>
-              <p className="text-md font-medium text-[#98989D]">
-                Link de acceso del cliente
-              </p>
-              <p className="mt-0.5 text-[12px] text-[#8E8E93] dark:text-[#98989D]">
-                Para la barra: el cliente lo escanea, entra con su DNI o celular y recibe un
-                código por WhatsApp.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-md text-[#8E8E93] dark:text-[#98989D]">
-              <span className="font-mono break-all">crow.ar/{accessPath}/acceso</span>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(accessUrl)
-                    setCopiedAccess(true)
-                    window.setTimeout(() => setCopiedAccess(false), 2000)
-                  } catch {
-                    /* clipboard unavailable */
-                  }
-                }}
-                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-white/40 transition-colors hover:text-white/70"
-              >
-                {copiedAccess ? (
-                  <Check className="h-3 w-3 text-emerald-400" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-                {copiedAccess ? "Copiado" : "Copiar"}
-              </button>
-            </div>
-            <div className="w-fit rounded-xl bg-white p-3">
-              <QRCodeSVG value={accessUrl} size={144} level="M" includeMargin />
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-6 sm:grid-cols-2">
-            <DateTimeField
-              id={`sales-tickets-${event.id}`}
-              label="Inicio de venta de entradas"
-              hint="Cuándo se abre la compra de entradas al público."
-              value={ticketsLocal}
-              onChange={setTicketsLocal}
-              onCommit={() => void persist()}
-            />
-            <DateTimeField
-              id={`sales-tickets-close-${event.id}`}
-              label="Cierre de venta de entradas"
-              hint="Pasada esta fecha y hora no se pueden comprar más entradas. Vacío = sin cierre."
-              value={ticketsCloseLocal}
-              onChange={setTicketsCloseLocal}
-              onCommit={() => void persist()}
-            />
-            {supportsConsumptions ? <DateTimeField
-              id={`sales-consumptions-${event.id}`}
-              label="Inicio de venta de consumiciones"
-              hint="Cuándo se abre la compra anticipada de barra."
-              value={consumptionsLocal}
-              onChange={setConsumptionsLocal}
-              onCommit={() => void persist()}
-            /> : null}
-          </div>
-
-          <div className="mt-6 space-y-2">
-            <label className="block text-md font-medium text-[#98989D]">
-              Diseño de la página pública
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {([
-                {
-                  value: "GLASS" as const,
-                  title: "Glass",
-                  desc: "Flyer a pantalla completa con capas translúcidas.",
-                },
-                {
-                  value: "MINIMAL" as const,
-                  title: "Clásico",
-                  desc: "Diseño plano, elegante y sobrio.",
-                },
-              ]).map((opt) => {
-                const active = designType === opt.value
-                return (
+          {/* Acceso: el link que se imprime para la barra y su QR. */}
+          <TabsContent value="acceso" className="mt-6">
+            <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-[14px] font-medium text-white/70">
+                    Link de acceso del cliente
+                  </h4>
+                  <p className="mt-1 max-w-md text-[13px] leading-relaxed text-white/45">
+                    Para la barra: el cliente lo escanea, entra con su DNI o celular y recibe
+                    un código por WhatsApp.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="rounded-lg bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/60 [overflow-wrap:anywhere]">
+                    crow.ar/{accessPath}/acceso
+                  </code>
                   <button
-                    key={opt.value}
                     type="button"
-                    onClick={() => {
-                      if (designType === opt.value) return
-                      setDesignType(opt.value)
-                      void persist({ designType: opt.value })
-                    }}
-                    aria-pressed={active}
-                    className={`rounded-xl border p-4 text-left transition-all ${
-                      active
-                        ? "border-white/60 bg-white/[0.06]"
-                        : "border-white/[0.12] bg-zinc-950 hover:border-white/25"
-                    }`}
+                    onClick={() => void copy(accessUrl, "access")}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
                   >
-                    <span className="block text-[15px] font-semibold text-foreground">
-                      {opt.title}
-                    </span>
-                    <span className="mt-1 block text-[13px] leading-snug text-[#98989D]">
-                      {opt.desc}
-                    </span>
+                    {copiedAccess ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {copiedAccess ? "Copiado" : "Copiar"}
                   </button>
-                )
-              })}
+                </div>
+              </div>
+              <div className="w-fit rounded-xl bg-white p-3">
+                <QRCodeSVG value={accessUrl} size={144} level="M" includeMargin />
+              </div>
             </div>
-          </div>
-        </>
+          </TabsContent>
+        </Tabs>
       ) : null}
 
       {/* Confirmación visual mínima (spec §0): sin toasts, un check efímero al persistir. */}
-      <div className="mt-4 h-5 text-[13px]" aria-live="polite">
+      <div className="h-5 text-[13px]" aria-live="polite">
         {error ? (
-          <p className="text-red-600 dark:text-red-400" role="alert">
+          <p className="text-[12px] text-red-400" role="alert">
             {error}
           </p>
-        ) : saving ? (
-          <span className="inline-flex items-center gap-1.5 text-[#98989D]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            Guardando…
-          </span>
-        ) : savedAt ? (
-          <span className="inline-flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400">
-            <Check className="h-3.5 w-3.5" aria-hidden />
-            Guardado
-          </span>
         ) : null}
       </div>
     </div>
   )
+}
+
+/** Estado de guardado compacto, siempre visible junto al título de la sección. */
+function SaveStatus({ saving, savedAt }: { saving: boolean; savedAt: number }) {
+  if (saving) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] text-white/40">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        Guardando…
+      </span>
+    )
+  }
+  if (savedAt) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-400">
+        <Check className="h-3.5 w-3.5" aria-hidden />
+        Guardado
+      </span>
+    )
+  }
+  return null
 }

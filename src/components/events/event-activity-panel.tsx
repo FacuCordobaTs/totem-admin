@@ -3,7 +3,16 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventMenuProductsResponse } from "@/types/event-dashboard"
 import type { ApiProduct } from "@/components/inventory/recipe-config"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { Loader2 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   eventSupportsConsumptions,
   eventTracksStock,
@@ -95,6 +104,8 @@ type Props = {
   refreshTrigger?: number
 }
 
+const tableHeaderClass = "text-[11px] font-normal lowercase text-white/45"
+
 export function EventActivityPanel({ eventId, operationMode, refreshTrigger = 0 }: Props) {
   const token = useAuthStore((s) => s.token)
   const [sales, setSales] = useState<SaleRow[]>([])
@@ -181,47 +192,75 @@ export function EventActivityPanel({ eventId, operationMode, refreshTrigger = 0 
 
   if (error) {
     return (
-      <div className="mx-auto max-w-md px-6 py-20 text-center">
-        <p className="text-[15px] text-red-400/80">{error ?? "Sin datos"}</p>
-      </div>
+      <section className="max-w-md py-12" aria-label="Actividad del evento">
+        <p className="text-[14px] text-red-400/80">{error ?? "Sin datos"}</p>
+      </section>
     )
   }
 
   return (
-    <section className="space-y-6 border-t border-white/10 pt-6" aria-label="Actividad del evento">
-      {/* Stock crítico — solo si existe */}
-      {critical.length > 0 && (
-        <div className="mt-6 flex flex-wrap gap-2">
-          {critical.map((c) => (
-            <span
-              key={c.name}
-              className="rounded-full border border-amber-500/25 bg-amber-500/[0.06] px-3.5 py-1.5 text-[13px] text-amber-200/80"
-            >
-              {c.name}: ~{int(c.servings)} {c.servings === 1 ? "trago" : "tragos"}
-            </span>
-          ))}
+    <section className="space-y-4" aria-labelledby="activity-title">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 id="activity-title" className="text-[15px] font-semibold text-white">
+            Última actividad
+          </h3>
+          {supportsConsumptions && (
+            <p className="mt-1 text-[13px] text-white/40">
+              {int(lastHourSales.length)} venta{lastHourSales.length === 1 ? "" : "s"} en la última hora.
+            </p>
+          )}
         </div>
-      )}
-
-      {/* Feed discreto de última actividad */}
-      <div>
-        <h3 className="mb-4 text-lg font-semibold text-white">Última actividad</h3>
-        {supportsConsumptions && <p className="mb-4 text-sm text-zinc-400">{int(lastHourSales.length)} ventas recientes en la última hora.</p>}
-        {sales.length === 0 ? (
-          <p className="text-[14px] text-zinc-400">Todavía no hubo movimientos.</p>
-        ) : (
-          <ul className="divide-y divide-white/[0.05]">
-            {sales.slice(0, 8).map((s) => (
-              <li key={s.id} className="flex items-center gap-4 py-2.5 text-[14px]">
-                <span className="w-12 shrink-0 tabular-nums text-zinc-400">{timeOfDay(s.createdAt)}</span>
-                <span className="min-w-0 flex-1 truncate text-white/60">{s.itemsSummary}</span>
-                <span className="shrink-0 tabular-nums text-zinc-400">{money(s.totalAmount)}</span>
-              </li>
+        {critical.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {critical.map((c) => (
+              <span
+                key={c.name}
+                className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[12px] text-amber-200/90"
+              >
+                {c.name} · ~{int(c.servings)} {c.servings === 1 ? "trago" : "tragos"}
+              </span>
             ))}
-          </ul>
+          </div>
         )}
       </div>
 
+      <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+        <Table className="table-fixed">
+          <TableHeader>
+            <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+              <TableHead className={cn(tableHeaderClass, "w-[64px] pl-4")}>Hora</TableHead>
+              <TableHead className={tableHeaderClass}>Detalle</TableHead>
+              <TableHead className={cn(tableHeaderClass, "w-[108px] pr-4 text-right")}>Monto</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
+            {sales.length === 0 ? (
+              <TableRow className="border-0 hover:bg-transparent">
+                <TableCell colSpan={3} className="py-10 text-center text-[13px] text-white/35">
+                  Todavía no hubo movimientos.
+                </TableCell>
+              </TableRow>
+            ) : (
+              sales.slice(0, 8).map((s) => (
+                <TableRow key={s.id} className="border-0 hover:bg-white/[0.03]">
+                  <TableCell className="py-3 pl-4 text-[13px] tabular-nums text-white/35">
+                    {timeOfDay(s.createdAt)}
+                  </TableCell>
+                  <TableCell className="max-w-0 py-3 text-[14px] text-white/65">
+                    <p className="truncate" title={s.itemsSummary}>
+                      {s.itemsSummary}
+                    </p>
+                  </TableCell>
+                  <TableCell className="py-3 pr-4 text-right text-[14px] tabular-nums text-white/70">
+                    {money(s.totalAmount)}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </section>
   )
 }

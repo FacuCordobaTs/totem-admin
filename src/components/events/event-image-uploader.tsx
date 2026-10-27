@@ -96,12 +96,12 @@ export function EventImageUploader({ event, onUpdated, compact = false }: Props)
         <div className="relative w-full" style={{ aspectRatio: "9/16" }}>
           <div
             className={cn(
-              "absolute inset-0 overflow-hidden rounded-xl border-2 border-dashed border-zinc-600 bg-zinc-950",
+              "absolute inset-0 overflow-hidden rounded-xl bg-white/[0.03]",
               !imageUrl && "flex flex-col items-center justify-center gap-3"
             )}
           >
             {busy ? (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 backdrop-blur-sm">
                 <Loader2 className="h-8 w-8 animate-spin text-[#FF9500]" aria-hidden />
               </div>
             ) : null}
@@ -122,7 +122,7 @@ export function EventImageUploader({ event, onUpdated, compact = false }: Props)
                     variant="secondary"
                     disabled={busy || !token}
                     onClick={pickFile}
-                    className="h-8 rounded-lg border border-zinc-600 bg-zinc-900/90 text-[12px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-zinc-800"
+                    className="h-8 rounded-lg bg-black/70 text-[12px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-black/85"
                   >
                     <Upload className="mr-1 h-3 w-3" />
                     Cambiar
@@ -148,7 +148,7 @@ export function EventImageUploader({ event, onUpdated, compact = false }: Props)
                   size="sm"
                   disabled={busy || !token}
                   onClick={pickFile}
-                  className="h-8 rounded-lg bg-[#FF9500] px-4 text-[13px] font-semibold text-white hover:bg-[#FF9500]/90"
+                  className="h-8 rounded-lg bg-[#FF9500] px-4 text-[13px] font-semibold text-black hover:bg-[#FFAD33]"
                 >
                   Subir flyer
                 </Button>

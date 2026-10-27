@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
+import { useEventNestedView } from "./event-mobile-nav"
 import "./tickets-workspace.css"
 
 export type ApiTicketType = {
@@ -539,6 +540,7 @@ export function TicketTypes({
   const [error, setError] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const loaded = useRef(false)
+  useEventNestedView(editor !== null)
 
   const load = useCallback(async () => {
     if (!token || !eventId) return

@@ -343,13 +343,13 @@ export function BarStockPanel({
               </label>
               <div className="overflow-hidden rounded-xl bg-white/[0.02]">
                 {pickerRows.length ? (
-                  <Table>
+                  <Table className="table-fixed sm:table-auto">
                     <TableHeader>
                       <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                         <TableHead className="pl-3 text-[11px] font-normal lowercase text-white/45">
                           Producto
                         </TableHead>
-                        <TableHead className="w-[120px] pr-3">
+                        <TableHead className="w-[92px] pr-3 sm:w-[120px]">
                           <span className="sr-only">Acción</span>
                         </TableHead>
                       </TableRow>
@@ -366,10 +366,13 @@ export function BarStockPanel({
                           >
                             <TableCell className="max-w-[420px] py-3 pl-3">
                               <div className="flex min-w-0 items-baseline gap-2">
-                                <span className="truncate text-[14px] font-medium text-foreground">
+                                <span
+                                  className="truncate text-[14px] font-medium text-foreground"
+                                  title={item.name}
+                                >
                                   {item.name}
                                 </span>
-                                <span className="truncate text-[12px] text-white/40">
+                                <span className="hidden truncate text-[12px] text-white/40 sm:inline">
                                   {item.productId
                                     ? "Producto por unidad"
                                     : packageDescription(item)}
@@ -518,16 +521,16 @@ export function BarStockPanel({
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-          <Table>
+          <Table className="table-fixed sm:table-auto">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Producto
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[28%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                   En barra
                 </TableHead>
-                <TableHead className="w-[170px] pr-4">
+                <TableHead className="w-[28%] pr-4 sm:w-[170px]">
                   <span className="sr-only">Acciones</span>
                 </TableHead>
               </TableRow>
@@ -566,10 +569,11 @@ export function BarStockPanel({
                         <div className="flex min-w-0 items-baseline gap-2">
                           <span
                             className={`truncate text-[14px] font-medium ${empty ? "text-[#ffd294]" : "text-foreground"}`}
+                            title={item.name}
                           >
                             {item.name}
                           </span>
-                          <span className="truncate text-[12px] text-white/40">
+                          <span className="hidden truncate text-[12px] text-white/40 sm:inline">
                             {description}
                           </span>
                         </div>
@@ -600,7 +604,16 @@ export function BarStockPanel({
                             edit ? setEditing(null) : open(item)
                           }
                         >
-                          {edit ? "Cerrar" : "Ingresar o contar"}
+                          {edit ? (
+                            "Cerrar"
+                          ) : (
+                            <>
+                              <span className="sm:hidden">Cargar</span>
+                              <span className="hidden sm:inline">
+                                Ingresar o contar
+                              </span>
+                            </>
+                          )}
                         </button>
                       </TableCell>
                     </TableRow>

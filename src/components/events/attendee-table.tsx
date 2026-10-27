@@ -37,6 +37,7 @@ import {
 import "./tickets-workspace.css"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useEventNestedView } from "./event-mobile-nav"
 
 export type ApiTicketRow = {
   id: string
@@ -416,6 +417,7 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
     const showFilters = true
     const showDetail = detail !== null
     const showSale = allowSale && saleOpen
+    useEventNestedView(showDetail || showSale)
 
     useEffect(() => {
       onEditingChange?.(showDetail || showSale)
@@ -609,25 +611,27 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
         {error ? <p className="text-[15px] text-red-600 dark:text-red-400">{error}</p> : null}
 
         <div className="overflow-hidden rounded-2xl">
-          <Table>
+          {/* En mobile se ocultan las columnas secundarias y la tabla fija el ancho
+              para truncar en una sola línea, sin scroll horizontal. */}
+          <Table className="table-fixed md:table-auto">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                <TableHead className="w-10 pl-4 text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="hidden w-10 pl-4 text-[11px] font-normal lowercase text-white/45 md:table-cell">
                   Nº
                 </TableHead>
-                <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[46%] pl-4 text-[11px] font-normal lowercase text-white/45 md:w-auto">
                   Asistente
                 </TableHead>
-                <TableHead className="text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[32%] text-[11px] font-normal lowercase text-white/45 md:w-auto">
                   Tipo
                 </TableHead>
-                <TableHead className="text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[22%] text-[11px] font-normal lowercase text-white/45 md:w-auto">
                   Estado
                 </TableHead>
-                <TableHead className="text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 md:table-cell">
                   Correo
                 </TableHead>
-                <TableHead className="pr-4 text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="hidden pr-4 text-[11px] font-normal lowercase text-white/45 md:table-cell">
                   Origen
                 </TableHead>
               </TableRow>
@@ -669,26 +673,43 @@ export const AttendeeTable = forwardRef<AttendeeTableHandle, AttendeeTableProps>
                       }}
                       className="cursor-pointer border-0 transition-colors duration-150 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
                     >
-                      <TableCell className="py-3.5 pl-4 font-mono text-[12px] tabular-nums text-zinc-600">
+                      <TableCell className="hidden py-3.5 pl-4 font-mono text-[12px] tabular-nums text-zinc-600 md:table-cell">
                         {filtered.length - pageOffset - index}
                       </TableCell>
                       <TableCell className="py-3.5 pl-4 text-[15px] font-medium text-foreground">
-                        {t.buyerName ?? "—"}
+                        <div className="truncate" title={t.buyerName ?? undefined}>
+                          {t.buyerName ?? "—"}
+                        </div>
                       </TableCell>
                       <TableCell className="py-3.5 text-[15px] text-white/50">
-                        {t.ticketTypeName}
+                        <div className="truncate" title={t.ticketTypeName}>
+                          {t.ticketTypeName}
+                        </div>
                       </TableCell>
                       <TableCell className="py-3.5">{statusPill(t.status)}</TableCell>
-                      <TableCell className="py-3.5 pr-4 text-[13px] text-white/35">
-                        {t.buyerEmail ?? "—"}
+                      <TableCell className="hidden py-3.5 pr-4 text-[13px] text-white/35 md:table-cell">
+                        <div className="truncate" title={t.buyerEmail ?? undefined}>
+                          {t.buyerEmail ?? "—"}
+                        </div>
                       </TableCell>
-                      <TableCell className="py-3.5 pr-4 text-[12px] text-white/45">
-                        {t.promoterName
-                          ? `Promotor · ${t.promoterName}`
-                          : t.customerId
-                            ? "Web"
-                            : "Directa"}
-                        {t.transferredFrom ? " · traspasada" : ""}
+                      <TableCell className="hidden py-3.5 pr-4 text-[12px] text-white/45 md:table-cell">
+                        <div
+                          className="truncate"
+                          title={
+                            (t.promoterName
+                              ? `Promotor · ${t.promoterName}`
+                              : t.customerId
+                                ? "Web"
+                                : "Directa") + (t.transferredFrom ? " · traspasada" : "")
+                          }
+                        >
+                          {t.promoterName
+                            ? `Promotor · ${t.promoterName}`
+                            : t.customerId
+                              ? "Web"
+                              : "Directa"}
+                          {t.transferredFrom ? " · traspasada" : ""}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

@@ -179,17 +179,17 @@ export function BarMenuPanel({
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-          <Table>
+          <Table className="table-fixed sm:table-auto">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Producto
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[24%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                   Precio
                 </TableHead>
                 {trackStock && (
-                  <TableHead className="text-center text-[11px] font-normal lowercase text-white/45">
+                  <TableHead className="w-[26%] text-center text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                     Disponible
                   </TableHead>
                 )}
@@ -232,11 +232,14 @@ export function BarMenuPanel({
                   >
                     <TableCell className="max-w-[360px] py-3.5 pl-4">
                       <div className="flex min-w-0 items-baseline gap-2">
-                        <span className="truncate text-[15px] font-medium text-foreground">
+                        <span
+                          className="truncate text-[15px] font-medium text-foreground"
+                          title={row.name}
+                        >
                           {row.name}
                         </span>
                         {trackStock && (
-                          <span className="truncate text-[12px] text-white/40">
+                          <span className="hidden truncate text-[12px] text-white/40 sm:inline">
                             {note}
                           </span>
                         )}
@@ -252,15 +255,16 @@ export function BarMenuPanel({
                         >
                           {count === 0 ? (
                             <>
-                              <Package size={14} aria-hidden="true" />
+                              <Package size={14} aria-hidden="true" className="hidden sm:block" />
                               Sin stock
                             </>
                           ) : count == null ? (
                             "Sin límite"
                           ) : (
                             <>
-                              <Check size={14} aria-hidden="true" />
-                              {quantityLabel(count)} unidades
+                              <Check size={14} aria-hidden="true" className="hidden sm:block" />
+                              {quantityLabel(count)}
+                              <span className="hidden sm:inline">&nbsp;unidades</span>
                             </>
                           )}
                         </span>
@@ -323,16 +327,16 @@ export function BarMenuPanel({
           </label>
           <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
             {available.length ? (
-              <Table>
+              <Table className="table-fixed sm:table-auto">
                 <TableHeader>
                   <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                     <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                       Producto
                     </TableHead>
-                    <TableHead className="text-right text-[11px] font-normal lowercase text-white/45">
+                    <TableHead className="w-[74px] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                       Precio
                     </TableHead>
-                    <TableHead className="w-[110px] pr-4">
+                    <TableHead className="w-[108px] pr-4 sm:w-[110px]">
                       <span className="sr-only">Acciones</span>
                     </TableHead>
                   </TableRow>
@@ -349,7 +353,7 @@ export function BarMenuPanel({
                             {product.name}
                           </span>
                           {product.recipes.length > 0 && (
-                            <span className="truncate text-[12px] text-white/40">
+                            <span className="hidden truncate text-[12px] text-white/40 sm:inline">
                               {product.recipes.length}{" "}
                               {product.recipes.length === 1
                                 ? "insumo"

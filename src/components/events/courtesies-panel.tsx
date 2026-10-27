@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useEventNestedView } from "./event-mobile-nav"
 import {
   Table,
   TableBody,
@@ -165,6 +166,7 @@ export function CourtesiesPanel({ eventId, refreshTrigger, onChanged, supportsCo
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  useEventNestedView(creating)
   const [guestName, setGuestName] = useState("")
   const [guestDni, setGuestDni] = useState("")
   const [guestEmail, setGuestEmail] = useState("")

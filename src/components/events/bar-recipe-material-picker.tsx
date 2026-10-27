@@ -124,7 +124,7 @@ export function BarRecipeMaterialPicker({
         </label>
         <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
           {matches.length ? (
-            <Table>
+            <Table className="table-fixed sm:table-auto">
               <TableHeader>
                 <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                   <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
@@ -133,7 +133,7 @@ export function BarRecipeMaterialPicker({
                   <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
                     Envase
                   </TableHead>
-                  <TableHead className="w-[120px] pr-4">
+                  <TableHead className="w-[104px] pr-4 sm:w-[120px]">
                     <span className="sr-only">Acciones</span>
                   </TableHead>
                 </TableRow>
@@ -147,7 +147,9 @@ export function BarRecipeMaterialPicker({
                       className="border-0 hover:bg-white/[0.03]"
                     >
                       <TableCell className="py-3.5 pl-4 text-[14px] font-medium text-foreground">
-                        {item.name}
+                        <div className="truncate" title={item.name}>
+                          {item.name}
+                        </div>
                       </TableCell>
                       <TableCell className="hidden py-3.5 text-[12px] text-white/45 sm:table-cell">
                         {packageDescription(item)}

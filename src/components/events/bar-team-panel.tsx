@@ -87,16 +87,16 @@ export function BarTeamPanel({
       </div>
       {assigned.length ? (
         <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-          <Table>
+          <Table className="table-fixed sm:table-auto">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[48%] pl-4 text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                   Persona
                 </TableHead>
-                <TableHead className="text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[26%] text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                   Rol
                 </TableHead>
-                <TableHead className="w-[110px] pr-4">
+                <TableHead className="w-[26%] pr-4 sm:w-[110px]">
                   <span className="sr-only">Acciones</span>
                 </TableHead>
               </TableRow>
@@ -108,10 +108,12 @@ export function BarTeamPanel({
                   className="border-0 hover:bg-white/[0.03]"
                 >
                   <TableCell className="py-3.5 pl-4 text-[15px] font-medium text-foreground">
-                    {member.name}
+                    <div className="truncate" title={member.name}>
+                      {member.name}
+                    </div>
                   </TableCell>
                   <TableCell className="py-3.5 text-[13px] text-white/55">
-                    {staffRoleLabel(member.role)}
+                    <div className="truncate">{staffRoleLabel(member.role)}</div>
                   </TableCell>
                   <TableCell className="py-3.5 pr-4 text-right">
                     <button
@@ -155,16 +157,16 @@ export function BarTeamPanel({
         ) : null}
         {available.length ? (
           <div className="mt-4 overflow-hidden rounded-2xl bg-white/[0.02]">
-            <Table>
+            <Table className="table-fixed sm:table-auto">
               <TableHeader>
                 <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                  <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                  <TableHead className="w-[40%] pl-4 text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                     Persona
                   </TableHead>
-                  <TableHead className="text-[11px] font-normal lowercase text-white/45">
+                  <TableHead className="w-[28%] text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                     Puesto
                   </TableHead>
-                  <TableHead className="w-[200px] pr-4">
+                  <TableHead className="w-[32%] pr-4 sm:w-[200px]">
                     <span className="sr-only">Acciones</span>
                   </TableHead>
                 </TableRow>
@@ -180,10 +182,12 @@ export function BarTeamPanel({
                       className="border-0 hover:bg-white/[0.03]"
                     >
                       <TableCell className="py-3.5 pl-4 text-[15px] font-medium text-foreground">
-                        {member.name}
+                        <div className="truncate" title={member.name}>
+                          {member.name}
+                        </div>
                       </TableCell>
                       <TableCell className="py-3.5 text-[13px] text-white/55">
-                        {otherBar ? `En ${otherBar}` : "Sin asignar"}
+                        <div className="truncate">{otherBar ? `En ${otherBar}` : "Sin asignar"}</div>
                       </TableCell>
                       <TableCell className="py-3.5 pr-4 text-right">
                         <button
@@ -201,9 +205,12 @@ export function BarTeamPanel({
                           ) : (
                             <>
                               <Check size={15} />
-                              {otherBar
-                                ? "Mover a esta barra"
-                                : "Asignar a esta barra"}
+                              <span className="sm:hidden">{otherBar ? "Mover" : "Asignar"}</span>
+                              <span className="hidden sm:inline">
+                                {otherBar
+                                  ? "Mover a esta barra"
+                                  : "Asignar a esta barra"}
+                              </span>
                             </>
                           )}
                         </button>

@@ -1174,6 +1174,15 @@
   }
 }
 
+@media (max-width: 639px) {
+  /* En mobile la píldora de disponibilidad compite por el ancho de la tabla:
+     se compacta sin perder el estado. */
+  .bw-availability {
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
 @media (max-width: 760px) {
   .bw-bar-columns {
     display: none;

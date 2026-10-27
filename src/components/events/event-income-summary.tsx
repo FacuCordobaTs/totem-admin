@@ -12,6 +12,8 @@ type Props = {
   supportsConsumptions?: boolean
   /** Salta a la sección del evento que explica ese ingreso. */
   onNavigate?: (target: IncomeTarget) => void
+  /** Acción secundaria junto al título (por ejemplo, ver todas las ventas). */
+  action?: React.ReactNode
 }
 
 type IncomeRow = {
@@ -29,7 +31,7 @@ function formatMoney(value: string): string {
     : "—"
 }
 
-export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsumptions = true, onNavigate }: Props) {
+export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsumptions = true, onNavigate, action }: Props) {
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
 
@@ -57,36 +59,36 @@ export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsum
 
   return (
     <section aria-labelledby="income-summary-title">
-      <h2 id="income-summary-title" className="mb-4 text-lg font-semibold text-white">Ingresos</h2>
-      {/* Mismo tratamiento que "Total de gastos", con el desglose como filas tocables. */}
-      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] lg:max-w-md">
-        <div className="p-6 pb-2">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 lg:max-w-md">
+        <h2 id="income-summary-title" className="text-lg font-semibold text-white">Ingresos</h2>
+        {action}
+      </div>
+      <div className="overflow-hidden rounded-2xl bg-white/[0.02] lg:max-w-md">
+        <div className="px-5 pt-5">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.07]">
-              <ReceiptText className="h-5 w-5 text-white/30" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06]">
+              <ReceiptText className="h-4 w-4 text-white/35" />
             </span>
             <p className="text-[13px] font-normal lowercase text-white/45">Ingresos totales</p>
           </div>
-        </div>
-        <div className="px-6 pb-6">
-          <p className="text-[34px] font-bold tabular-nums tracking-tight text-white">
+          <p className="mt-3 text-[34px] font-bold tabular-nums tracking-tight text-white">
             {formatMoney(summary?.grossRevenue ?? "0")}
           </p>
         </div>
-        <div className="border-t border-white/[0.06]">
+        <div className="mt-4">
           {rows.map(({ key, label, value, target, Icon }) => (
             <button
               key={key}
               type="button"
               onClick={() => onNavigate?.(target)}
-              className="flex w-full items-center gap-3 border-b border-white/[0.06] px-6 py-3 text-left transition-colors last:border-b-0 hover:bg-white/[0.04]"
+              className="flex w-full items-center gap-3 border-t border-white/[0.06] px-5 py-3 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#FF9500]"
             >
-              <Icon className="h-4 w-4 shrink-0 text-white/30" />
+              <Icon className="h-4 w-4 shrink-0 text-white/30" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate text-[13px] text-white/45">{label}</span>
               <span className="shrink-0 text-[15px] font-semibold tabular-nums text-white/70">
                 {formatMoney(value)}
               </span>
-              <ChevronRight className="h-4 w-4 shrink-0 text-white/25" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-white/25" aria-hidden="true" />
             </button>
           ))}
         </div>

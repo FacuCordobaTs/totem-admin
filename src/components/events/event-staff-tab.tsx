@@ -2,12 +2,13 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { QRCodeSVG } from "qrcode.react"
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   Copy,
   ExternalLink,
-  Link2,
   Loader2,
-  MoreHorizontal,
+  QrCode,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -54,14 +55,14 @@ import {
   SelectValue
 } from "@/components/ui/select"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table"
+import { useEventNestedView } from "./event-mobile-nav"
 
 type StaffRole = EventAssignmentStaffRow["role"]
 type Invitation = {
@@ -95,6 +96,10 @@ const normalize = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("es")
     .trim()
+
+const primaryButtonClass =
+  "h-10 rounded-xl bg-[#FF9500] px-4 font-semibold text-[#18120a] hover:bg-[#FFAB36]"
+const tableHeadClass = "text-[11px] font-normal lowercase text-white/45"
 
 type Props = {
   eventId: string
@@ -137,14 +142,7 @@ export function EventStaffTab({
     null
   )
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
-  const [memberToDelete, setMemberToDelete] =
-    useState<EventAssignmentStaffRow | null>(null)
-  const [deletingMember, setDeletingMember] = useState(false)
-  const [editingRoles, setEditingRoles] =
-    useState<EventAssignmentStaffRow | null>(null)
-  const [selectedRoles, setSelectedRoles] = useState<StaffRole[]>([])
-  const [savingRoles, setSavingRoles] = useState(false)
-  const [rolesError, setRolesError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const load = useCallback(
     async (showLoading = false) => {
@@ -205,6 +203,11 @@ export function EventStaffTab({
         .sort((a, b) => a.name.localeCompare(b.name, "es")),
     [rows, isGeneralPromoter]
   )
+  const selectedMember = useMemo(
+    () => team.find((member) => member.id === selectedId) ?? null,
+    [team, selectedId]
+  )
+  useEventNestedView(selectedMember !== null)
   const generalPromoters = team.filter((member) =>
     memberRoles(member).includes("GENERAL_PROMOTER")
   )
@@ -295,251 +298,52 @@ export function EventStaffTab({
     }
   }
 
-  async function saveRoles() {
-    if (!token || !editingRoles || savingRoles || selectedRoles.length === 0)
-      return
-    setSavingRoles(true)
-    setRolesError(null)
-    try {
-      await apiFetch(`/events/${eventId}/staff/${editingRoles.id}/roles`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ roles: selectedRoles })
-      })
-      setEditingRoles(null)
-      await load()
-      await useAuthStore.getState().fetchSession()
-      onTeamChange?.()
-      toast.success("Roles actualizados")
-    } catch (err) {
-      setRolesError(
-        err instanceof Error ? err.message : "No se pudieron guardar los roles."
-      )
-    } finally {
-      setSavingRoles(false)
-    }
+  async function saveRoles(
+    member: EventAssignmentStaffRow,
+    roles: StaffRole[]
+  ) {
+    if (!token || roles.length === 0) return
+    await apiFetch(`/events/${eventId}/staff/${member.id}/roles`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ roles })
+    })
+    await load()
+    await useAuthStore.getState().fetchSession()
+    onTeamChange?.()
+    toast.success("Roles actualizados")
   }
 
-  async function deleteMember() {
-    if (!token || !memberToDelete || deletingMember) return
-    setDeletingMember(true)
+  async function deleteMember(member: EventAssignmentStaffRow): Promise<boolean> {
+    if (!token) return false
     try {
-      await apiFetch(`/staff/team/${memberToDelete.id}`, {
+      await apiFetch(`/staff/team/${member.id}`, {
         method: "DELETE",
         token
       })
-      setRows((current) =>
-        current.filter((row) => row.id !== memberToDelete.id)
-      )
-      if (promoterFilter === memberToDelete.id) setPromoterFilter("all")
-      setMemberToDelete(null)
+      setRows((current) => current.filter((row) => row.id !== member.id))
+      if (promoterFilter === member.id) setPromoterFilter("all")
+      if (selectedId === member.id) setSelectedId(null)
       onTeamChange?.()
       toast.success("Empleado eliminado de la productora")
+      return true
     } catch (e) {
       toast.error(
         e instanceof ApiError ? e.message : "No se pudo eliminar al empleado"
       )
-    } finally {
-      setDeletingMember(false)
+      return false
     }
   }
 
-  async function copyLink(url: string) {
+  async function copyLink(url: string, successMessage = "Link copiado") {
     try {
       await navigator.clipboard.writeText(url)
-      toast.success("Link de venta copiado")
+      toast.success(successMessage)
     } catch {
       toast.error(
-        "No se pudo copiar el link. Abrilo desde el menú para compartirlo."
+        "No se pudo copiar el link. Abrilo desde el botón para compartirlo."
       )
     }
-  }
-
-  function renderMemberRow(member: EventAssignmentStaffRow) {
-    const busy = pendingIds.has(member.id)
-    const invitation = invitationsByStaffId.get(member.id)
-    const shopUrl =
-      isPromoter(member) && member.promoterId
-        ? getPromoterEventShopUrl(eventLinkId ?? eventId, member.promoterId)
-        : null
-    return (
-      <li
-        key={member.id}
-        aria-busy={busy}
-        className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 px-4 py-4 transition-colors hover:bg-white/[0.03] motion-reduce:transition-none sm:px-5 ${showBars ? "md:grid-cols-[minmax(0,1fr)_180px_120px_40px]" : "md:grid-cols-[minmax(0,1fr)_120px_40px]"}`}
-      >
-        <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-3">
-          <div
-            aria-hidden="true"
-            className="hidden size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-sm font-medium text-white/70 sm:flex"
-          >
-            {member.name
-              .trim()
-              .split(/\s+/)
-              .slice(0, 2)
-              .map((part) => part[0])
-              .join("")}
-          </div>
-          <div className="min-w-0">
-            <p className="break-words text-sm font-medium text-white/90">
-              {member.name}
-            </p>
-            <p className="mt-0.5 text-xs leading-5 text-white/60">
-              {memberRoles(member).map(staffRoleLabel).join(" · ")}
-            </p>
-            {member.generalPromoterName ? (
-              <p className="mt-0.5 break-words text-xs leading-5 text-white/60">
-                Promotor general: {member.generalPromoterName}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        {showBars ? (
-          <div
-            className={`col-span-2 row-start-2 min-w-0 md:col-span-1 md:col-start-2 md:row-start-1 ${memberRoles(member).includes("BARTENDER") && member.isAssigned ? "" : "hidden md:block"}`}
-          >
-            {memberRoles(member).includes("BARTENDER") && member.isAssigned ? (
-              canManage ? (
-                <Select
-                  value={member.barId ?? "unassigned"}
-                  onValueChange={(value) =>
-                    void setAssignment(
-                      member,
-                      true,
-                      value === "unassigned" ? null : value
-                    )
-                  }
-                  disabled={busy}
-                >
-                  <SelectTrigger
-                    aria-label={`Barra de ${member.name}`}
-                    className="h-10 w-full border-white/10 bg-transparent text-xs text-white/70 md:h-9"
-                  >
-                    <SelectValue placeholder="Sin barra asignada" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">
-                      Sin barra asignada
-                    </SelectItem>
-                    {bars.map((bar) => (
-                      <SelectItem key={bar.id} value={bar.id}>
-                        {bar.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <p className="text-xs text-white/60">
-                  {bars.find((bar) => bar.id === member.barId)?.name ??
-                    "Sin barra asignada"}
-                </p>
-              )
-            ) : (
-              <span
-                aria-label="No corresponde"
-                className="hidden text-xs text-white/50 md:inline"
-              >
-                —
-              </span>
-            )}
-          </div>
-        ) : null}
-        <span
-          className={`col-start-1 inline-flex w-fit items-center gap-1.5 text-xs md:row-start-1 ${showBars ? "md:col-start-3" : "md:col-start-2"} ${showBars && memberRoles(member).includes("BARTENDER") && member.isAssigned ? "row-start-3" : "row-start-2"} ${member.isAssigned ? "text-emerald-300" : "text-white/60"}`}
-        >
-          {member.isAssigned ? <Check className="size-3.5" /> : null}
-          {member.isAssigned ? "En el evento" : "Disponible"}
-        </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              disabled={busy}
-              aria-label={`Acciones de ${member.name}`}
-              className={`col-start-2 row-start-1 size-10 text-white/60 hover:bg-white/[0.08] hover:text-white ${showBars ? "md:col-start-4" : "md:col-start-3"}`}
-            >
-              {busy ? (
-                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
-              ) : (
-                <MoreHorizontal className="size-5" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuLabel className="break-words">
-              {member.name}
-            </DropdownMenuLabel>
-            <DropdownMenuGroup>
-              {shopUrl && member.isAssigned ? (
-                <>
-                  <DropdownMenuItem onSelect={() => void copyLink(shopUrl)}>
-                    <Copy />
-                    Copiar link de venta
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <a href={shopUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink />
-                      Abrir link de venta
-                    </a>
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-              {canManage && invitation ? (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setInvitationToShow(invitation)
-                    setInviteOpen(true)
-                  }}
-                >
-                  <Link2 />
-                  Compartir acceso
-                </DropdownMenuItem>
-              ) : null}
-              {canEditRoles ? (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setEditingRoles(member)
-                    setSelectedRoles(memberRoles(member))
-                    setRolesError(null)
-                  }}
-                >
-                  <ShieldCheck />
-                  Editar roles
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuGroup>
-            {canManage ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      void setAssignment(member, !member.isAssigned)
-                    }
-                  >
-                    {member.isAssigned ? <UserMinus /> : <UserPlus />}
-                    {member.isAssigned
-                      ? "Quitar del evento"
-                      : "Asignar al evento"}
-                  </DropdownMenuItem>
-                  {(role === "ADMIN" || isGeneralPromoter) && member.id !== currentStaffId ? (
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => setMemberToDelete(member)}
-                    >
-                      <Trash2 />
-                      Eliminar de la productora
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuGroup>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </li>
-    )
   }
 
   if (loading)
@@ -549,34 +353,97 @@ export function EventStaffTab({
         {[0, 1, 2, 3].map((item) => (
           <div
             key={item}
-            className="h-20 animate-pulse rounded-xl bg-white/[0.05] motion-reduce:animate-none"
+            className="h-14 animate-pulse rounded-xl bg-white/[0.05] motion-reduce:animate-none"
           />
         ))}
       </div>
     )
   if (error)
     return (
-      <div
-        role="alert"
-        className="space-y-3 rounded-xl border border-red-400/20 bg-red-400/5 p-5"
-      >
-        <p className="text-sm text-red-300">{error}</p>
-        <Button variant="outline" onClick={() => void load(true)}>
+      <div role="alert" className="space-y-3">
+        <p className="text-[14px] text-rose-300">{error}</p>
+        <Button
+          variant="ghost"
+          onClick={() => void load(true)}
+          className="h-10 rounded-xl bg-white/[0.06] px-4 text-white/80 hover:bg-white/[0.1] hover:text-white"
+        >
           Volver a intentar
         </Button>
       </div>
     )
 
+  const inviteDialog = canManage ? (
+    <InviteEmployeeDialog
+      eventId={eventId}
+      open={inviteOpen}
+      onOpenChange={setInviteOpen}
+      onCreated={() => {
+        clearFilters()
+        setAssignmentFilter("assigned")
+        reloadTeam()
+      }}
+      accessHint={inviteAccessHint}
+      initialInvitation={invitationToShow}
+      promoterOnly={isGeneralPromoter}
+      ticketsOnly={promotersOnly}
+    />
+  ) : null
+
+  if (selectedMember) {
+    const invitation = invitationsByStaffId.get(selectedMember.id)
+    const shopUrl =
+      isPromoter(selectedMember) && selectedMember.promoterId
+        ? getPromoterEventShopUrl(
+            eventLinkId ?? eventId,
+            selectedMember.promoterId
+          )
+        : null
+    const canDelete =
+      (role === "ADMIN" || isGeneralPromoter) &&
+      selectedMember.id !== currentStaffId
+    return (
+      <>
+        <StaffDetail
+          key={selectedMember.id}
+          member={selectedMember}
+          invitation={invitation}
+          bars={bars}
+          showBars={showBars}
+          canManage={canManage}
+          canEditRoles={canEditRoles}
+          canDelete={canDelete}
+          isGeneralPromoter={isGeneralPromoter}
+          isPending={pendingIds.has(selectedMember.id)}
+          shopUrl={shopUrl}
+          backLabel={isGeneralPromoter ? "Promotores" : "Equipo"}
+          onBack={() => setSelectedId(null)}
+          onToggleAssignment={() =>
+            void setAssignment(selectedMember, !selectedMember.isAssigned)
+          }
+          onBarChange={(barId) => void setAssignment(selectedMember, true, barId)}
+          onCopyLink={copyLink}
+          onShowAccess={() => {
+            setInvitationToShow(invitation ?? null)
+            setInviteOpen(true)
+          }}
+          onSaveRoles={(roles) => saveRoles(selectedMember, roles)}
+          onDelete={() => deleteMember(selectedMember)}
+        />
+        {inviteDialog}
+      </>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-white">
+          <h2 className="text-lg font-semibold text-white">
             {isGeneralPromoter ? "Mis promotores" : "Personas del evento"}
-          </h3>
-          <p className="mt-1 max-w-prose text-sm leading-6 text-white/60">
+          </h2>
+          <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-white/45">
             {isGeneralPromoter
-              ? "Gestioná tu cartera y compartí los accesos desde el menú de cada promotor."
+              ? "Gestioná tu cartera y compartí los accesos desde el detalle de cada promotor."
               : "Cada evento nuevo incluye a todo el equipo activo. Las personas que invites acá quedan asignadas a este evento."}
           </p>
         </div>
@@ -586,313 +453,676 @@ export function EventStaffTab({
               setInvitationToShow(null)
               setInviteOpen(true)
             }}
-            className="h-10 gap-2 self-start rounded-lg bg-[#FF9500] px-4 text-black hover:bg-[#FF9500]/90"
+            className={`${primaryButtonClass} self-start`}
           >
-            <UserPlus className="size-4" />
+            <UserPlus className="mr-1.5 size-4" />
             {isGeneralPromoter ? "Invitar promotor" : "Invitar persona"}
           </Button>
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/10">
-        <div className="space-y-4 border-b border-white/10 p-4 sm:p-5">
+      <div className="space-y-4">
+        <div
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label="Asignación al evento"
+        >
+          {(
+            [
+              {
+                value: "assigned",
+                label: "En el evento",
+                count: assignedCount
+              },
+              {
+                value: "available",
+                label: "Disponibles",
+                count: availableCount
+              },
+              { value: "all", label: "Todos", count: team.length }
+            ] as const
+          ).map((filter) => (
+            <Button
+              key={filter.value}
+              variant="ghost"
+              aria-pressed={assignmentFilter === filter.value}
+              onClick={() => setAssignmentFilter(filter.value)}
+              className={`h-9 gap-2 rounded-xl px-2.5 text-[13px] ${assignmentFilter === filter.value ? "bg-white/10 text-white hover:bg-white/15" : "text-white/55 hover:bg-white/[0.05] hover:text-white"}`}
+            >
+              {filter.label}
+              <span
+                className={`tabular-nums ${assignmentFilter === filter.value ? "text-white/80" : "text-white/45"}`}
+              >
+                {filter.count}
+              </span>
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap">
+          <div className="flex min-w-0 gap-2 xl:min-w-60 xl:flex-1">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/30"
+              />
+              <Input
+                aria-label="Buscar personas"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar personas…"
+                className="h-9 rounded-xl border-0 bg-white/[0.06] pl-8 pr-10 text-[13px] shadow-none placeholder:text-white/25 focus-visible:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-[#FF9500]/40"
+              />
+              {query ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Borrar búsqueda"
+                  onClick={() => setQuery("")}
+                  className="absolute right-0 top-0 size-9 text-white/60"
+                >
+                  <X className="size-4" />
+                </Button>
+              ) : null}
+            </div>
+            <Button
+              variant="outline"
+              aria-expanded={filtersOpen}
+              aria-controls={filterId}
+              onClick={() => setFiltersOpen((open) => !open)}
+              className="h-9 rounded-xl border-white/[0.12] bg-transparent px-3 text-[13px] text-white/70 sm:hidden"
+            >
+              <SlidersHorizontal className="mr-1.5 size-4" />
+              Filtros
+              {filterCount > 0 ? (
+                <span className="tabular-nums">{filterCount}</span>
+              ) : null}
+            </Button>
+          </div>
           <div
-            className="flex flex-wrap gap-1"
-            role="group"
-            aria-label="Asignación al evento"
+            id={filterId}
+            className={`${filtersOpen ? "grid" : "hidden"} gap-3 sm:grid sm:grid-cols-2 xl:flex xl:flex-wrap`}
           >
-            {(
-              [
-                {
-                  value: "assigned",
-                  label: "En el evento",
-                  count: assignedCount
-                },
-                {
-                  value: "available",
-                  label: "Disponibles",
-                  count: availableCount
-                },
-                { value: "all", label: "Todos", count: team.length }
-              ] as const
-            ).map((filter) => (
-              <Button
-                key={filter.value}
-                variant="ghost"
-                aria-pressed={assignmentFilter === filter.value}
-                onClick={() => setAssignmentFilter(filter.value)}
-                className={`h-10 gap-2 px-2.5 text-xs sm:px-3 sm:text-sm ${assignmentFilter === filter.value ? "bg-white/10 text-white hover:bg-white/15" : "text-white/60 hover:bg-white/5 hover:text-white"}`}
-              >
-                {filter.label}
-                <span
-                  className={`tabular-nums ${assignmentFilter === filter.value ? "text-white/80" : "text-white/50"}`}
+            {!isGeneralPromoter ? (
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger
+                  aria-label="Filtrar por rol"
+                  className="h-9 w-full rounded-xl border-0 bg-white/[0.06] px-3 text-[13px] text-foreground shadow-none xl:w-44"
                 >
-                  {filter.count}
-                </span>
-              </Button>
-            ))}
-          </div>
-          <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap">
-            <div className="flex min-w-0 gap-2 xl:min-w-60 xl:flex-1">
-              <div className="relative min-w-0 flex-1">
-                <Search
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-3 top-3 size-4 text-white/50"
-                />
-                <Input
-                  aria-label="Buscar personas"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Buscar personas…"
-                  className="h-10 border-white/10 bg-white/[0.03] pl-9 pr-10 text-sm placeholder:text-white/50"
-                />
-                {query ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Borrar búsqueda"
-                    onClick={() => setQuery("")}
-                    className="absolute right-0 top-0 size-10 text-white/60"
-                  >
-                    <X className="size-4" />
-                  </Button>
-                ) : null}
-              </div>
-              <Button
-                variant="outline"
-                aria-expanded={filtersOpen}
-                aria-controls={filterId}
-                onClick={() => setFiltersOpen((open) => !open)}
-                className="h-10 gap-2 border-white/10 bg-transparent text-white/80 sm:hidden"
-              >
-                <SlidersHorizontal className="size-4" />
-                Filtros
-                {filterCount > 0 ? (
-                  <span className="tabular-nums">{filterCount}</span>
-                ) : null}
-              </Button>
-            </div>
-            <div
-              id={filterId}
-              className={`${filtersOpen ? "grid" : "hidden"} gap-3 sm:grid sm:grid-cols-2 xl:flex xl:flex-wrap`}
-            >
-              {!isGeneralPromoter ? (
-                <Select value={roleFilter} onValueChange={setRoleFilter}>
-                  <SelectTrigger
-                    aria-label="Filtrar por rol"
-                    className="h-10 w-full border-white/10 bg-transparent xl:w-44"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los roles</SelectItem>
-                    {ROLE_ORDER.filter((role) =>
-                      team.some((member) => memberRoles(member).includes(role))
-                    ).map((role) => (
-                      <SelectItem key={role} value={role}>
-                        {staffRoleLabel(role)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-              {generalPromoters.length > 0 ? (
-                <Select
-                  value={promoterFilter}
-                  onValueChange={setPromoterFilter}
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all">Todos los roles</SelectItem>
+                  {ROLE_ORDER.filter((role) =>
+                    team.some((member) => memberRoles(member).includes(role))
+                  ).map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {staffRoleLabel(role)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {generalPromoters.length > 0 ? (
+              <Select value={promoterFilter} onValueChange={setPromoterFilter}>
+                <SelectTrigger
+                  aria-label="Filtrar por promotor general"
+                  className="h-9 w-full rounded-xl border-0 bg-white/[0.06] px-3 text-[13px] text-foreground shadow-none xl:w-60"
                 >
-                  <SelectTrigger
-                    aria-label="Filtrar por promotor general"
-                    className="h-10 w-full border-white/10 bg-transparent xl:w-60"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los promotores generales</SelectItem>
-                    {generalPromoters.map((member) => (
-                      <SelectItem key={member.id} value={member.id}>
-                        {member.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p
-              aria-live="polite"
-              role="status"
-              className="text-xs text-white/60"
-            >
-              {filteredRows.length}{" "}
-              {filteredRows.length === 1 ? "persona" : "personas"}
-              {hasFilters
-                ? " con estos filtros"
-                : assignmentFilter === "assigned"
-                  ? " asignadas al evento"
-                  : assignmentFilter === "available"
-                    ? " disponibles para asignar"
-                    : " en el equipo"}
-            </p>
-            {hasFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearFilters}
-                className="text-xs text-white/70"
-              >
-                <X className="size-3.5" />
-                Limpiar filtros
-              </Button>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all">Todos los promotores generales</SelectItem>
+                  {generalPromoters.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             ) : null}
           </div>
         </div>
-
-        {filteredRows.length > 0 ? (
-          <>
-            <div
-              aria-hidden="true"
-              className={`hidden items-center gap-3 border-b border-white/[0.06] bg-white/[0.02] px-5 py-3 text-xs font-medium text-white/60 md:grid ${showBars ? "grid-cols-[minmax(0,1fr)_180px_120px_40px]" : "grid-cols-[minmax(0,1fr)_120px_40px]"}`}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p aria-live="polite" role="status" className="text-[12px] text-white/45">
+            {filteredRows.length}{" "}
+            {filteredRows.length === 1 ? "persona" : "personas"}
+            {hasFilters
+              ? " con estos filtros"
+              : assignmentFilter === "assigned"
+                ? " asignadas al evento"
+                : assignmentFilter === "available"
+                  ? " disponibles para asignar"
+                  : " en el equipo"}
+          </p>
+          {hasFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearFilters}
+              className="text-[12px] text-white/60 hover:text-white"
             >
-              <span>Persona y funciones</span>
-              {showBars ? <span>Barra</span> : null}
-              <span>Asignación</span>
-              <span className="sr-only">Acciones</span>
-            </div>
-            <ul
-              aria-label={
-                isGeneralPromoter ? "Promotores" : "Equipo del evento"
-              }
-              className="divide-y divide-white/[0.06]"
-            >
-              {filteredRows.map(renderMemberRow)}
-            </ul>
-          </>
-        ) : (
-          <div className="flex flex-col items-center px-5 py-12 text-center">
-            {hasFilters ? (
-              <Search className="mb-3 size-6 text-white/50" />
-            ) : (
-              <Users className="mb-3 size-6 text-white/50" />
-            )}
-            <p className="text-sm font-medium text-white/90">
-              {hasFilters
-                ? "No hay coincidencias"
-                : team.length === 0
-                  ? "Tu equipo empieza acá"
-                  : assignmentFilter === "available"
-                    ? "Todo el equipo está en el evento"
-                    : "Todavía no hay personas asignadas"}
-            </p>
-            <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">
-              {hasFilters
-                ? "Probá con otro nombre o limpiá los filtros para ver más personas."
-                : team.length === 0
-                  ? "Invitá a una persona y compartí su acceso. Quedará asignada a este evento automáticamente."
-                  : assignmentFilter === "available"
-                    ? "Las personas que quites del evento aparecerán en esta vista."
-                    : "Invitá a alguien o asigná personas desde la vista Disponibles."}
-            </p>
-            {hasFilters ? (
-              <Button variant="outline" onClick={clearFilters} className="mt-5">
-                Limpiar filtros
-              </Button>
-            ) : availableCount > 0 && assignmentFilter === "assigned" ? (
-              <Button
-                variant="outline"
-                onClick={() => setAssignmentFilter("available")}
-                className="mt-5"
-              >
-                Ver personas disponibles
-              </Button>
-            ) : null}
-          </div>
-        )}
+              <X className="size-3.5" />
+              Limpiar filtros
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      {canManage ? (
-        <InviteEmployeeDialog
-          eventId={eventId}
-          open={inviteOpen}
-          onOpenChange={setInviteOpen}
-          onCreated={() => {
-            clearFilters()
-            setAssignmentFilter("assigned")
-            reloadTeam()
-          }}
-          accessHint={inviteAccessHint}
-          initialInvitation={invitationToShow}
-          promoterOnly={isGeneralPromoter}
-          ticketsOnly={promotersOnly}
-        />
-      ) : null}
-      <Dialog
-        open={editingRoles !== null}
-        onOpenChange={(open) => {
-          if (!open && !savingRoles) setEditingRoles(null)
-        }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Roles de {editingRoles?.name}</DialogTitle>
-            <DialogDescription>
-              Elegí las funciones de esta persona en la productora.
-              Administrador y gerente permiten gestionar la productora. La
-              asignación al evento se conserva.
-            </DialogDescription>
-          </DialogHeader>
-          <RoleCheckboxes
-            roles={selectedRoles}
-            onChange={setSelectedRoles}
-            disabled={savingRoles}
-          />
-          {rolesError ? (
-            <p role="alert" className="text-sm text-red-400">
-              {rolesError}
-            </p>
+      {filteredRows.length > 0 ? (
+        <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+          <Table className="table-fixed md:table-auto">
+            <TableHeader>
+              <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                <TableHead className={`w-[52%] pl-4 md:w-auto ${tableHeadClass}`}>
+                  Persona
+                </TableHead>
+                {showBars ? (
+                  <TableHead className={`hidden md:table-cell ${tableHeadClass}`}>
+                    Barra
+                  </TableHead>
+                ) : null}
+                <TableHead className={tableHeadClass}>Estado</TableHead>
+                <TableHead className="w-10 pr-4">
+                  <span className="sr-only">Abrir persona</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
+              {filteredRows.map((member) => {
+                const busy = pendingIds.has(member.id)
+                const memberRoleLabels = memberRoles(member)
+                  .map(staffRoleLabel)
+                  .join(" · ")
+                const barName =
+                  memberRoles(member).includes("BARTENDER") && member.isAssigned
+                    ? bars.find((bar) => bar.id === member.barId)?.name ??
+                      "Sin barra"
+                    : "—"
+                return (
+                  <TableRow
+                    key={member.id}
+                    aria-busy={busy}
+                    tabIndex={0}
+                    aria-label={`Abrir a ${member.name}`}
+                    onClick={() => {
+                      setSelectedId(member.id)
+                      window.scrollTo({ top: 0, behavior: "auto" })
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        setSelectedId(member.id)
+                      }
+                    }}
+                    className="cursor-pointer border-0 transition-colors hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#FF9500]"
+                  >
+                    <TableCell className="py-3.5 pl-4">
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span
+                          className="truncate text-[15px] font-medium text-white"
+                          title={member.name}
+                        >
+                          {member.name}
+                        </span>
+                        <span className="hidden min-w-0 truncate text-[12px] text-white/35 sm:inline">
+                          {memberRoleLabels}
+                        </span>
+                      </div>
+                    </TableCell>
+                    {showBars ? (
+                      <TableCell className="hidden py-3.5 text-[13px] text-white/45 md:table-cell">
+                        <div className="truncate">{barName}</div>
+                      </TableCell>
+                    ) : null}
+                    <TableCell
+                      className={`py-3.5 text-[12px] ${member.isAssigned ? "text-emerald-300/85" : "text-white/45"}`}
+                    >
+                      {member.isAssigned ? "En el evento" : "Disponible"}
+                    </TableCell>
+                    <TableCell className="py-3.5 pr-4">
+                      {busy ? (
+                        <Loader2 className="ml-auto size-4 animate-spin text-white/40 motion-reduce:animate-none" />
+                      ) : (
+                        <ArrowRight
+                          className="ml-auto h-4 w-4 text-white/25"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center rounded-2xl bg-white/[0.02] px-5 py-12 text-center">
+          {hasFilters ? (
+            <Search className="mb-3 size-6 text-white/30" />
+          ) : (
+            <Users className="mb-3 size-6 text-white/30" />
+          )}
+          <p className="text-[15px] font-medium text-white">
+            {hasFilters
+              ? "No hay coincidencias"
+              : team.length === 0
+                ? "Tu equipo empieza acá"
+                : assignmentFilter === "available"
+                  ? "Todo el equipo está en el evento"
+                  : "Todavía no hay personas asignadas"}
+          </p>
+          <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-white/45">
+            {hasFilters
+              ? "Probá con otro nombre o limpiá los filtros para ver más personas."
+              : team.length === 0
+                ? "Invitá a una persona y compartí su acceso. Quedará asignada a este evento automáticamente."
+                : assignmentFilter === "available"
+                  ? "Las personas que quites del evento aparecerán en esta vista."
+                  : "Invitá a alguien o asigná personas desde la vista Disponibles."}
+          </p>
+          {hasFilters ? (
+            <Button variant="outline" onClick={clearFilters} className="mt-5">
+              Limpiar filtros
+            </Button>
+          ) : availableCount > 0 && assignmentFilter === "assigned" ? (
+            <Button
+              variant="outline"
+              onClick={() => setAssignmentFilter("available")}
+              className="mt-5"
+            >
+              Ver personas disponibles
+            </Button>
           ) : null}
-          <Button
-            disabled={savingRoles || selectedRoles.length === 0}
-            onClick={() => void saveRoles()}
+        </div>
+      )}
+
+      {inviteDialog}
+    </div>
+  )
+}
+
+function StaffDetail({
+  member,
+  invitation,
+  bars,
+  showBars,
+  canManage,
+  canEditRoles,
+  canDelete,
+  isGeneralPromoter,
+  isPending,
+  shopUrl,
+  backLabel,
+  onBack,
+  onToggleAssignment,
+  onBarChange,
+  onCopyLink,
+  onShowAccess,
+  onSaveRoles,
+  onDelete
+}: {
+  member: EventAssignmentStaffRow
+  invitation?: Invitation
+  bars: EventBarRow[]
+  showBars: boolean
+  canManage: boolean
+  canEditRoles: boolean
+  canDelete: boolean
+  isGeneralPromoter: boolean
+  isPending: boolean
+  shopUrl: string | null
+  backLabel: string
+  onBack: () => void
+  onToggleAssignment: () => void
+  onBarChange: (barId: string | null) => void
+  onCopyLink: (url: string, successMessage?: string) => Promise<void>
+  onShowAccess: () => void
+  onSaveRoles: (roles: StaffRole[]) => Promise<void>
+  onDelete: () => Promise<boolean>
+}) {
+  const roles = memberRoles(member)
+  const [selectedRoles, setSelectedRoles] = useState<StaffRole[]>(roles)
+  const [savingRoles, setSavingRoles] = useState(false)
+  const [rolesError, setRolesError] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const rolesChanged =
+    selectedRoles.length !== roles.length ||
+    selectedRoles.some((role) => !roles.includes(role))
+
+  async function saveRoles() {
+    if (savingRoles || selectedRoles.length === 0) return
+    setSavingRoles(true)
+    setRolesError(null)
+    try {
+      await onSaveRoles(selectedRoles)
+    } catch (error) {
+      setRolesError(
+        error instanceof Error ? error.message : "No se pudieron guardar los roles."
+      )
+    } finally {
+      setSavingRoles(false)
+    }
+  }
+
+  async function confirmDelete() {
+    if (deleting) return
+    setDeleting(true)
+    const ok = await onDelete()
+    if (ok) setDeleteOpen(false)
+    setDeleting(false)
+  }
+
+  return (
+    <section className="w-full" aria-labelledby="staff-detail-title">
+      <header className="space-y-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium text-white/45 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#FF9500]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          {backLabel}
+        </button>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2
+              id="staff-detail-title"
+              className="break-words text-2xl font-bold tracking-tight text-white"
+            >
+              {member.name}
+            </h2>
+            <p className="mt-1.5 text-[13px] text-white/45">
+              {roles.map(staffRoleLabel).join(" · ")}
+              {member.generalPromoterName
+                ? ` · vía ${member.generalPromoterName}`
+                : ""}
+            </p>
+            <p className="mt-0.5 break-all text-[13px] text-white/35">
+              {member.email}
+            </p>
+          </div>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+              member.isAssigned
+                ? "bg-emerald-500/10 text-emerald-300"
+                : "bg-white/[0.06] text-white/50"
+            }`}
           >
-            {savingRoles ? "Guardando…" : "Guardar roles"}
-          </Button>
-        </DialogContent>
-      </Dialog>
-      <AlertDialog
-        open={memberToDelete != null}
-        onOpenChange={(open) =>
-          !open && !deletingMember && setMemberToDelete(null)
-        }
-      >
+            {member.isAssigned ? <Check className="h-3 w-3" /> : null}
+            {member.isAssigned ? "En el evento" : "Disponible"}
+          </span>
+        </div>
+      </header>
+
+      <div className="mt-7 max-w-3xl">
+        <DetailBlock
+          title="Asignación"
+          description={
+            isGeneralPromoter
+              ? "Definí si este promotor trabaja en el evento."
+              : "La persona queda disponible para todas las barras del evento."
+          }
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isPending || !canManage}
+              onClick={onToggleAssignment}
+              className={
+                member.isAssigned
+                  ? "h-9 rounded-xl px-3 text-white/60 hover:bg-white/[0.06] hover:text-white"
+                  : "h-9 rounded-xl bg-[#FF9500] px-3 font-semibold text-[#18120a] hover:bg-[#FFAB36]"
+              }
+            >
+              {isPending ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : member.isAssigned ? (
+                <UserMinus className="mr-1.5 h-4 w-4" />
+              ) : (
+                <UserPlus className="mr-1.5 h-4 w-4" />
+              )}
+              {member.isAssigned ? "Quitar del evento" : "Asignar al evento"}
+            </Button>
+          </div>
+          {showBars &&
+          member.isAssigned &&
+          roles.includes("BARTENDER") ? (
+            <div className="mt-4 max-w-xs space-y-2">
+              <label
+                htmlFor="staff-bar"
+                className="block text-[12px] text-white/45"
+              >
+                Barra asignada
+              </label>
+              <Select
+                value={member.barId ?? "unassigned"}
+                onValueChange={(value) =>
+                  onBarChange(value === "unassigned" ? null : value)
+                }
+                disabled={isPending || !canManage}
+              >
+                <SelectTrigger
+                  id="staff-bar"
+                  className="h-9 w-full rounded-xl border-0 bg-white/[0.06] px-3 text-[13px] text-foreground shadow-none"
+                >
+                  <SelectValue placeholder="Sin barra asignada" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="unassigned">Sin barra asignada</SelectItem>
+                  {bars.map((bar) => (
+                    <SelectItem key={bar.id} value={bar.id}>
+                      {bar.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+        </DetailBlock>
+
+        {(shopUrl && member.isAssigned) || (canManage && invitation) ? (
+          <DetailBlock
+            title="Acceso"
+            description="Links para compartir con esta persona."
+          >
+            <div className="space-y-5">
+              {shopUrl && member.isAssigned ? (
+                <LinkField
+                  label="Link de venta"
+                  url={shopUrl}
+                  href={shopUrl}
+                  onCopy={() => void onCopyLink(shopUrl, "Link de venta copiado")}
+                />
+              ) : null}
+              {canManage && invitation ? (
+                <div className="space-y-2">
+                  <LinkField
+                    label="Acceso a Crow"
+                    url={invitation.url}
+                    onCopy={() =>
+                      void onCopyLink(invitation.url, "Link de acceso copiado")
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={onShowAccess}
+                    className="text-white/55 hover:bg-white/[0.06] hover:text-white"
+                  >
+                    <QrCode className="mr-1.5 h-4 w-4" />
+                    Ver QR
+                  </Button>
+                </div>
+              ) : null}
+              {canManage && !invitation ? (
+                <p className="text-[13px] leading-relaxed text-white/45">
+                  Esta persona todavía no tiene una invitación activa. Podés
+                  compartirle un acceso desde «Invitar persona».
+                </p>
+              ) : null}
+            </div>
+          </DetailBlock>
+        ) : null}
+
+        <DetailBlock
+          title="Funciones"
+          description="Definen qué puede hacer esta persona dentro de la productora."
+        >
+          {canEditRoles ? (
+            <div className="space-y-4">
+              <RoleCheckboxes
+                roles={selectedRoles}
+                onChange={setSelectedRoles}
+                disabled={savingRoles}
+              />
+              {rolesError ? (
+                <p role="alert" className="text-[13px] text-rose-300">
+                  {rolesError}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                disabled={
+                  savingRoles || selectedRoles.length === 0 || !rolesChanged
+                }
+                onClick={() => void saveRoles()}
+                className="h-9 rounded-xl bg-[#FF9500] px-3 font-semibold text-[#18120a] hover:bg-[#FFAB36] disabled:opacity-40"
+              >
+                <ShieldCheck className="mr-1.5 h-4 w-4" />
+                {savingRoles ? "Guardando…" : "Guardar roles"}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-[14px] text-white/70">
+              {roles.map(staffRoleLabel).join(" · ")}
+            </p>
+          )}
+        </DetailBlock>
+
+        {canDelete ? (
+          <DetailBlock
+            title="Eliminar de la productora"
+            description="Desaparece del equipo de todos los eventos y pierde el acceso. Sus ventas y registros históricos se conservan."
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDeleteOpen(true)}
+              className="h-9 rounded-lg px-2.5 text-rose-300/80 hover:bg-rose-500/10 hover:text-rose-300"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar de la productora
+            </Button>
+          </DetailBlock>
+        ) : null}
+      </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              ¿Eliminar a {memberToDelete?.name} de la productora?
+              ¿Eliminar a {member.name} de la productora?
             </AlertDialogTitle>
             <AlertDialogDescription>
               Esta persona desaparecerá del equipo de todos los eventos y perderá
               el acceso a la productora. Sus ventas y registros históricos se
-              conservan. Para quitarla solo de este evento, usá «Quitar del evento».
+              conservan. Para quitarla solo de este evento, usá «Quitar del
+              evento».
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingMember}>
-              Cancelar
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
             <Button
-              disabled={deletingMember}
-              onClick={() => void deleteMember()}
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
               className="bg-red-600 text-white hover:bg-red-500"
             >
-              {deletingMember ? "Eliminando…" : "Eliminar de la productora"}
+              {deleting ? "Eliminando…" : "Eliminar de la productora"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </section>
+  )
+}
+
+function LinkField({
+  label,
+  url,
+  href,
+  onCopy
+}: {
+  label: string
+  url: string
+  href?: string
+  onCopy: () => void
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12px] text-white/45">{label}</p>
+      <div className="flex gap-2">
+        <Input
+          aria-label={label}
+          readOnly
+          value={url}
+          className="h-9 min-w-0 rounded-xl border-0 bg-white/[0.06] text-[12px] text-white/60 shadow-none"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Copiar ${label.toLowerCase()}`}
+          onClick={onCopy}
+          className="h-9 w-9 shrink-0 rounded-xl text-white/50 hover:bg-white/[0.06] hover:text-white"
+        >
+          <Copy className="h-4 w-4" />
+        </Button>
+        {href ? (
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 rounded-xl text-white/50 hover:bg-white/[0.06] hover:text-white"
+          >
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Abrir ${label.toLowerCase()}`}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </Button>
+        ) : null}
+      </div>
     </div>
+  )
+}
+
+function DetailBlock({
+  title,
+  description,
+  children
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="grid gap-4 border-t border-white/[0.07] pt-7 sm:grid-cols-[170px_minmax(0,1fr)] sm:gap-8">
+      <div>
+        <h3 className="text-[14px] font-semibold text-white">{title}</h3>
+        {description ? (
+          <p className="mt-1.5 text-[12px] leading-relaxed text-white/45">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
   )
 }
 
@@ -995,7 +1225,7 @@ function InviteEmployeeDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] overflow-y-auto rounded-2xl border-white/[0.1] bg-black p-0 text-white sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] overflow-y-auto rounded-2xl bg-black p-0 text-white sm:max-w-lg">
         <DialogHeader className="border-b border-white/[0.07] px-6 py-5 text-left">
           <DialogTitle className="text-xl">
             {invitation
@@ -1012,7 +1242,7 @@ function InviteEmployeeDialog({
         </DialogHeader>
         <div className="space-y-4 px-6 py-5">
           {invitation ? (
-            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] p-4">
+            <div className="rounded-xl bg-emerald-400/[0.07] p-4">
               <p className="font-medium text-emerald-300">Link de invitación</p>
               <p className="mt-1 text-sm text-white/65">
                 {invitation.name} ·{" "}
@@ -1038,7 +1268,7 @@ function InviteEmployeeDialog({
                       aria-label="Link de acceso"
                       readOnly
                       value={invitation.url}
-                      className="h-10 min-w-0 border-white/[0.1] bg-black text-xs text-white/65"
+                      className="h-10 min-w-0 border-0 bg-white/[0.06] text-xs text-white/65"
                     />
                     <Button
                       type="button"
@@ -1074,7 +1304,7 @@ function InviteEmployeeDialog({
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder="Nombre y apellido"
-                  className="border-white/[0.1] bg-white/[0.04]"
+                  className="border-0 bg-white/[0.06]"
                 />
               </Field>
               {!promoterOnly ? (
@@ -1094,7 +1324,7 @@ function InviteEmployeeDialog({
               <Button
                 type="submit"
                 disabled={saving}
-                className="h-10 w-full bg-[#FF9500] text-black hover:bg-[#FF9500]/90"
+                className="h-10 w-full bg-[#FF9500] text-[#18120a] hover:bg-[#FFAB36]"
               >
                 {saving ? "Creando…" : "Crear invitación"}
               </Button>

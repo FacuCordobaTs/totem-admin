@@ -100,13 +100,13 @@ export function BarSalesPanel({
       ) : sales.length ? (
         <>
           <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-            <Table>
+            <Table className="table-fixed md:table-auto">
               <TableHeader>
                 <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                  <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                  <TableHead className="w-[20%] pl-4 text-[11px] font-normal lowercase text-white/45 md:w-auto">
                     Fecha
                   </TableHead>
-                  <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                  <TableHead className="w-[44%] pl-4 text-[11px] font-normal lowercase text-white/45 md:w-auto">
                     Cliente
                   </TableHead>
                   <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 md:table-cell">
@@ -115,7 +115,7 @@ export function BarSalesPanel({
                   <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 md:table-cell">
                     Pago
                   </TableHead>
-                  <TableHead className="pr-4 text-right text-[11px] font-normal lowercase text-white/45">
+                  <TableHead className="w-[36%] pr-4 text-right text-[11px] font-normal lowercase text-white/45 md:w-auto">
                     Total
                   </TableHead>
                 </TableRow>
@@ -127,14 +127,30 @@ export function BarSalesPanel({
                     className="border-0 hover:bg-white/[0.03]"
                   >
                     <TableCell className="whitespace-nowrap py-3.5 pl-4 text-[12px] tabular-nums text-white/45">
-                      {sale.createdAt
-                        ? new Date(sale.createdAt).toLocaleString("es-AR", {
-                            day: "2-digit",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "—"}
+                      <div className="truncate">
+                        {sale.createdAt ? (
+                          <>
+                            {/* En mobile alcanza con la hora: la fecha del evento está en el encabezado. */}
+                            <span className="sm:hidden">
+                              {new Date(sale.createdAt).toLocaleTimeString("es-AR", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                hour12: false,
+                              })}
+                            </span>
+                            <span className="hidden sm:inline">
+                              {new Date(sale.createdAt).toLocaleString("es-AR", {
+                                day: "2-digit",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="max-w-[300px] py-3.5 pl-4">
                       <div
@@ -149,8 +165,7 @@ export function BarSalesPanel({
                             {sale.staffName}
                           </span>
                         ) : null}
-                        <span className="truncate text-[11px] text-white/40 md:hidden">
-                          {sale.itemsSummary} ·{" "}
+                        <span className="shrink-0 text-[11px] text-white/40 md:hidden">
                           {payment[sale.paymentMethod] ?? sale.paymentMethod}
                         </span>
                       </div>

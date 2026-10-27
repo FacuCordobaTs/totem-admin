@@ -250,10 +250,12 @@ export function BarProductEditor({
       className="bw-product-editor"
       aria-label={product ? "Editar producto" : "Nuevo producto"}
     >
-      <button className="bw-back" disabled={busy} onClick={onCancel}>
-        <ArrowLeft size={16} />
-        Volver al menú
-      </button>
+      {!materialPickerOpen && (
+        <button className="bw-back" disabled={busy} onClick={onCancel}>
+          <ArrowLeft size={16} />
+          Volver al menú
+        </button>
+      )}
       <div className="bw-heading">
         <div>
           <h3>{product ? "Editar producto" : "Nuevo producto"}</h3>

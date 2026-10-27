@@ -20,6 +20,7 @@ import {
 import type { EventBarRow, EventBarsResponse } from "@/types/event-dashboard";
 import { BarDetailView } from "./bar-detail-view";
 import { moneyLabel } from "./bar-workspace-model";
+import { useEventNestedView } from "./event-mobile-nav";
 import "./bar-workspace.css";
 
 type Props = {
@@ -36,6 +37,7 @@ export function EventBarSection({
   const token = useAuthStore((s) => s.token);
   const [bars, setBars] = useState<EventBarRow[]>([]);
   const [openBarId, setOpenBarId] = useState<string | null>(null);
+  useEventNestedView(openBarId != null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -154,10 +156,10 @@ export function EventBarSection({
             </div>
           ) : (
             <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-              <Table>
+              <Table className="table-fixed sm:table-auto">
                 <TableHeader>
                   <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
+                    <TableHead className="w-[52%] pl-4 text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                       Barra
                     </TableHead>
                     <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
@@ -166,7 +168,7 @@ export function EventBarSection({
                     <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
                       Equipo
                     </TableHead>
-                    <TableHead className="text-right text-[11px] font-normal lowercase text-white/45">
+                    <TableHead className="w-[36%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
                       Vendido
                     </TableHead>
                     <TableHead className="w-10 pr-4">
@@ -193,15 +195,18 @@ export function EventBarSection({
                         className="cursor-pointer border-0 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
                       >
                         <TableCell className="py-3.5 pl-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[15px] font-medium text-foreground">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span
+                              className="truncate text-[15px] font-medium text-foreground"
+                              title={bar.name}
+                            >
                               {bar.name}
                             </span>
                             {bar.isActive === false && (
                               <span className="bw-status">Inactiva</span>
                             )}
                             {products === 0 && (
-                              <span className="bw-status">Sin menú</span>
+                              <span className="bw-status hidden sm:inline">Sin menú</span>
                             )}
                           </div>
                         </TableCell>
