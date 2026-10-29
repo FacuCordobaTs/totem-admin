@@ -7,6 +7,15 @@ import type {
   ApiProduct,
   ProductSaleType,
 } from "@/types/inventory";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ProductCategoryField } from "@/components/inventory/product-category-field";
 import { ProductImageUploader } from "@/components/inventory/product-image-uploader";
 import { BarRecipeDialog } from "./bar-recipe-dialog";
@@ -64,6 +73,8 @@ type Props = {
   onMaterialsChange: (item: ApiInventoryItem) => void;
   onCancel: () => void;
   onRemove?: () => Promise<boolean>;
+  /** Tras eliminar el producto del catálogo. */
+  onDeleted?: () => void;
   onSaved: (productId: string, hasStock: boolean) => void;
 };
 
@@ -79,6 +90,7 @@ export function BarProductEditor({
   onMaterialsChange,
   onCancel,
   onRemove,
+  onDeleted,
   onSaved,
 }: Props) {
   const id = useId();
@@ -107,6 +119,7 @@ export function BarProductEditor({
   const [recipeOpen, setRecipeOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const busy = saving || removing;
   const recipe = usesRecipe(saleType) ? (drafts[saleType] ?? []) : [];
   const [error, setError] = useState("");
@@ -345,22 +358,36 @@ export function BarProductEditor({
         </p>
       )}
       <div className="bw-editor-footer">
-        {product && onRemove && (
-          <button
-            type="button"
-            className="bw-danger-text bw-remove-product"
-            disabled={busy || categoryBusy}
-            onClick={async () => {
-              setRemoving(true);
-              try {
-                if (await onRemove()) onCancel();
-              } finally {
-                setRemoving(false);
-              }
-            }}
-          >
-            {removing ? "Quitando…" : "Quitar de esta barra"}
-          </button>
+        {product && (onRemove || onDeleted) && (
+          <div className="bw-remove-product">
+            {onRemove && (
+              <button
+                type="button"
+                className="bw-danger-text"
+                disabled={busy || categoryBusy}
+                onClick={async () => {
+                  setRemoving(true);
+                  try {
+                    if (await onRemove()) onCancel();
+                  } finally {
+                    setRemoving(false);
+                  }
+                }}
+              >
+                {removing ? "Quitando…" : "Quitar de esta barra"}
+              </button>
+            )}
+            {onDeleted && (
+              <button
+                type="button"
+                className="bw-danger-text"
+                disabled={busy || categoryBusy}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Eliminar producto
+              </button>
+            )}
+          </div>
         )}
         <button className="bw-secondary" disabled={busy} onClick={onCancel}>
           Cancelar
@@ -382,6 +409,55 @@ export function BarProductEditor({
               : "Crear y agregar al menú"}
         </button>
       </div>
+      {product && onDeleted && (
+        <AlertDialog
+          open={confirmDelete}
+          onOpenChange={(open) => {
+            if (!removing) setConfirmDelete(open);
+          }}
+        >
+          <AlertDialogContent className="bar-workspace bg-[#0a0a0a]">
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Eliminar {product.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Deja de venderse en todas las barras y eventos. Las ventas ya
+                hechas se conservan.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={removing}>Cancelar</AlertDialogCancel>
+              <button
+                type="button"
+                className="bw-danger-button"
+                disabled={removing}
+                onClick={async () => {
+                  if (!token) return;
+                  setRemoving(true);
+                  try {
+                    await apiFetch(`/inventory/products/${product.id}`, {
+                      method: "DELETE",
+                      token,
+                    });
+                    setConfirmDelete(false);
+                    onDeleted();
+                  } catch (e) {
+                    setConfirmDelete(false);
+                    setError(
+                      e instanceof ApiError
+                        ? e.message
+                        : "No se pudo eliminar el producto.",
+                    );
+                  } finally {
+                    setRemoving(false);
+                  }
+                }}
+              >
+                {removing ? "Eliminando…" : "Eliminar producto"}
+              </button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </section>
   );
 }

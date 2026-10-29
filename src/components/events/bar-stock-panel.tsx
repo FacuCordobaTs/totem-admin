@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import Decimal from "decimal.js";
-import { Check, Package, Plus, Search, X } from "lucide-react";
+import { MoreHorizontal, Package, Plus, Search, X } from "lucide-react";
+import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
 import {
   Table,
@@ -12,6 +13,21 @@ import {
 } from "@/components/ui/table";
 import type { ApiInventoryItem, ApiProduct } from "@/types/inventory";
 import type { BarInventoryItemRow } from "@/types/event-dashboard";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { NewMaterialRow } from "./bar-new-material-row";
 import {
   byRecentCreation,
@@ -36,7 +52,6 @@ type Props = {
   onClearFocus: () => void;
   onSaved: () => Promise<void>;
   onMaterialCreated: (item: ApiInventoryItem) => void;
-  onShowProduct: (id: string) => void;
 };
 
 export function BarStockPanel({
@@ -49,7 +64,6 @@ export function BarStockPanel({
   onClearFocus,
   onSaved,
   onMaterialCreated,
-  onShowProduct,
 }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "empty">("all");
@@ -61,7 +75,10 @@ export function BarStockPanel({
   const [cost, setCost] = useState("");
   const [expected, setExpected] = useState("0");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleting, setDeleting] = useState<BarInventoryItemRow | null>(null);
+  const [itemBusy, setItemBusy] = useState(false);
   const usedBy = useMemo(() => {
     const map = new Map<string, ApiProduct[]>();
     for (const product of products)
@@ -117,22 +134,81 @@ export function BarStockPanel({
     setFilter("all");
     setCreating(true);
   }
-  function open(item: BarInventoryItemRow) {
+  function startRename(item: BarInventoryItemRow) {
+    setEditing(null);
+    setRenaming(item.inventoryItemId);
+    setRenameValue(item.name);
+  }
+  async function rename(item: BarInventoryItemRow) {
+    const name = renameValue.trim();
+    if (!token || itemBusy || !name) return;
+    if (name === item.name) {
+      setRenaming(null);
+      return;
+    }
+    if (
+      materials.some(
+        (material) =>
+          material.id !== item.inventoryItemId &&
+          normalizeSearch(material.name.trim()) === normalizeSearch(name),
+      )
+    ) {
+      toast.error("Ya existe un insumo con ese nombre.");
+      return;
+    }
+    setItemBusy(true);
+    try {
+      await apiFetch("/inventory/items", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ id: item.inventoryItemId, name }),
+      });
+      await onSaved();
+      setRenaming(null);
+      toast.success("Insumo renombrado");
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError ? e.message : "No se pudo renombrar el insumo",
+      );
+    } finally {
+      setItemBusy(false);
+    }
+  }
+  async function remove(item: BarInventoryItemRow) {
+    if (!token || itemBusy) return;
+    setItemBusy(true);
+    try {
+      await apiFetch(`/inventory/items/${item.inventoryItemId}`, {
+        method: "DELETE",
+        token,
+      });
+      setExtraIds((prev) => prev.filter((id) => id !== item.inventoryItemId));
+      await onSaved();
+      toast.success("Insumo eliminado");
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError ? e.message : "No se pudo eliminar el insumo",
+      );
+    } finally {
+      setItemBusy(false);
+      setDeleting(null);
+    }
+  }
+  function open(item: BarInventoryItemRow, next: "add" | "count") {
+    setRenaming(null);
     setEditing(item.inventoryItemId);
     setExpected(item.barCurrentStock);
     setQuantity("");
     setCost("");
-    setMode("add");
-    setError("");
+    setMode(next);
   }
   async function save(item: BarInventoryItemRow) {
     if (!token || busy) return;
-    setError("");
     if (
       !validQuantity(quantity) ||
       (mode === "add" && new Decimal(decimalInput(quantity)).lte(0))
     ) {
-      setError(
+      toast.error(
         mode === "add"
           ? "Ingresá una cantidad mayor a cero."
           : "Ingresá el conteo actual, con hasta cuatro decimales.",
@@ -144,7 +220,7 @@ export function BarStockPanel({
       cost.trim() &&
       !/^\d{1,8}(\.\d{1,2})?$/.test(decimalInput(cost))
     ) {
-      setError("Revisá el costo: usá hasta dos decimales.");
+      toast.error("Revisá el costo: usá hasta dos decimales.");
       return;
     }
     // Absolute target + captured base snapshot makes resending safe after a lost response.
@@ -175,19 +251,23 @@ export function BarStockPanel({
       await onSaved();
       setEditing(null);
     } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? e.message
-          : "No se pudo guardar. Podés volver a intentarlo.",
-      );
       if (e instanceof ApiError && e.status === 409) {
+        // El stock cambió (otra venta u operador): se cierra para volver a partir del valor actual.
         await onSaved();
-        // Keep the captured version. Reopening the editor explicitly accepts the new count.
+        setEditing(null);
+        toast.error("El stock cambió mientras lo editabas. Revisalo y volvé a intentar.");
+      } else {
+        toast.error(
+          e instanceof ApiError
+            ? e.message
+            : "No se pudo guardar. Podés volver a intentarlo.",
+        );
       }
     } finally {
       setBusy(false);
     }
   }
+
 
   return (
     <section aria-label="Stock de la barra">
@@ -286,17 +366,17 @@ export function BarStockPanel({
           </button>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-          <Table className="table-fixed sm:table-auto">
+        <div className="overflow-x-auto overflow-y-hidden rounded-2xl bg-white/[0.02]">
+          <Table className="min-w-[620px] sm:min-w-0">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Producto
                 </TableHead>
-                <TableHead className="w-[28%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
+                <TableHead className="w-[200px] text-right text-[11px] font-normal lowercase text-white/45">
                   En barra
                 </TableHead>
-                <TableHead className="w-[28%] pr-4 sm:w-[170px]">
+                <TableHead className="w-[216px] pr-4">
                   <span className="sr-only">Acciones</span>
                 </TableHead>
               </TableRow>
@@ -319,6 +399,7 @@ export function BarStockPanel({
                 const consumers = usedBy.get(item.inventoryItemId) ?? [];
                 const empty = isEmptyStock(item.barCurrentStock);
                 const edit = editing === item.inventoryItemId;
+                const isRenaming = renaming === item.inventoryItemId;
                 const owner = unitOwners.get(item.inventoryItemId);
                 const others = consumers
                   .filter((product) => product.id !== owner?.id)
@@ -328,239 +409,259 @@ export function BarStockPanel({
                   : others.length > 0
                     ? others.join(", ")
                     : "Sin productos";
-                const next = validQuantity(quantity)
-                  ? mode === "add"
-                    ? new Decimal(expected).plus(decimalInput(quantity)).toString()
-                    : decimalInput(quantity)
-                  : null;
+                const next =
+                  edit && validQuantity(quantity)
+                    ? mode === "add"
+                      ? new Decimal(expected).plus(decimalInput(quantity))
+                      : new Decimal(decimalInput(quantity))
+                    : null;
+                const cancelOnEscape = (event: KeyboardEvent) => {
+                  if (event.key === "Escape" && !busy) {
+                    event.preventDefault();
+                    setEditing(null);
+                  }
+                };
                 return (
-                  <Fragment key={item.inventoryItemId}>
-                    <TableRow
-                      id={`stock-row-${item.inventoryItemId}`}
-                      className={`border-0 ${focus ? "bg-[#FF9500]/10 hover:bg-[#FF9500]/10" : "hover:bg-white/[0.03]"}`}
-                    >
-                      <TableCell className="max-w-[420px] py-3.5 pl-4">
-                        <div className="flex min-w-0 items-baseline gap-2">
+                  <TableRow
+                    key={item.inventoryItemId}
+                    id={`stock-row-${item.inventoryItemId}`}
+                    className={`border-0 ${focus || edit ? "bg-[#FF9500]/10 hover:bg-[#FF9500]/10" : "hover:bg-white/[0.03]"}`}
+                  >
+                    <TableCell className="max-w-[420px] py-2 pl-4">
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          aria-label={`Nuevo nombre de ${item.name}`}
+                          className="bw-new-material-input"
+                          maxLength={255}
+                          value={renameValue}
+                          disabled={itemBusy}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void rename(item);
+                            }
+                            if (e.key === "Escape" && !itemBusy) {
+                              e.preventDefault();
+                              setRenaming(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="flex min-h-9 min-w-0 items-center gap-2">
                           <span
                             className={`truncate text-[14px] font-medium ${empty ? "text-[#ffd294]" : "text-foreground"}`}
                             title={item.name}
                           >
                             {item.name}
                           </span>
+                          {edit && mode === "add" ? (
+                            <span className="bw-price-input bw-stock-cost ml-auto">
+                              <span>$</span>
+                              <input
+                                aria-label={`Costo total de la compra de ${item.name} (opcional)`}
+                                inputMode="decimal"
+                                placeholder="Costo (opcional)"
+                                value={cost}
+                                disabled={busy}
+                                onChange={(e) => setCost(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void save(item);
+                                  cancelOnEscape(e);
+                                }}
+                              />
+                            </span>
+                          ) : (
+                            <span
+                              className="hidden truncate text-[12px] text-white/40 sm:inline"
+                              title={description}
+                            >
+                              {description}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell
+                      className="whitespace-nowrap py-2 text-right"
+                      title={`${quantityLabel(item.barCurrentStock)} unidades`}
+                    >
+                      {edit ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-[12px] text-white/45">
+                            {mode === "add" ? "+" : "Hay"}
+                          </span>
+                          <input
+                            autoFocus
+                            aria-label={
+                              mode === "add"
+                                ? `Unidades de ${item.name} que entran`
+                                : `Unidades de ${item.name} que hay en la barra`
+                            }
+                            className="bw-stock-quantity"
+                            inputMode="decimal"
+                            placeholder={
+                              mode === "add" ? "0" : stockLabel(expected)
+                            }
+                            value={quantity}
+                            disabled={busy}
+                            onChange={(e) => setQuantity(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void save(item);
+                              cancelOnEscape(e);
+                            }}
+                          />
                           <span
-                            className="hidden truncate text-[12px] text-white/40 sm:inline"
-                            title={description}
+                            className="hidden w-[64px] text-left text-[12px] tabular-nums text-white/45 sm:inline"
+                            aria-live="polite"
                           >
-                            {description}
+                            {next ? `→ ${stockLabel(next.toString())}` : ""}
                           </span>
                         </div>
-                      </TableCell>
-                      <TableCell
-                        className="whitespace-nowrap py-3.5 text-right"
-                        title={`${quantityLabel(item.barCurrentStock)} unidades`}
-                      >
-                        <span
-                          className={`text-[14px] font-medium tabular-nums ${empty ? "text-[#ffd294]" : "text-foreground"}`}
-                        >
-                          {stockLabel(item.barCurrentStock)}
-                        </span>{" "}
-                        <span className="text-[12px] text-white/40">
-                          {new Decimal(item.barCurrentStock).eq(1)
-                            ? "unidad"
-                            : "unidades"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-3.5 pr-4 text-right">
-                        <button
-                          className="bw-secondary bw-table-action whitespace-nowrap"
-                          disabled={busy}
-                          aria-label={
-                            edit
-                              ? `Cerrar edición de stock de ${item.name}`
-                              : `Ingresar o contar stock de ${item.name}`
-                          }
-                          onClick={() =>
-                            edit ? setEditing(null) : open(item)
-                          }
-                        >
-                          {edit ? (
-                            "Cerrar"
-                          ) : (
-                            <>
-                              <span className="sm:hidden">Cargar</span>
-                              <span className="hidden sm:inline">
-                                Ingresar o contar
-                              </span>
-                            </>
-                          )}
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                    {edit && (
-                      <TableRow className="border-0 hover:bg-transparent">
-                        <TableCell colSpan={3} className="p-0 whitespace-normal">
-                          <div
-                            className="bw-stock-editor"
-                            onKeyDown={(event) => {
-                      if (event.key === "Escape" && !busy) {
-                        event.preventDefault();
-                        setEditing(null);
-                      }
-                    }}
-                  >
-                    <div className="bw-segmented">
-                      <button
-                        disabled={busy}
-                        aria-pressed={mode === "add"}
-                        onClick={() => {
-                          setMode("add");
-                          setQuantity("");
-                          setError("");
-                        }}
-                      >
-                        Ingresar mercadería
-                      </button>
-                      <button
-                        disabled={busy}
-                        aria-pressed={mode === "count"}
-                        onClick={() => {
-                          setMode("count");
-                          setQuantity("");
-                          setError("");
-                        }}
-                      >
-                        Corregir conteo
-                      </button>
-                    </div>
-                    <div className="bw-fields">
-                      <label htmlFor={`quantity-${item.inventoryItemId}`}>
-                        {mode === "add"
-                          ? "Cantidad que entra"
-                          : "Cantidad real en la barra"}{" "}
-                        (unidades)
-                        <input
-                          autoFocus
-                          id={`quantity-${item.inventoryItemId}`}
-                          inputMode="decimal"
-                          value={quantity}
-                          disabled={busy}
-                          onChange={(e) => setQuantity(e.target.value)}
-                          placeholder="0"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") void save(item);
-                          }}
-                        />
-                      </label>
-                      {mode === "add" && (
-                        <label htmlFor={`cost-${item.inventoryItemId}`}>
-                          Costo total de compra (opcional)
-                          <span className="bw-price-input">
-                            <span>$</span>
-                            <input
-                              id={`cost-${item.inventoryItemId}`}
-                              inputMode="decimal"
-                              value={cost}
-                              disabled={busy}
-                              onChange={(e) => setCost(e.target.value)}
-                              placeholder="0"
-                            />
-                          </span>
-                        </label>
-                      )}
-                    </div>
-                    <div className="bw-stock-equation">
-                      <span>
-                        Actual{" "}
-                        <strong>
-                          {stockLabel(expected)}
-                        </strong>
-                      </span>
-                      <span>{mode === "add" ? "+" : "se corrige a"}</span>
-                      {mode === "add" && (
+                      ) : (
                         <>
-                          <span>
-                            Entran{" "}
-                            <strong>
-                              {validQuantity(quantity)
-                                ? quantityLabel(decimalInput(quantity))
-                                : "—"}
-                            </strong>
+                          <span
+                            className={`text-[14px] font-medium tabular-nums ${empty ? "text-[#ffd294]" : "text-foreground"}`}
+                          >
+                            {stockLabel(item.barCurrentStock)}
+                          </span>{" "}
+                          <span className="text-[12px] text-white/40">
+                            {new Decimal(item.barCurrentStock).eq(1)
+                              ? "unidad"
+                              : "unidades"}
                           </span>
-                          <span>=</span>
                         </>
                       )}
-                      <span>
-                        Quedan{" "}
-                        <strong>
-                          {next == null ? "—" : stockLabel(next)}{" "}
-                          unidades
-                        </strong>
-                      </span>
-                    </div>
-                    <div className="bw-stock-links">
-                      {consumers.length > 0 && (
-                        <p>
-                          Se usa en{" "}
-                          {consumers.map((product, index) => (
-                            <span key={product.id}>
-                              {index > 0 ? ", " : ""}
-                              <button
-                                type="button"
-                                className="bw-text-button"
-                                onClick={() => onShowProduct(product.id)}
+                    </TableCell>
+                    <TableCell className="py-2 pr-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {isRenaming ? (
+                          <>
+                            <button
+                              type="button"
+                              className="bw-secondary bw-table-action whitespace-nowrap"
+                              disabled={itemBusy || !renameValue.trim()}
+                              onClick={() => void rename(item)}
+                            >
+                              {itemBusy ? "Guardando…" : "Guardar"}
+                            </button>
+                            <button
+                              type="button"
+                              className="bw-icon-button bw-row-menu"
+                              aria-label="Cancelar cambio de nombre"
+                              disabled={itemBusy}
+                              onClick={() => setRenaming(null)}
+                            >
+                              <X size={15} />
+                            </button>
+                          </>
+                        ) : edit ? (
+                          <>
+                            <button
+                              type="button"
+                              className="bw-primary bw-table-action whitespace-nowrap"
+                              disabled={busy || !quantity.trim()}
+                              onClick={() => void save(item)}
+                            >
+                              {busy ? "Guardando…" : "Guardar"}
+                            </button>
+                            <button
+                              type="button"
+                              className="bw-icon-button bw-row-menu"
+                              aria-label="Cancelar"
+                              disabled={busy}
+                              onClick={() => setEditing(null)}
+                            >
+                              <X size={15} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="bw-secondary bw-table-action whitespace-nowrap"
+                              disabled={busy}
+                              aria-label={`Ingresar stock de ${item.name}`}
+                              onClick={() => open(item, "add")}
+                            >
+                              Ingresar
+                            </button>
+                            <button
+                              type="button"
+                              className="bw-secondary bw-table-action whitespace-nowrap"
+                              disabled={busy}
+                              aria-label={`Contar stock de ${item.name}`}
+                              onClick={() => open(item, "count")}
+                            >
+                              Contar
+                            </button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="bw-icon-button bw-row-menu"
+                                  aria-label={`Más acciones de ${item.name}`}
+                                  disabled={busy || itemBusy}
+                                >
+                                  <MoreHorizontal size={16} />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="end"
+                                className="bg-[#0a0a0a]"
                               >
-                                {product.name}
-                              </button>
-                            </span>
-                          ))}
-                        </p>
-                      )}
-                    </div>
-                    {error && (
-                      <p role="alert" className="bw-error">
-                        {error}
-                        {error.includes("cambió") && (
-                          <button
-                            className="bw-secondary"
-                            onClick={() => open(item)}
-                          >
-                            Revisar stock actual
-                          </button>
+                                <DropdownMenuItem
+                                  onSelect={() => startRename(item)}
+                                >
+                                  Renombrar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onSelect={() => setDeleting(item)}
+                                >
+                                  Eliminar insumo
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
                         )}
-                      </p>
-                    )}
-                    <div className="bw-form-actions">
-                      <button
-                        className="bw-primary"
-                        disabled={busy || !quantity.trim()}
-                        onClick={() => void save(item)}
-                      >
-                        <Check size={16} />
-                        {busy
-                          ? "Guardando…"
-                          : mode === "add"
-                            ? "Registrar ingreso"
-                            : "Guardar conteo"}
-                      </button>
-                      <button
-                        className="bw-secondary"
-                        disabled={busy}
-                        onClick={() => setEditing(null)}
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </Fragment>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
             </TableBody>
           </Table>
         </div>
       )}
+      <AlertDialog
+        open={deleting !== null}
+        onOpenChange={(open) => {
+          if (!open && !itemBusy) setDeleting(null);
+        }}
+      >
+        <AlertDialogContent className="bar-workspace bg-[#0a0a0a]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar {deleting?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Desaparece de tus insumos en todas las barras. Sólo se puede
+              eliminar si ningún producto lo usa en su receta.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={itemBusy}>Cancelar</AlertDialogCancel>
+            <button
+              type="button"
+              className="bw-danger-button"
+              disabled={itemBusy}
+              onClick={() => deleting && void remove(deleting)}
+            >
+              {itemBusy ? "Eliminando…" : "Eliminar insumo"}
+            </button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

@@ -189,7 +189,7 @@ export function BarMenuPanel({
                     </TableHead>
                   </>
                 )}
-                <TableHead className="w-[96px] pr-4">
+                <TableHead className="w-12 pr-4">
                   <span className="sr-only">Editar producto</span>
                 </TableHead>
               </TableRow>
@@ -228,7 +228,7 @@ export function BarMenuPanel({
                   <TableRow
                     key={row.id}
                     onClick={busy === null ? (rowAction ?? undefined) : undefined}
-                    className={`border-0 hover:bg-white/[0.03] ${rowAction ? "cursor-pointer" : ""}`}
+                    className={`group border-0 hover:bg-white/[0.03] ${rowAction ? "cursor-pointer" : ""}`}
                   >
                     <TableCell className="max-w-[360px] py-3.5 pl-4">
                       <div className="flex min-w-0 items-baseline gap-2">
@@ -336,15 +336,15 @@ export function BarMenuPanel({
                     <TableCell className="py-2 pr-4 text-right">
                       <button
                         type="button"
-                        className="bw-secondary bw-table-action whitespace-nowrap"
+                        className="bw-icon-button bw-row-edit"
                         aria-label={`Editar ${row.name}`}
+                        title="Editar"
                         onClick={(event) => {
                           event.stopPropagation();
                           onEdit(product);
                         }}
                       >
-                        <Pencil size={14} aria-hidden="true" />
-                        Editar
+                        <Pencil size={15} aria-hidden="true" />
                       </button>
                     </TableCell>
                   </TableRow>

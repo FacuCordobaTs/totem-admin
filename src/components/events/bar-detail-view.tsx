@@ -490,6 +490,11 @@ export function BarDetailView({
                   onMaterialsChange={materialCreated}
                   onCancel={() => setEditing(undefined)}
                   onRemove={editing ? () => toggleProduct(editing.id, false) : undefined}
+                  onDeleted={() => {
+                    setEditing(undefined);
+                    void refresh().catch(() => {});
+                    toast.success("Producto eliminado");
+                  }}
                   onSaved={(_id, hasStock) => {
                     const created = editing === null;
                     setEditing(undefined);
@@ -532,13 +537,6 @@ export function BarDetailView({
                 onClearFocus={() => setStockFocus(null)}
                 onSaved={refresh}
                 onMaterialCreated={materialCreated}
-                onShowProduct={(id) => {
-                  setStockFocus(null);
-                  setSection("menu");
-                  setMenuQuery(
-                    catalog.find((product) => product.id === id)?.name ?? "",
-                  );
-                }}
               />
             )}
             {section === "team" && (
