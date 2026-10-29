@@ -95,7 +95,8 @@ export function productAvailabilityDetail(
 ): AvailabilityDetail {
   const saleType = productSaleType(product, directStock);
   if (saleType === "NONE") return { count: null, limiter: null };
-  if (saleType === "UNIT")
+  // Por unidad: descuenta 1 de su insumo propio. Sin receta, dato previo a la migración 0077.
+  if (saleType === "UNIT" && product.recipes.length === 0)
     return {
       count: Math.max(0, new Decimal(directStock ?? "0").floor().toNumber()),
       limiter: null,
@@ -142,10 +143,14 @@ export function byRecentCreation<T extends Pick<ApiInventoryItem, "name" | "crea
   return bt - at || a.name.localeCompare(b.name, "es-AR");
 }
 
-/** Existencias que el Menú pide mostrar juntas: los insumos de un producto o su unidad. */
+/** Existencias que el Menú pide mostrar juntas: los insumos de un producto. */
 export type StockFocus = { label: string; ids: string[] };
-/** Fila de stock de un producto que se vende por unidad. */
-export const productStockId = (productId: string) => `product:${productId}`;
+/** Insumo propio de un producto que se vende por unidad (su única línea de receta). */
+export function unitProductItemId(product: ApiProduct): string | null {
+  return product.saleType === "UNIT" && product.recipes.length === 1
+    ? product.recipes[0].inventoryItemId
+    : null;
+}
 
 export type RecipeMode = "GLASS" | "BOTTLE";
 /** Línea elegida en el diálogo; `value` es N (trago) o K botellas (botellas). */

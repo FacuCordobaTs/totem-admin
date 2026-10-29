@@ -35,13 +35,11 @@ import { BarSalesPanel } from "./bar-sales-panel";
 import { BarProductEditor } from "./bar-product-editor";
 import {
   isEmptyStock,
-  productStockId,
   recipeLinesForApi,
   type RecipeDraftLine,
   type RecipeMode,
   type StockFocus,
   moneyLabel,
-  productSaleType,
   saleTypeLabel,
 } from "./bar-workspace-model";
 type Props = {
@@ -275,13 +273,9 @@ export function BarDetailView({
     }
   }
   function showStock(product: ApiProduct) {
-    const directStock = menu.find((row) => row.id === product.id)?.directStock;
     setStockFocus({
       label: product.name,
-      ids:
-        productSaleType(product, directStock) === "UNIT"
-          ? [productStockId(product.id)]
-          : product.recipes.map((line) => line.inventoryItemId),
+      ids: product.recipes.map((line) => line.inventoryItemId),
     });
     setSection("stock");
   }
@@ -301,15 +295,7 @@ export function BarDetailView({
         (item) =>
           (usedItemIds.has(item.inventoryItemId) || item.barInventoryRowId) &&
           isEmptyStock(item.barCurrentStock),
-      ).length +
-      menu.filter((row) => {
-        const product = activeProducts.find((item) => item.id === row.id);
-        return (
-          product != null &&
-          productSaleType(product, row.directStock) === "UNIT" &&
-          isEmptyStock(row.directStock ?? "0")
-        );
-      }).length
+      ).length
     : 0;
   const members = staff.filter(
     (member) => member.barId === barId && member.isAssigned,
@@ -540,7 +526,6 @@ export function BarDetailView({
                 token={token}
                 barId={barId}
                 products={activeProducts}
-                menu={menu}
                 inventory={inventory}
                 materials={materials}
                 focus={stockFocus}

@@ -11,18 +11,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ApiInventoryItem, ApiProduct } from "@/types/inventory";
-import type {
-  BarInventoryItemRow,
-  BarMenuProductRow,
-} from "@/types/event-dashboard";
+import type { BarInventoryItemRow } from "@/types/event-dashboard";
 import { NewMaterialRow } from "./bar-new-material-row";
 import {
   byRecentCreation,
   decimalInput,
   isEmptyStock,
   normalizeSearch,
-  productSaleType,
-  productStockId,
+  unitProductItemId,
   type StockFocus,
   quantityLabel,
   stockLabel,
@@ -34,7 +30,6 @@ type Props = {
   token: string | null;
   barId: string;
   products: ApiProduct[];
-  menu: BarMenuProductRow[];
   inventory: BarInventoryItemRow[];
   materials: ApiInventoryItem[];
   focus: StockFocus | null;
@@ -43,13 +38,11 @@ type Props = {
   onMaterialCreated: (item: ApiInventoryItem) => void;
   onShowProduct: (id: string) => void;
 };
-type StockRow = BarInventoryItemRow & { productId?: string };
 
 export function BarStockPanel({
   token,
   barId,
   products,
-  menu,
   inventory,
   materials,
   focus,
@@ -79,25 +72,14 @@ export function BarStockPanel({
         ]);
     return map;
   }, [products]);
-  const unitRows: StockRow[] = products.flatMap((product) => {
-    const directStock = menu.find((row) => row.id === product.id)?.directStock;
-    return productSaleType(product, directStock) === "UNIT"
-      ? [
-          {
-            productId: product.id,
-            inventoryItemId: productStockId(product.id),
-            name: product.name,
-            barCurrentStock: directStock ?? "0",
-            barInventoryRowId: product.id,
-            eventStockAllocated: "0",
-            unallocatedEventStock: "0",
-          },
-        ]
-      : [];
-  });
-  unitRows.sort((a, b) => a.name.localeCompare(b.name, "es-AR"));
-  // Insumos del más reciente al más viejo; después, los productos por unidad.
-  const materialRows = [...inventory]
+  // Productos por unidad: su insumo propio es la fila de stock del producto.
+  const unitOwners = new Map<string, ApiProduct>();
+  for (const product of products) {
+    const itemId = unitProductItemId(product);
+    if (itemId) unitOwners.set(itemId, product);
+  }
+  // Insumos del más reciente al más viejo.
+  const tracked = [...inventory]
     .filter(
       (item) =>
         usedBy.has(item.inventoryItemId) ||
@@ -105,7 +87,6 @@ export function BarStockPanel({
         extraIds.includes(item.inventoryItemId),
     )
     .sort(byRecentCreation);
-  const tracked: StockRow[] = [...materialRows, ...unitRows];
   const focusIds = focus ? new Set(focus.ids) : null;
   const rows = focusIds
     ? tracked.filter((item) => focusIds.has(item.inventoryItemId))
@@ -136,7 +117,7 @@ export function BarStockPanel({
     setFilter("all");
     setCreating(true);
   }
-  function open(item: StockRow) {
+  function open(item: BarInventoryItemRow) {
     setEditing(item.inventoryItemId);
     setExpected(item.barCurrentStock);
     setQuantity("");
@@ -144,7 +125,7 @@ export function BarStockPanel({
     setMode("add");
     setError("");
   }
-  async function save(item: StockRow) {
+  async function save(item: BarInventoryItemRow) {
     if (!token || busy) return;
     setError("");
     if (
@@ -158,10 +139,6 @@ export function BarStockPanel({
       );
       return;
     }
-    if (item.productId && !/^\d+(\.\d{1,2})?$/.test(decimalInput(quantity))) {
-      setError("Usá hasta dos decimales para los productos por unidad.");
-      return;
-    }
     if (
       mode === "add" &&
       cost.trim() &&
@@ -171,36 +148,30 @@ export function BarStockPanel({
       return;
     }
     // Absolute target + captured base snapshot makes resending safe after a lost response.
-    const places = item.productId ? 2 : 6;
     const target = (
       mode === "add"
         ? new Decimal(expected).plus(decimalInput(quantity))
         : new Decimal(decimalInput(quantity))
     )
-      .toDecimalPlaces(places)
+      .toDecimalPlaces(6)
       .toString();
     setBusy(true);
     try {
-      await apiFetch(
-        `/bars/${barId}/${item.productId ? "product-stock" : "stock"}`,
-        {
-          method: "PUT",
-          token,
-          body: JSON.stringify({
-            ...(item.productId
-              ? { productId: item.productId }
-              : { inventoryItemId: item.inventoryItemId }),
-            quantity: target,
-            expectedCurrentStock: item.productId
-              ? new Decimal(expected).toFixed(2)
-              : new Decimal(expected).toDecimalPlaces(6).toString(),
-            stockInputAs: "BASE_UNITS",
-            ...(mode === "add" && cost.trim()
-              ? { totalCost: decimalInput(cost) }
-              : {}),
-          }),
-        },
-      );
+      await apiFetch(`/bars/${barId}/stock`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          inventoryItemId: item.inventoryItemId,
+          quantity: target,
+          expectedCurrentStock: new Decimal(expected)
+            .toDecimalPlaces(6)
+            .toString(),
+          stockInputAs: "BASE_UNITS",
+          ...(mode === "add" && cost.trim()
+            ? { totalCost: decimalInput(cost) }
+            : {}),
+        }),
+      });
       await onSaved();
       setEditing(null);
     } catch (e) {
@@ -348,10 +319,14 @@ export function BarStockPanel({
                 const consumers = usedBy.get(item.inventoryItemId) ?? [];
                 const empty = isEmptyStock(item.barCurrentStock);
                 const edit = editing === item.inventoryItemId;
-                const description = item.productId
-                  ? "Por unidad"
-                  : consumers.length > 0
-                    ? consumers.map((product) => product.name).join(", ")
+                const owner = unitOwners.get(item.inventoryItemId);
+                const others = consumers
+                  .filter((product) => product.id !== owner?.id)
+                  .map((product) => product.name);
+                const description = owner
+                  ? ["Por unidad", ...others].join(" · ")
+                  : others.length > 0
+                    ? others.join(", ")
                     : "Sin productos";
                 const next = validQuantity(quantity)
                   ? mode === "add"
@@ -523,34 +498,22 @@ export function BarStockPanel({
                       </span>
                     </div>
                     <div className="bw-stock-links">
-                      {item.productId ? (
-                        <button
-                          type="button"
-                          className="bw-text-button"
-                          onClick={() => onShowProduct(item.productId!)}
-                        >
-                          Ver producto en el menú
-                        </button>
-                      ) : (
-                        <>
-                          {consumers.length > 0 && (
-                            <p>
-                              Se usa en{" "}
-                              {consumers.map((product, index) => (
-                                <span key={product.id}>
-                                  {index > 0 ? ", " : ""}
-                                  <button
-                                    type="button"
-                                    className="bw-text-button"
-                                    onClick={() => onShowProduct(product.id)}
-                                  >
-                                    {product.name}
-                                  </button>
-                                </span>
-                              ))}
-                            </p>
-                          )}
-                        </>
+                      {consumers.length > 0 && (
+                        <p>
+                          Se usa en{" "}
+                          {consumers.map((product, index) => (
+                            <span key={product.id}>
+                              {index > 0 ? ", " : ""}
+                              <button
+                                type="button"
+                                className="bw-text-button"
+                                onClick={() => onShowProduct(product.id)}
+                              >
+                                {product.name}
+                              </button>
+                            </span>
+                          ))}
+                        </p>
                       )}
                     </div>
                     {error && (

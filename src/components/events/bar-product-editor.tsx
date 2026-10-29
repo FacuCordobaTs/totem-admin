@@ -35,7 +35,7 @@ const SALE_CHOICES: { value: ProductSaleType; title: string; detail: string }[] 
   {
     value: "UNIT",
     title: "Unidad",
-    detail: "Latas, comidas o productos listos con su propio conteo.",
+    detail: "Latas o comidas listas. También sirven de insumo para otros productos.",
   },
   {
     value: "NONE",
@@ -275,7 +275,10 @@ export function BarProductEditor({
       {trackStock && saleType === "UNIT" && (
         <div className="bw-unit-preview">
           <strong>1 {name.trim() || "producto"} vendido</strong>
-          <span>descuenta 1 unidad del stock de esta barra</span>
+          <span>
+            descuenta 1 unidad de su insumo «{name.trim() || "producto"}», que
+            también podés usar en recetas
+          </span>
         </div>
       )}
       {trackStock && usesRecipe(saleType) && (

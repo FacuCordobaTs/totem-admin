@@ -9,6 +9,7 @@ import {
   recipeDraftFromLines,
   recipeLinesForApi,
   stockLabel,
+  unitProductItemId,
 } from "../src/components/events/bar-workspace-model";
 
 // Trago: 1 fernet rinde 10 ventas; 1 cola rinde 5. Botellas: 1 fernet y 2 colas por venta.
@@ -80,7 +81,14 @@ describe("Disponibilidad física de una barra", () => {
       recipes: [],
     });
     expect(productAvailability(bare("NONE"), [], "5")).toBeNull();
-    expect(productAvailability(bare("UNIT"), [])).toBe(0);
+    // Por unidad: su insumo propio, una unidad por venta.
+    const can = {
+      ...bare("UNIT"),
+      recipes: [{ ...product().recipes[1], quantityUsed: "1.000000" }],
+    };
+    expect(productAvailability(can, [item("cola", "3.5")])).toBe(3);
+    expect(unitProductItemId(can)).toBe("cola");
+    // Dato previo a 0077: conteo por barra.
     expect(productAvailability(bare("UNIT"), [], "3.5")).toBe(3);
     // Trago o botellas sin receta: todavía sin configurar.
     expect(productAvailability(bare("GLASS"), [])).toBeNull();
