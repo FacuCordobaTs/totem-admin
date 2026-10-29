@@ -82,6 +82,8 @@ export type AvailabilityDetail = {
   count: number | null;
   /** Insumo que limita la venta; `null` si no hay receta o no falta nada. */
   limiter: ApiProductRecipeLine | null;
+  /** Insumos que no alcanzan para una sola venta. */
+  missing: ApiProductRecipeLine[];
 };
 
 /**
@@ -94,16 +96,19 @@ export function productAvailabilityDetail(
   directStock?: string | null,
 ): AvailabilityDetail {
   const saleType = productSaleType(product, directStock);
-  if (saleType === "NONE") return { count: null, limiter: null };
+  if (saleType === "NONE") return { count: null, limiter: null, missing: [] };
   // Por unidad: descuenta 1 de su insumo propio. Sin receta, dato previo a la migración 0077.
   if (saleType === "UNIT" && product.recipes.length === 0)
     return {
       count: Math.max(0, new Decimal(directStock ?? "0").floor().toNumber()),
       limiter: null,
+      missing: [],
     };
-  if (product.recipes.length === 0) return { count: null, limiter: null };
+  if (product.recipes.length === 0)
+    return { count: null, limiter: null, missing: [] };
   let count = Number.POSITIVE_INFINITY;
   let limiter: ApiProductRecipeLine | null = null;
+  const missing: ApiProductRecipeLine[] = [];
   for (const line of product.recipes) {
     const consumption = consumptionPerSale(line);
     const available = consumption.lte(0)
@@ -115,12 +120,13 @@ export function productAvailabilityDetail(
           .div(consumption)
           .floor()
           .toNumber();
+    if (available <= 0) missing.push(line);
     if (available < count) {
       count = available;
       limiter = line;
     }
   }
-  return { count: Math.max(0, count), limiter };
+  return { count: Math.max(0, count), limiter, missing };
 }
 export function productAvailability(
   product: ApiProduct,

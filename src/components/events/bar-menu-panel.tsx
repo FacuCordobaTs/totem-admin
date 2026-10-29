@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, PackagePlus, Plus, Search, Utensils, X } from "lucide-react";
+import { PackagePlus, Pencil, Plus, Search, Utensils, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -101,7 +101,7 @@ export function BarMenuPanel({
   const detailFor = (product: ApiProduct, directStock?: string | null) =>
     trackStock
       ? productAvailabilityDetail(product, inventory, directStock)
-      : { count: null, limiter: null };
+      : { count: null, limiter: null, missing: [] };
   const rows = active
     .map((row) => ({
       ...row,
@@ -189,8 +189,8 @@ export function BarMenuPanel({
                     </TableHead>
                   </>
                 )}
-                <TableHead className="w-10 pr-4">
-                  <span className="sr-only">Abrir producto</span>
+                <TableHead className="w-[96px] pr-4">
+                  <span className="sr-only">Editar producto</span>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -199,7 +199,7 @@ export function BarMenuPanel({
                 const product = row.product;
                 if (!product) return null;
                 const saleType = productSaleType(product, row.directStock);
-                const { count, limiter } = detailFor(
+                const { count, limiter, missing } = detailFor(
                   product,
                   row.directStock,
                 );
@@ -208,30 +208,27 @@ export function BarMenuPanel({
                 const note = !trackStock
                   ? ""
                   : usesRecipe(saleType) && configured
-                    ? count === 0 && limiter
-                      ? `Falta ${limiter.inventoryItemName}`
+                    ? count === 0 && missing.length
+                      ? `Falta ${missing.map((line) => line.inventoryItemName).join(", ")}`
                       : count != null && count <= 5 && limiter
                         ? `Quedan ${count} por ${limiter.inventoryItemName}`
                         : product.recipes
                             .map((line) => line.inventoryItemName)
                             .join(" + ")
                     : "";
+                // La fila hace lo mismo que su acción de disponibilidad; la tienen
+                // también los botones de la celda para teclado y lectores de pantalla.
+                const rowAction = !trackStock || saleType === "NONE"
+                  ? null
+                  : !configured
+                    ? () =>
+                        setRecipeFor({ product, mode: saleType as RecipeMode })
+                    : () => onShowStock(product);
                 return (
                   <TableRow
                     key={row.id}
-                    tabIndex={0}
-                    aria-label={`Abrir ${row.name}`}
-                    onClick={() => onEdit(product)}
-                    onKeyDown={(event) => {
-                      if (
-                        event.target === event.currentTarget &&
-                        (event.key === "Enter" || event.key === " ")
-                      ) {
-                        event.preventDefault();
-                        onEdit(product);
-                      }
-                    }}
-                    className="cursor-pointer border-0 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
+                    onClick={busy === null ? (rowAction ?? undefined) : undefined}
+                    className={`border-0 hover:bg-white/[0.03] ${rowAction ? "cursor-pointer" : ""}`}
                   >
                     <TableCell className="max-w-[360px] py-3.5 pl-4">
                       <div className="flex min-w-0 items-baseline gap-2">
@@ -336,12 +333,19 @@ export function BarMenuPanel({
                         </TableCell>
                       </>
                     )}
-                    <TableCell className="py-3.5 pr-4">
-                      <ChevronRight
-                        size={18}
-                        className="ml-auto text-white/30"
-                        aria-hidden="true"
-                      />
+                    <TableCell className="py-2 pr-4 text-right">
+                      <button
+                        type="button"
+                        className="bw-secondary bw-table-action whitespace-nowrap"
+                        aria-label={`Editar ${row.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEdit(product);
+                        }}
+                      >
+                        <Pencil size={14} aria-hidden="true" />
+                        Editar
+                      </button>
                     </TableCell>
                   </TableRow>
                 );

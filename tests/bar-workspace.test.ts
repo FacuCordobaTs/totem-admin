@@ -102,6 +102,14 @@ describe("Disponibilidad física de una barra", () => {
     expect(detail.count).toBe(5);
     expect(detail.limiter?.inventoryItemName).toBe("Cola");
   });
+  test("informa todos los insumos que faltan", () => {
+    const detail = productAvailabilityDetail(product(), [item("fernet", "0.05")]);
+    expect(detail.count).toBe(0);
+    expect(detail.missing.map((line) => line.inventoryItemName)).toEqual([
+      "Fernet",
+      "Cola",
+    ]);
+  });
   test("infiere el modo de productos sin dato", () => {
     const legacy = { ...product(), saleType: undefined };
     expect(productSaleType(legacy)).toBe("GLASS");
