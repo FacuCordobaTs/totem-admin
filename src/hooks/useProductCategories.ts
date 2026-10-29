@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
-import type { ApiProductCategory } from "@/components/inventory/recipe-config"
+import type { ApiProductCategory } from "@/types/inventory"
 
 export function useProductCategories(token: string | null, enabled = true) {
   const [categories, setCategories] = useState<ApiProductCategory[]>([])

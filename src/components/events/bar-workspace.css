@@ -225,7 +225,7 @@
   flex: 1;
   min-width: 0;
 }
-.bar-workspace input:not([type="radio"]),
+.bar-workspace input:not([type="radio"]):not([type="checkbox"]),
 .bar-workspace select {
   min-height: 42px;
   min-width: 0;
@@ -238,7 +238,7 @@
   font: inherit;
   transition: background-color 150ms;
 }
-.bar-workspace input:not([type="radio"]):hover,
+.bar-workspace input:not([type="radio"]):not([type="checkbox"]):hover,
 .bar-workspace select:hover {
   background: var(--bw-hover);
 }
@@ -743,12 +743,6 @@
 .bw-stock-item {
   border-bottom: 1px solid var(--bw-line);
 }
-.bw-stock-row {
-  padding: 16px;
-}
-.bw-stock-row > .bw-secondary {
-  white-space: nowrap;
-}
 .bw-stock-info {
   min-width: 0;
 }
@@ -812,17 +806,6 @@
   padding: 0;
   font-size: 12px;
   font-weight: 500;
-}
-
-/* Formularios de insumos: superficie limpia, sin recuadros grises. */
-.bw-material-form {
-  padding: 0;
-  background: transparent;
-  margin: 0;
-}
-.bw-material-form .bw-fields {
-  margin-top: 16px;
-  margin-bottom: 20px;
 }
 .bw-avatar {
   display: inline-flex;
@@ -923,157 +906,138 @@
 .bw-unit-preview strong {
   font-weight: 550;
 }
-.bw-recipe-editor {
-  padding-top: 4px;
-}
-.bw-inline-label {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 10px;
-  color: var(--bw-muted);
-}
-.bar-workspace .bw-inline-label select {
-  width: auto;
-  margin: 0;
-}
-.bw-recipe-line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 230px 40px;
-  align-items: end;
-  gap: 16px;
-  padding-block: 16px;
-  border-top: 1px solid var(--bw-line);
-}
-.bw-recipe-line > label {
-  min-width: 0;
-}
-.bw-yield-input {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-}
-.bar-workspace .bw-yield-input input {
-  width: 88px;
-  font-variant-numeric: tabular-nums;
-}
-.bw-yield-input > span {
-  color: var(--bw-muted);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-/* Selector de insumos de la receta: inline, sin panel enmarcado. */
-.bw-material-picker {
-  margin-top: 8px;
-}
-.bw-material-picker-inline {
-  display: grid;
-  gap: 10px;
-}
-.bw-material-picker-head {
+.bw-recipe-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.bw-material-picker-head > div {
-  min-width: 0;
-}
-.bw-material-picker-head p {
-  margin: 2px 0 0;
-  font-size: 12px;
-}
-.bw-material-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
-  padding: 0 16px 12px;
-  color: var(--bw-faint);
-  font-size: 11px;
-  font-weight: 400;
-  text-transform: lowercase;
 }
-.bw-material-results {
-  max-height: 300px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: #52525b transparent;
-  border-top: 1px solid var(--bw-line);
+.bw-recipe-summary > div {
+  display: grid;
+  gap: 2px;
 }
-.bw-material-result,
-.bw-material-create {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 16px;
-  text-align: left;
-  border-radius: 0;
-  border-bottom: 1px solid var(--bw-line);
+.bw-recipe-summary strong {
+  font-size: 13px;
+  font-weight: 550;
 }
-.bw-material-result > span:first-child,
-.bw-material-create > span {
-  flex: 1;
-  min-width: 0;
-}
-.bw-material-result strong,
-.bw-material-create strong {
-  display: block;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-  font-weight: 500;
-}
-.bw-material-result small,
-.bw-material-create small {
-  display: block;
-  margin-top: 2px;
-  font-weight: 400;
-}
-.bw-material-result > svg,
-.bw-material-create > svg {
-  flex-shrink: 0;
-}
-.bw-material-result:hover:not(:disabled),
-.bw-material-create:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-.bar-workspace .bw-material-result:disabled {
-  opacity: 1;
+.bw-recipe-summary span {
+  overflow: hidden;
   color: var(--bw-muted);
-}
-.bw-material-selected {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #8ceac2;
-  font-size: 12px;
-}
-.bar-workspace .bw-material-no-results {
-  padding: 20px 16px;
-  margin: 0;
-  border-bottom: 1px solid var(--bw-line);
-}
-.bw-material-create {
-  margin-top: 4px;
-  border-top: 1px solid var(--bw-line);
-  border-bottom: 0;
-  padding-top: 16px;
-  padding-bottom: 8px;
-}
-.bw-material-create strong,
-.bw-material-create > svg:first-child {
-  color: #ffad3b;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Paneles de "agregar existencia", inline en la página. */
-.bw-inline-panel {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 24px;
-  padding: 4px 0 8px;
+/* Diálogo de receta / botellas: lista con scroll y pie siempre visible. */
+.bw-dialog.bw-recipe-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(720px, calc(100dvh - 32px));
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
 }
+.bw-recipe-dialog > .bw-dialog-head {
+  padding: 24px 24px 16px;
+}
+.bw-recipe-dialog-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 24px 16px;
+}
+.bw-recipe-dialog-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bw-recipe-dialog-tools p {
+  color: var(--bw-muted);
+  font-size: 12px;
+}
+.bw-recipe-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: #0a0a0a;
+}
+.bw-recipe-question {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.8);
+}
+.bw-recipe-question strong {
+  color: var(--bw-text);
+  font-weight: 550;
+}
+.bar-workspace input.bw-recipe-amount {
+  min-height: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bar-workspace input.bw-recipe-amount[aria-invalid="true"] {
+  outline: 1px solid #fda4af;
+}
+.bar-workspace input.bw-new-material-input {
+  min-height: 36px;
+  padding-block: 6px;
+}
+.bw-check {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+/* Menú: selector de venta y disponibilidad que lleva al stock */
+.bar-workspace .bw-sale-select {
+  width: 100%;
+  min-width: 112px;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--bw-soft);
+  box-shadow: none;
+  color: var(--bw-text);
+  font-size: 12px;
+}
+.bar-workspace .bw-sale-select:hover {
+  background: var(--bw-hover);
+}
+.bw-availability-link {
+  cursor: pointer;
+  transition: filter 150ms;
+}
+.bw-availability-link:hover {
+  filter: brightness(1.2);
+}
+
+/* Stock enfocado desde el menú */
+.bw-stock-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.bw-stock-focus p {
+  color: var(--bw-muted);
+  font-size: 13px;
+}
+.bw-stock-focus strong {
+  color: var(--bw-text);
+  font-weight: 550;
+}
+
+
 .bw-inline-panel-head {
   display: flex;
   align-items: flex-start;
@@ -1086,26 +1050,6 @@
 .bw-inline-panel-head p {
   margin: 2px 0 0;
   font-size: 12px;
-}
-.bw-inline-panel .bw-picker-results {
-  margin-top: 0;
-  border-top: 1px solid var(--bw-line);
-}
-.bw-inline-panel .bw-picker-row {
-  padding-inline: 0;
-}
-.bw-inline-panel .bw-material-form {
-  padding-top: 4px;
-}
-.bw-material-form.bw-material-form-embedded {
-  padding: 0;
-  margin: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.bw-material-form-embedded > .bw-form-actions {
-  flex-direction: row-reverse;
-  justify-content: end;
 }
 .bw-remove-product {
   margin-right: auto;
@@ -1175,6 +1119,10 @@
 }
 
 @media (max-width: 639px) {
+  .bw-recipe-summary {
+    flex-direction: column;
+    align-items: stretch;
+  }
   /* En mobile la píldora de disponibilidad compite por el ancho de la tabla:
      se compacta sin perder el estado. */
   .bw-availability {
@@ -1262,44 +1210,12 @@
   .bw-stock-list {
     border-top: 1px solid var(--bw-line);
   }
-  .bw-stock-row {
-    grid-template-columns: minmax(0, 1fr) 90px;
-    gap: 14px;
-    padding: 18px 8px;
-  }
-  .bw-stock-row > .bw-secondary {
-    grid-column: 1/-1;
-    justify-self: start;
-  }
   .bw-choice-grid {
     grid-template-columns: 1fr;
     gap: 8px;
   }
   .bar-workspace .bw-choice {
     padding: 14px;
-  }
-  .bw-recipe-line {
-    grid-template-columns: minmax(0, 1fr) 40px;
-    gap: 12px;
-  }
-  .bw-recipe-line > label:first-child {
-    grid-column: 1/-1;
-  }
-  .bw-inline-panel {
-    padding: 12px;
-  }
-  .bw-recipe-editor > .bw-heading > div {
-    flex-basis: 100%;
-  }
-  .bw-material-selected {
-    max-width: 100px;
-  }
-  .bw-material-form-embedded > .bw-form-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .bw-material-form-embedded > .bw-form-actions > .bw-primary {
-    white-space: normal;
   }
   .bw-editor-footer > .bw-remove-product {
     flex-basis: 100%;
@@ -1373,9 +1289,6 @@
   .bw-picker-row .bw-secondary {
     padding-inline: 10px;
     font-size: 12px;
-  }
-  .bw-inline-panel .bw-picker-row {
-    padding-inline: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {

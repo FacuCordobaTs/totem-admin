@@ -1,14 +1,5 @@
 import { useState } from "react";
-import {
-  Check,
-  ChevronRight,
-  Package,
-  PackagePlus,
-  Plus,
-  Search,
-  Utensils,
-  X,
-} from "lucide-react";
+import { ChevronRight, PackagePlus, Plus, Search, Utensils, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,47 +14,83 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { ApiProduct } from "@/components/inventory/recipe-config";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type {
+  ApiInventoryItem,
+  ApiProduct,
+  ProductSaleType,
+} from "@/types/inventory";
 import type {
   BarInventoryItemRow,
   BarMenuProductRow,
 } from "@/types/event-dashboard";
+import { BarRecipeDialog } from "./bar-recipe-dialog";
 import {
+  SALE_TYPES,
+  recipeDraftFromLines,
+  type RecipeDraftLine,
+  type RecipeMode,
   moneyLabel,
   normalizeSearch,
   productAvailabilityDetail,
+  productSaleType,
   quantityLabel,
+  usesRecipe,
 } from "./bar-workspace-model";
 
 type Props = {
+  token: string | null;
   catalog: ApiProduct[];
   menu: BarMenuProductRow[];
   inventory: BarInventoryItemRow[];
+  materials: ApiInventoryItem[];
   trackStock: boolean;
   busy: string | null;
   onToggle: (id: string, active: boolean) => void;
   onCreate: () => void;
   onEdit: (product: ApiProduct) => void;
+  onSaleTypeChange: (productId: string, saleType: ProductSaleType) => void;
+  onSaveRecipe: (
+    productId: string,
+    mode: RecipeMode,
+    lines: RecipeDraftLine[],
+  ) => Promise<boolean>;
+  onMaterialCreated: (item: ApiInventoryItem) => void;
+  onShowStock: (product: ApiProduct) => void;
   query: string;
   onQueryChange: (query: string) => void;
 };
-type Filter = "all" | "empty" | "untracked";
 
 export function BarMenuPanel({
+  token,
   catalog,
   menu,
   inventory,
+  materials,
   trackStock,
   busy,
   onToggle,
   onCreate,
   onEdit,
+  onSaleTypeChange,
+  onSaveRecipe,
+  onMaterialCreated,
+  onShowStock,
   query,
   onQueryChange,
 }: Props) {
   const [picker, setPicker] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [recipeFor, setRecipeFor] = useState<{
+    product: ApiProduct;
+    mode: RecipeMode;
+  } | null>(null);
   const active = menu.filter((row) => row.isActiveForBar);
   const activeIds = new Set(active.map((row) => row.id));
   const available = catalog.filter(
@@ -84,12 +111,7 @@ export function BarMenuPanel({
       normalizeSearch(
         `${name} ${product?.recipes.map((line) => line.inventoryItemName).join(" ") ?? ""}`,
       ).includes(normalizeSearch(query)),
-    )
-    .filter(({ product, directStock }) => {
-      if (!product || filter === "all") return true;
-      const { count } = detailFor(product, directStock);
-      return filter === "empty" ? count === 0 : count == null;
-    });
+    );
   const emptyCount = active.filter((row) => {
     const product = catalog.find((item) => item.id === row.id);
     return product ? detailFor(product, row.directStock).count === 0 : false;
@@ -108,9 +130,9 @@ export function BarMenuPanel({
         <div className="bw-form-actions">
           <button className="bw-secondary" onClick={() => setPicker(true)}>
             <PackagePlus size={16} />
-            Del catálogo
+            Asignar producto del catálogo
           </button>
-          <button className="bw-primary" onClick={onCreate}>
+          <button className="bw-secondary" onClick={onCreate}>
             <Plus size={17} />
             Nuevo producto
           </button>
@@ -127,32 +149,6 @@ export function BarMenuPanel({
               onChange={(e) => onQueryChange(e.target.value)}
             />
           </label>
-          {trackStock && (
-            <div
-              className="bw-segmented"
-              role="group"
-              aria-label="Filtrar el menú por disponibilidad"
-            >
-              <button
-                aria-pressed={filter === "all"}
-                onClick={() => setFilter("all")}
-              >
-                Todos
-              </button>
-              <button
-                aria-pressed={filter === "empty"}
-                onClick={() => setFilter("empty")}
-              >
-                Sin stock{emptyCount > 0 && <span>{emptyCount}</span>}
-              </button>
-              <button
-                aria-pressed={filter === "untracked"}
-                onClick={() => setFilter("untracked")}
-              >
-                Sin control
-              </button>
-            </div>
-          )}
         </div>
       )}
       {active.length === 0 ? (
@@ -160,38 +156,38 @@ export function BarMenuPanel({
           <Utensils size={32} />
           <h4>Armá el menú de esta barra</h4>
           <p>
-            Sumá productos de tu catálogo con <strong>Del catálogo</strong> o
-            creá uno nuevo para este evento.
+            Sumá productos de tu catálogo con{" "}
+            <strong>Asignar producto del catálogo</strong> o creá uno nuevo para
+            este evento.
           </p>
         </div>
       ) : rows.length === 0 ? (
         <div className="bw-empty">
-          <h4>No hay productos con este filtro</h4>
-          <button
-            className="bw-secondary"
-            onClick={() => {
-              onQueryChange("");
-              setFilter("all");
-            }}
-          >
+          <h4>No hay productos con esa búsqueda</h4>
+          <button className="bw-secondary" onClick={() => onQueryChange("")}>
             Ver todo el menú
           </button>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-          <Table className="table-fixed sm:table-auto">
+        <div className="overflow-x-auto overflow-y-hidden rounded-2xl bg-white/[0.02]">
+          <Table className="min-w-[560px] sm:min-w-0">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Producto
                 </TableHead>
-                <TableHead className="w-[24%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
+                <TableHead className="w-[96px] text-right text-[11px] font-normal lowercase text-white/45">
                   Precio
                 </TableHead>
                 {trackStock && (
-                  <TableHead className="w-[26%] text-center text-[11px] font-normal lowercase text-white/45 sm:w-auto">
-                    Disponible
-                  </TableHead>
+                  <>
+                    <TableHead className="w-[148px] text-[11px] font-normal lowercase text-white/45">
+                      Venta
+                    </TableHead>
+                    <TableHead className="w-[176px] text-center text-[11px] font-normal lowercase text-white/45">
+                      Disponible
+                    </TableHead>
+                  </>
                 )}
                 <TableHead className="w-10 pr-4">
                   <span className="sr-only">Abrir producto</span>
@@ -202,20 +198,24 @@ export function BarMenuPanel({
               {rows.map((row) => {
                 const product = row.product;
                 if (!product) return null;
+                const saleType = productSaleType(product, row.directStock);
                 const { count, limiter } = detailFor(
                   product,
                   row.directStock,
                 );
-                const note =
-                  product.recipes.length === 0
-                    ? count == null
-                      ? "Sin control de stock"
-                      : "Por unidad"
-                    : count === 0 && limiter
+                const configured =
+                  !usesRecipe(saleType) || product.recipes.length > 0;
+                const note = !trackStock
+                  ? ""
+                  : usesRecipe(saleType) && configured
+                    ? count === 0 && limiter
                       ? `Falta ${limiter.inventoryItemName}`
                       : count != null && count <= 5 && limiter
                         ? `Quedan ${count} por ${limiter.inventoryItemName}`
-                        : `${product.recipes.length} ${product.recipes.length === 1 ? "insumo" : "insumos"}`;
+                        : product.recipes
+                            .map((line) => line.inventoryItemName)
+                            .join(" + ")
+                    : "";
                 return (
                   <TableRow
                     key={row.id}
@@ -223,7 +223,10 @@ export function BarMenuPanel({
                     aria-label={`Abrir ${row.name}`}
                     onClick={() => onEdit(product)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
+                      if (
+                        event.target === event.currentTarget &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
                         event.preventDefault();
                         onEdit(product);
                       }
@@ -238,8 +241,11 @@ export function BarMenuPanel({
                         >
                           {row.name}
                         </span>
-                        {trackStock && (
-                          <span className="hidden truncate text-[12px] text-white/40 sm:inline">
+                        {note && (
+                          <span
+                            className="hidden truncate text-[12px] text-white/40 lg:inline"
+                            title={note}
+                          >
                             {note}
                           </span>
                         )}
@@ -249,26 +255,86 @@ export function BarMenuPanel({
                       {moneyLabel(row.price)}
                     </TableCell>
                     {trackStock && (
-                      <TableCell className="py-3.5 text-center">
-                        <span
-                          className={`bw-availability ${count === 0 ? "empty" : count == null ? "untracked" : "ready"}`}
+                      <>
+                        <TableCell
+                          className="py-2"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                         >
-                          {count === 0 ? (
-                            <>
-                              <Package size={14} aria-hidden="true" className="hidden sm:block" />
-                              Sin stock
-                            </>
-                          ) : count == null ? (
-                            "Sin límite"
+                          <Select
+                            value={saleType}
+                            disabled={busy !== null}
+                            onValueChange={(value) => {
+                              if (value !== saleType)
+                                onSaleTypeChange(
+                                  product.id,
+                                  value as ProductSaleType,
+                                );
+                            }}
+                          >
+                            <SelectTrigger
+                              size="sm"
+                              aria-label={`Cómo se vende ${row.name}`}
+                              className="bw-sale-select"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#0a0a0a]">
+                              {SALE_TYPES.map((type) => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell
+                          className="py-2 text-center"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          {saleType === "NONE" ? null : !configured ? (
+                            <button
+                              type="button"
+                              className="bw-secondary bw-table-action whitespace-nowrap"
+                              disabled={busy !== null}
+                              onClick={() =>
+                                setRecipeFor({
+                                  product,
+                                  mode: saleType as RecipeMode,
+                                })
+                              }
+                            >
+                              {saleType === "GLASS"
+                                ? "Configurar receta"
+                                : "Configurar botellas"}
+                            </button>
                           ) : (
-                            <>
-                              <Check size={14} aria-hidden="true" className="hidden sm:block" />
-                              {quantityLabel(count)}
-                              <span className="hidden sm:inline">&nbsp;unidades</span>
-                            </>
+                            <button
+                              type="button"
+                              className={`bw-availability bw-availability-link ${count === 0 ? "empty" : "ready"}`}
+                              aria-label={
+                                count === 0
+                                  ? `${row.name} sin stock: ver en Stock`
+                                  : `${row.name}: ${count} disponibles, ver en Stock`
+                              }
+                              onClick={() => onShowStock(product)}
+                            >
+                              {count === 0 ? (
+                                "Sin stock"
+                              ) : (
+                                <>
+                                  {quantityLabel(count ?? 0)}
+                                  <span className="hidden sm:inline">
+                                    &nbsp;
+                                    {count === 1 ? "disponible" : "disponibles"}
+                                  </span>
+                                </>
+                              )}
+                            </button>
                           )}
-                        </span>
-                      </TableCell>
+                        </TableCell>
+                      </>
                     )}
                     <TableCell className="py-3.5 pr-4">
                       <ChevronRight
@@ -283,6 +349,33 @@ export function BarMenuPanel({
             </TableBody>
           </Table>
         </div>
+      )}
+      {recipeFor && (
+        <BarRecipeDialog
+          open
+          key={`${recipeFor.product.id}-${recipeFor.mode}`}
+          onOpenChange={(open) => {
+            if (!open) setRecipeFor(null);
+          }}
+          token={token}
+          mode={recipeFor.mode}
+          productName={recipeFor.product.name}
+          materials={materials}
+          initialLines={recipeDraftFromLines(
+            recipeFor.mode,
+            recipeFor.product.recipes,
+          )}
+          onMaterialCreated={onMaterialCreated}
+          onSave={async (lines) => {
+            const saved = await onSaveRecipe(
+              recipeFor.product.id,
+              recipeFor.mode,
+              lines,
+            );
+            if (saved) setRecipeFor(null);
+            return saved;
+          }}
+        />
       )}
       <Dialog
         open={picker}
@@ -299,7 +392,7 @@ export function BarMenuPanel({
           <div className="bw-dialog-head">
             <div>
               <DialogTitle className="bw-dialog-title">
-                Agregar del catálogo
+                Asignar producto del catálogo
               </DialogTitle>
               <DialogDescription className="bw-dialog-hint">
                 Elegí productos ya creados por la productora. Podés sumar

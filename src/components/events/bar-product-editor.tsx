@@ -1,23 +1,49 @@
 import { useId, useRef, useState } from "react";
 import Decimal from "decimal.js";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { apiFetch, ApiError } from "@/lib/api";
-import type { ApiProduct } from "@/components/inventory/recipe-config";
-import type { ApiInventoryItem } from "@/components/inventory/raw-materials";
+import type {
+  ApiInventoryItem,
+  ApiProduct,
+  ProductSaleType,
+} from "@/types/inventory";
 import { ProductCategoryField } from "@/components/inventory/product-category-field";
 import { ProductImageUploader } from "@/components/inventory/product-image-uploader";
-import { BarRecipeMaterialPicker } from "./bar-recipe-material-picker";
+import { BarRecipeDialog } from "./bar-recipe-dialog";
 import {
-  consumptionPerSale,
+  recipeDraftFromLines,
+  recipeLinesForApi,
+  type RecipeDraftLine,
   decimalInput,
   moneyLabel,
-  packageFactor,
-  packageDescription,
   priceInput,
-  singularStockUnit,
+  productSaleType,
+  usesRecipe,
 } from "./bar-workspace-model";
 
-type RecipeDraft = { id: string; yield: string; quantity: string };
+const SALE_CHOICES: { value: ProductSaleType; title: string; detail: string }[] = [
+  {
+    value: "GLASS",
+    title: "Trago",
+    detail: "Cada venta usa una parte de uno o más insumos.",
+  },
+  {
+    value: "BOTTLE",
+    title: "Botellas",
+    detail: "Cada venta entrega botellas enteras de uno o más insumos.",
+  },
+  {
+    value: "UNIT",
+    title: "Unidad",
+    detail: "Latas, comidas o productos listos con su propio conteo.",
+  },
+  {
+    value: "NONE",
+    title: "Sin control",
+    detail: "Servicios o productos sin límite de existencias.",
+  },
+];
+
 function pricesDiffer(a: string | undefined, b: string): boolean {
   if (a == null) return false;
   try {
@@ -67,54 +93,28 @@ export function BarProductEditor({
   });
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? null);
   const [categoryBusy, setCategoryBusy] = useState(false);
-  const [saleType, setSaleType] = useState(product?.saleType ?? "GLASS");
-  const [mode, setMode] = useState<"none" | "unit" | "recipe">(
-    product
-      ? product.recipes.length
-        ? "recipe"
-        : directStock != null
-          ? "unit"
-          : "none"
-      : "unit",
-  );
-  const [lines, setLines] = useState<RecipeDraft[]>(
+  const initialSaleType: ProductSaleType = product
+    ? productSaleType(product, directStock)
+    : "UNIT";
+  const [saleType, setSaleType] = useState<ProductSaleType>(initialSaleType);
+  // Receta por modo: volver al modo original recupera lo guardado.
+  const [drafts, setDrafts] = useState<Partial<Record<"GLASS" | "BOTTLE", RecipeDraftLine[]>>>(
     () =>
-      product?.recipes.map((line) => {
-        const item = {
-          baseUnit: line.inventoryBaseUnit,
-          packageSize: line.inventoryPackageSize,
-        };
-        const consumption = consumptionPerSale(product, line);
-        return {
-          id: line.inventoryItemId,
-          quantity: line.quantityUsed,
-          yield: consumption.gt(0)
-            ? packageFactor(item).div(consumption).toDecimalPlaces(3).toString()
-            : "1",
-        };
-      }) ?? [],
+      product && usesRecipe(initialSaleType)
+        ? { [initialSaleType]: recipeDraftFromLines(initialSaleType, product.recipes) }
+        : {},
   );
-  const originalLines = useRef(lines.map((line) => ({ ...line })));
-  const lastYieldInput = useRef<HTMLInputElement>(null);
-  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
-  const [materialBusy, setMaterialBusy] = useState(false);
+  const [recipeOpen, setRecipeOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const busy = saving || removing || materialBusy;
+  const busy = saving || removing;
+  const recipe = usesRecipe(saleType) ? (drafts[saleType] ?? []) : [];
   const [error, setError] = useState("");
   // Keep identities after a partial network failure so retry never creates a second product/insumo.
   const savedId = useRef<string | null>(product?.id ?? null);
 
-  function addMaterial(item: ApiInventoryItem) {
-    setLines((prev) => [...prev, { id: item.id, yield: "1", quantity: "1" }]);
-    requestAnimationFrame(() => {
-      lastYieldInput.current?.focus();
-      lastYieldInput.current?.select();
-    });
-  }
-
   async function save() {
-    if (!token || busy || categoryBusy || materialPickerOpen) return;
+    if (!token || busy || categoryBusy) return;
     setError("");
     const normalizedPrice = decimalInput(amount);
     if (!name.trim() || !/^\d{1,8}(\.\d{1,2})?$/.test(normalizedPrice)) {
@@ -123,72 +123,22 @@ export function BarProductEditor({
       );
       return;
     }
-    if (
-      trackStock &&
-      mode === "recipe" &&
-      (!lines.length ||
-        lines.some(
-          (line) =>
-            !line.id ||
-            !/^\d+(\.\d{1,3})?$/.test(decimalInput(line.yield)) ||
-            new Decimal(decimalInput(line.yield)).lte(0),
-        ))
-    ) {
-      setError("Elegí al menos un insumo e indicá cuánto rinde cada envase.");
-      return;
-    }
-    if (
-      trackStock &&
-      mode === "recipe" &&
-      new Set(lines.map((line) => line.id)).size !== lines.length
-    ) {
-      setError("Cada insumo debe aparecer una sola vez en la receta.");
-      return;
-    }
     setSaving(true);
     try {
-      let recipes: {
-        inventoryItemId: string;
-        quantityUsed?: string;
-        yieldPerPackage?: string;
-      }[] = [];
-      let effectiveSaleType = saleType;
-      if (!trackStock && product) {
-        // Editing a menu without stock must not erase the shared catalog recipe.
-        recipes = product.recipes.map((line) => ({
-          inventoryItemId: line.inventoryItemId,
-          quantityUsed: line.quantityUsed,
-        }));
-      } else if (trackStock && mode === "unit") {
-        effectiveSaleType = "GLASS";
-      } else if (trackStock && mode === "recipe") {
-        recipes = lines.map((line) => {
-          const original = originalLines.current.find(
-            (row) => row.id === line.id,
-          );
-          if (
-            original &&
-            original.yield === line.yield &&
-            saleType === product?.saleType
-          ) {
-            return {
-              inventoryItemId: line.id,
-              quantityUsed: original.quantity,
-            };
-          }
-          const yld = new Decimal(decimalInput(line.yield));
-          // A whole-package product stores package counts, servings store base units.
-          return saleType === "BOTTLE"
-            ? {
-                inventoryItemId: line.id,
-                quantityUsed: new Decimal(1)
-                  .div(yld)
-                  .toDecimalPlaces(4)
-                  .toString(),
-              }
-            : { inventoryItemId: line.id, yieldPerPackage: yld.toString() };
-        });
-      }
+      // Sin control de stock en el evento, se conserva lo que el catálogo ya tenía.
+      const effectiveSaleType = trackStock
+        ? saleType
+        : (product?.saleType ?? "NONE");
+      const recipes = trackStock
+        ? usesRecipe(saleType)
+          ? recipeLinesForApi(saleType, recipe)
+          : []
+        : (product?.recipes.map((line) => ({
+            inventoryItemId: line.inventoryItemId,
+            ...(product.saleType === "BOTTLE"
+              ? { quantityUsed: new Decimal(line.quantityUsed).round().toString() }
+              : { yieldPerPackage: line.yieldPerPackage ?? undefined, quantityUsed: line.quantityUsed }),
+          })) ?? []);
       const body = {
         name: name.trim(),
         price: product?.price ?? normalizedPrice,
@@ -222,18 +172,10 @@ export function BarProductEditor({
           priceOverride: normalizedPrice,
         }),
       });
-      if (trackStock && ((mode === "unit" && directStock == null) || (mode === "none" && directStock != null))) {
-        await apiFetch(`/bars/${barId}/product-stock`, {
-          method: "PUT",
-          token,
-          body: JSON.stringify({
-            productId: savedId.current,
-            quantity: mode === "unit" ? (directStock ?? "0") : null,
-            expectedCurrentStock: directStock ?? null,
-          }),
-        });
-      }
-      onSaved(savedId.current, trackStock && mode !== "none");
+      onSaved(
+        savedId.current,
+        trackStock && (saleType === "UNIT" || recipe.length > 0),
+      );
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -250,12 +192,10 @@ export function BarProductEditor({
       className="bw-product-editor"
       aria-label={product ? "Editar producto" : "Nuevo producto"}
     >
-      {!materialPickerOpen && (
-        <button className="bw-back" disabled={busy} onClick={onCancel}>
-          <ArrowLeft size={16} />
-          Volver al menú
-        </button>
-      )}
+      <button className="bw-back" disabled={busy} onClick={onCancel}>
+        <ArrowLeft size={16} />
+        Volver al menú
+      </button>
       <div className="bw-heading">
         <div>
           <h3>{product ? "Editar producto" : "Nuevo producto"}</h3>
@@ -307,40 +247,21 @@ export function BarProductEditor({
       />
       {trackStock && (
         <fieldset className="bw-stock-choice" disabled={busy}>
-          <legend>¿Cómo controlás el stock?</legend>
+          <legend>¿Cómo se vende este producto?</legend>
           <div className="bw-choice-grid">
-            {(
-              [
-                {
-                  value: "unit",
-                  title: "Por unidad",
-                  detail: "Latas, comidas o productos listos para vender.",
-                },
-                {
-                  value: "recipe",
-                  title: "Con insumos",
-                  detail: "Tragos y combos que consumen uno o más insumos.",
-                },
-                {
-                  value: "none",
-                  title: "Sin control",
-                  detail: "Servicios o productos sin límite de existencias.",
-                },
-              ] as const
-            ).map((choice) => (
+            {SALE_CHOICES.map((choice) => (
               <label
                 key={choice.value}
                 className={
-                  mode === choice.value ? "bw-choice selected" : "bw-choice"
+                  saleType === choice.value ? "bw-choice selected" : "bw-choice"
                 }
               >
                 <input
                   type="radio"
-                  name={`${id}-mode`}
+                  name={`${id}-sale-type`}
                   value={choice.value}
-                  checked={mode === choice.value}
-                  onChange={() => setMode(choice.value)}
-                  disabled={materialPickerOpen}
+                  checked={saleType === choice.value}
+                  onChange={() => setSaleType(choice.value)}
                 />
                 <span>
                   <strong>{choice.title}</strong>
@@ -351,116 +272,56 @@ export function BarProductEditor({
           </div>
         </fieldset>
       )}
-      {trackStock && mode === "unit" && (
+      {trackStock && saleType === "UNIT" && (
         <div className="bw-unit-preview">
           <strong>1 {name.trim() || "producto"} vendido</strong>
           <span>descuenta 1 unidad del stock de esta barra</span>
         </div>
       )}
-      {trackStock && mode === "recipe" && (
-        <section className="bw-recipe-editor">
-          <div className="bw-heading">
-            <div>
-              <h4>Receta del producto</h4>
-              <p>Definí cuántos productos rinde cada insumo.</p>
-            </div>
-            <label className="bw-inline-label">
-              Venta
-              <select
-                value={saleType}
-                disabled={busy}
-                onChange={(e) => setSaleType(e.target.value as typeof saleType)}
-              >
-                <option value="GLASS">Por unidad / porción</option>
-                <option value="BOTTLE">Por botella / combo</option>
-              </select>
-            </label>
+      {trackStock && usesRecipe(saleType) && (
+        <div className="bw-recipe-summary">
+          <div className="min-w-0">
+            <strong>
+              {saleType === "GLASS" ? "Receta" : "Botellas por venta"}
+            </strong>
+            <span title={recipe.map((line) => line.inventoryItemName).join(" + ")}>
+              {recipe.length
+                ? recipe
+                    .map((line) =>
+                      saleType === "BOTTLE"
+                        ? `${line.value} × ${line.inventoryItemName}`
+                        : line.inventoryItemName,
+                    )
+                    .join(" + ")
+                : "Todavía sin configurar: se vende sin descontar stock."}
+            </span>
           </div>
-          {lines.map((line, index) => {
-            const item = materials.find((material) => material.id === line.id);
-            return (
-              <div className="bw-recipe-line" key={index}>
-                <label htmlFor={`${id}-item-${index}`}>
-                  Insumo
-                  <select
-                    id={`${id}-item-${index}`}
-                    value={line.id}
-                    disabled={busy}
-                    onChange={(e) =>
-                      setLines((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, id: e.target.value } : row,
-                        ),
-                      )
-                    }
-                  >
-                    <option value="">Elegí un insumo</option>
-                    {materials
-                      .filter(
-                        (mat) =>
-                          mat.id === line.id ||
-                          !lines.some((row) => row.id === mat.id),
-                      )
-                      .map((mat) => (
-                        <option key={mat.id} value={mat.id}>
-                          {mat.name} · {packageDescription(mat)}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label htmlFor={`${id}-yield-${index}`}>
-                  1 {item ? singularStockUnit(item) : "envase"} rinde
-                  <span className="bw-yield-input">
-                    <input
-                      ref={index === lines.length - 1 ? lastYieldInput : undefined}
-                      id={`${id}-yield-${index}`}
-                      inputMode="decimal"
-                      value={line.yield}
-                      disabled={busy}
-                      onChange={(e) =>
-                        setLines((prev) =>
-                          prev.map((row, i) =>
-                            i === index ? { ...row, yield: e.target.value } : row,
-                          ),
-                        )
-                      }
-                      aria-describedby={`${id}-yield-unit-${index}`}
-                    />
-                    <span id={`${id}-yield-unit-${index}`}>productos</span>
-                  </span>
-                </label>
-                <button
-                  className="bw-icon-button"
-                  disabled={busy}
-                  aria-label={`Quitar insumo ${item?.name ?? index + 1}`}
-                  onClick={() =>
-                    setLines((prev) => prev.filter((_, i) => i !== index))
-                  }
-                >
-                  <X size={17} />
-                </button>
-              </div>
-            );
-          })}
-          {!lines.length && (
-            <p className="bw-muted">
-              Elegí los ingredientes que se descuentan con cada venta.
-            </p>
-          )}
-          <BarRecipeMaterialPicker
-            token={token}
-            materials={materials}
-            selectedIds={lines.map((line) => line.id)}
+          <button
+            type="button"
+            className="bw-secondary"
             disabled={busy}
-            onOpenChange={setMaterialPickerOpen}
-            onBusyChange={setMaterialBusy}
-            onSelect={addMaterial}
-            onCreated={(item) => {
-              onMaterialsChange(item);
-              addMaterial(item);
-            }}
-          />
-        </section>
+            onClick={() => setRecipeOpen(true)}
+          >
+            {saleType === "GLASS" ? "Configurar receta" : "Configurar botellas"}
+          </button>
+        </div>
+      )}
+      {recipeOpen && usesRecipe(saleType) && (
+        <BarRecipeDialog
+          open
+          onOpenChange={setRecipeOpen}
+          token={token}
+          mode={saleType}
+          productName={name}
+          materials={materials}
+          initialLines={recipe}
+          onMaterialCreated={onMaterialsChange}
+          onSave={(lines) => {
+            setDrafts((prev) => ({ ...prev, [saleType]: lines }));
+            setRecipeOpen(false);
+            return true;
+          }}
+        />
       )}
       {product && (
         <details className="bw-image-details">
@@ -485,7 +346,7 @@ export function BarProductEditor({
           <button
             type="button"
             className="bw-danger-text bw-remove-product"
-            disabled={busy || categoryBusy || materialPickerOpen}
+            disabled={busy || categoryBusy}
             onClick={async () => {
               setRemoving(true);
               try {
@@ -507,8 +368,7 @@ export function BarProductEditor({
             busy ||
             categoryBusy ||
             !name.trim() ||
-            !amount.trim() ||
-            materialPickerOpen
+            !amount.trim()
           }
           onClick={() => void save()}
         >

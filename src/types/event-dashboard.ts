@@ -1,3 +1,4 @@
+import type { ProductSaleType } from "./inventory"
 export type EventSummaryResponse = {
   /** ADMIN / MANAGER: incluye gastos y beneficio neto; resto de roles: false. */
   canViewFinancials: boolean
@@ -176,6 +177,8 @@ export type BarMenuProductRow = {
   name: string
   price: string
   isActiveForBar: boolean
+  /** Cómo se vende: define si el stock sale de insumos, de un conteo por unidad o de ninguno. */
+  saleType?: ProductSaleType
   directStock?: string | null
 }
 
@@ -186,11 +189,10 @@ export type BarMenuProductsApiResponse = {
 export type BarInventoryItemRow = {
   inventoryItemId: string
   name: string
-  baseUnit: "ML" | "GRAMS" | "UNIT"
-  packageSize: string
-  countingUnit?: string
+  /** ISO de creación del insumo: el stock lista primero los más recientes. */
+  createdAt?: string | null
   eventStockAllocated: string
-  /** eventInventory menos suma de stock en todas las barras (unidades base). */
+  /** eventInventory menos suma de stock en todas las barras (unidades). */
   unallocatedEventStock: string
   barInventoryRowId: string | null
   barCurrentStock: string

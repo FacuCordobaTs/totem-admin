@@ -1,14 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Decimal from "decimal.js";
-import {
-  ArrowLeft,
-  Check,
-  Package,
-  Pencil,
-  Plus,
-  Search,
-  X,
-} from "lucide-react";
+import { Check, Package, Plus, Search, X } from "lucide-react";
 import { apiFetch, ApiError } from "@/lib/api";
 import {
   Table,
@@ -18,24 +10,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { ApiProduct } from "@/components/inventory/recipe-config";
-import type { ApiInventoryItem } from "@/components/inventory/raw-materials";
+import type { ApiInventoryItem, ApiProduct } from "@/types/inventory";
 import type {
   BarInventoryItemRow,
   BarMenuProductRow,
 } from "@/types/event-dashboard";
-import { BarMaterialForm } from "./bar-material-form";
+import { NewMaterialRow } from "./bar-new-material-row";
 import {
+  byRecentCreation,
   decimalInput,
+  isEmptyStock,
   normalizeSearch,
-  packageDescription,
-  packageFactor,
-  packageQuantityLabel,
+  productSaleType,
+  productStockId,
+  type StockFocus,
   quantityLabel,
-  stockInPackages,
-  stockUnit,
+  stockLabel,
   validQuantity,
 } from "./bar-workspace-model";
+
 
 type Props = {
   token: string | null;
@@ -44,18 +37,13 @@ type Props = {
   menu: BarMenuProductRow[];
   inventory: BarInventoryItemRow[];
   materials: ApiInventoryItem[];
+  focus: StockFocus | null;
+  onClearFocus: () => void;
   onSaved: () => Promise<void>;
   onMaterialCreated: (item: ApiInventoryItem) => void;
   onShowProduct: (id: string) => void;
 };
 type StockRow = BarInventoryItemRow & { productId?: string };
-type PickerView =
-  | { view: "search" }
-  | { view: "create" }
-  | { view: "edit"; item: ApiInventoryItem };
-
-const baseUnitLabel = (row: StockRow) =>
-  row.baseUnit === "ML" ? "ml" : row.baseUnit === "GRAMS" ? "g" : "unidades";
 
 export function BarStockPanel({
   token,
@@ -64,14 +52,15 @@ export function BarStockPanel({
   menu,
   inventory,
   materials,
+  focus,
+  onClearFocus,
   onSaved,
   onMaterialCreated,
   onShowProduct,
 }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "empty">("all");
-  const [picker, setPicker] = useState<PickerView | null>(null);
-  const [pickerQuery, setPickerQuery] = useState("");
+  const [creating, setCreating] = useState(false);
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [mode, setMode] = useState<"add" | "count">("add");
@@ -90,61 +79,45 @@ export function BarStockPanel({
         ]);
     return map;
   }, [products]);
-  const stockRows: StockRow[] = [
-    ...inventory,
-    ...materials
-      .filter(
-        (material) =>
-          !inventory.some((row) => row.inventoryItemId === material.id),
-      )
-      .map((material) => ({
-        inventoryItemId: material.id,
-        name: material.name,
-        baseUnit: material.baseUnit,
-        packageSize: material.packageSize,
-        countingUnit: material.countingUnit,
-        barCurrentStock: "0",
-        barInventoryRowId: null,
-        eventStockAllocated: "0",
-        unallocatedEventStock: "0",
-      })),
-    ...products
-      .filter((product) => product.recipes.length === 0)
-      .flatMap((product) => {
-        const stock = menu.find((row) => row.id === product.id)?.directStock;
-        return stock == null
-          ? []
-          : [
-              {
-                productId: product.id,
-                inventoryItemId: `product:${product.id}`,
-                name: product.name,
-                baseUnit: "UNIT" as const,
-                packageSize: "1",
-                barCurrentStock: stock,
-                barInventoryRowId: product.id,
-                eventStockAllocated: "0",
-                unallocatedEventStock: "0",
-              },
-            ];
-      }),
-  ];
-  stockRows.sort((a, b) => a.name.localeCompare(b.name, "es-AR"));
-  const tracked = stockRows.filter(
-    (item) =>
-      usedBy.has(item.inventoryItemId) ||
-      item.barInventoryRowId ||
-      extraIds.includes(item.inventoryItemId),
-  );
-  const rows = tracked.filter(
-    (item) =>
-      normalizeSearch(
-        `${item.name} ${(usedBy.get(item.inventoryItemId) ?? []).map((p) => p.name).join(" ")}`,
-      ).includes(normalizeSearch(query)) &&
-      (filter !== "empty" || new Decimal(item.barCurrentStock).lte(0)),
-  );
+  const unitRows: StockRow[] = products.flatMap((product) => {
+    const directStock = menu.find((row) => row.id === product.id)?.directStock;
+    return productSaleType(product, directStock) === "UNIT"
+      ? [
+          {
+            productId: product.id,
+            inventoryItemId: productStockId(product.id),
+            name: product.name,
+            barCurrentStock: directStock ?? "0",
+            barInventoryRowId: product.id,
+            eventStockAllocated: "0",
+            unallocatedEventStock: "0",
+          },
+        ]
+      : [];
+  });
+  unitRows.sort((a, b) => a.name.localeCompare(b.name, "es-AR"));
+  // Insumos del más reciente al más viejo; después, los productos por unidad.
+  const materialRows = [...inventory]
+    .filter(
+      (item) =>
+        usedBy.has(item.inventoryItemId) ||
+        item.barInventoryRowId ||
+        extraIds.includes(item.inventoryItemId),
+    )
+    .sort(byRecentCreation);
+  const tracked: StockRow[] = [...materialRows, ...unitRows];
+  const focusIds = focus ? new Set(focus.ids) : null;
+  const rows = focusIds
+    ? tracked.filter((item) => focusIds.has(item.inventoryItemId))
+    : tracked.filter(
+        (item) =>
+          normalizeSearch(
+            `${item.name} ${(usedBy.get(item.inventoryItemId) ?? []).map((p) => p.name).join(" ")}`,
+          ).includes(normalizeSearch(query)) &&
+          (filter !== "empty" || isEmptyStock(item.barCurrentStock)),
+      );
   const emptyCount = tracked.filter((item) =>
-    new Decimal(item.barCurrentStock).lte(0),
+    isEmptyStock(item.barCurrentStock),
   ).length;
   useEffect(() => {
     if (!editing) return;
@@ -152,20 +125,16 @@ export function BarStockPanel({
       .getElementById(`stock-row-${editing}`)
       ?.scrollIntoView({ block: "nearest" });
   }, [editing]);
-  const pickerRows = stockRows.filter((item) =>
-    normalizeSearch(
-      `${item.name} ${(usedBy.get(item.inventoryItemId) ?? []).map((p) => p.name).join(" ")}`,
-    ).includes(normalizeSearch(pickerQuery)),
-  );
+  useEffect(() => {
+    if (focus) setEditing(null);
+  }, [focus]);
 
-  function closePicker() {
-    setPicker(null);
-    setPickerQuery("");
-  }
-  function openPicker() {
+  function startCreate() {
     setEditing(null);
-    setPicker({ view: "search" });
-    setPickerQuery("");
+    onClearFocus();
+    setQuery("");
+    setFilter("all");
+    setCreating(true);
   }
   function open(item: StockRow) {
     setEditing(item.inventoryItemId);
@@ -174,13 +143,6 @@ export function BarStockPanel({
     setCost("");
     setMode("add");
     setError("");
-  }
-  function track(item: StockRow) {
-    setExtraIds((prev) => [...new Set([...prev, item.inventoryItemId])]);
-    closePicker();
-    setQuery("");
-    setFilter("all");
-    open(item);
   }
   async function save(item: StockRow) {
     if (!token || busy) return;
@@ -209,18 +171,14 @@ export function BarStockPanel({
       return;
     }
     // Absolute target + captured base snapshot makes resending safe after a lost response.
-    const target =
+    const places = item.productId ? 2 : 6;
+    const target = (
       mode === "add"
-        ? new Decimal(expected)
-            .plus(
-              new Decimal(decimalInput(quantity)).times(packageFactor(item)),
-            )
-            .toDecimalPlaces(2)
-            .toString()
+        ? new Decimal(expected).plus(decimalInput(quantity))
         : new Decimal(decimalInput(quantity))
-            .times(packageFactor(item))
-            .toDecimalPlaces(2)
-            .toString();
+    )
+      .toDecimalPlaces(places)
+      .toString();
     setBusy(true);
     try {
       await apiFetch(
@@ -233,7 +191,9 @@ export function BarStockPanel({
               ? { productId: item.productId }
               : { inventoryItemId: item.inventoryItemId }),
             quantity: target,
-            expectedCurrentStock: expected,
+            expectedCurrentStock: item.productId
+              ? new Decimal(expected).toFixed(2)
+              : new Decimal(expected).toDecimalPlaces(6).toString(),
             stockInputAs: "BASE_UNITS",
             ...(mode === "add" && cost.trim()
               ? { totalCost: decimalInput(cost) }
@@ -272,246 +232,81 @@ export function BarStockPanel({
           )}
         </p>
         <button
-          className={editing ? "bw-secondary" : "bw-primary"}
-          onClick={openPicker}
-          disabled={busy}
+          className="bw-secondary"
+          onClick={startCreate}
+          disabled={busy || creating}
         >
           <Plus size={17} />
-          Agregar stock
+          Nuevo insumo
         </button>
       </div>
-      {picker && (
-        <section
-          className="bw-inline-panel"
-          aria-label="Agregar existencias"
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !busy) {
-              event.preventDefault();
-              closePicker();
-            }
-          }}
-        >
-          <div className="bw-inline-panel-head">
-            <div>
-              {picker.view === "search" && (
-                <>
-                  <h4>Agregar existencia</h4>
-                  <p>
-                    Elegí un producto o insumo para cargar su stock en esta
-                    barra.
-                  </p>
-                </>
-              )}
-              {picker.view === "create" && (
-                <>
-                  <h4>Nuevo insumo</h4>
-                  <p>
-                    Se agrega a tu inventario y queda listo para cargar en esta
-                    barra.
-                  </p>
-                </>
-              )}
-              {picker.view === "edit" && (
-                <>
-                  <h4>Editar insumo</h4>
-                  <p>
-                    El nombre y el envase se comparten en todo tu inventario.
-                  </p>
-                </>
-              )}
-            </div>
-            <button
-              type="button"
-              className="bw-icon-button"
-              aria-label="Cerrar"
-              onClick={closePicker}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          {picker.view === "search" ? (
-            <>
-              <label className="bw-search">
-                <Search size={17} />
-                <input
-                  autoFocus
-                  aria-label="Buscar producto o insumo"
-                  placeholder="Buscar producto o insumo"
-                  value={pickerQuery}
-                  onChange={(e) => setPickerQuery(e.target.value)}
-                />
-              </label>
-              <div className="overflow-hidden rounded-xl bg-white/[0.02]">
-                {pickerRows.length ? (
-                  <Table className="table-fixed sm:table-auto">
-                    <TableHeader>
-                      <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                        <TableHead className="pl-3 text-[11px] font-normal lowercase text-white/45">
-                          Producto
-                        </TableHead>
-                        <TableHead className="w-[92px] pr-3 sm:w-[120px]">
-                          <span className="sr-only">Acción</span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
-                      {pickerRows.map((item) => {
-                        const alreadyTracked = tracked.some(
-                          (row) => row.inventoryItemId === item.inventoryItemId,
-                        );
-                        return (
-                          <TableRow
-                            key={item.inventoryItemId}
-                            className="border-0 hover:bg-white/[0.03]"
-                          >
-                            <TableCell className="max-w-[420px] py-3 pl-3">
-                              <div className="flex min-w-0 items-baseline gap-2">
-                                <span
-                                  className="truncate text-[14px] font-medium text-foreground"
-                                  title={item.name}
-                                >
-                                  {item.name}
-                                </span>
-                                <span className="hidden truncate text-[12px] text-white/40 sm:inline">
-                                  {item.productId
-                                    ? "Producto por unidad"
-                                    : packageDescription(item)}
-                                  {alreadyTracked ? " · Ya en la barra" : ""}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="py-3 pr-3 text-right">
-                              <button
-                                className="bw-secondary bw-table-action"
-                                disabled={busy}
-                                aria-label={
-                                  alreadyTracked
-                                    ? `Cargar stock de ${item.name}`
-                                    : `Agregar ${item.name} al stock de la barra`
-                                }
-                                onClick={() => track(item)}
-                              >
-                                {alreadyTracked ? "Cargar" : "Agregar"}
-                              </button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <p className="px-4 py-6 text-[13px] text-white/45">
-                    No hay productos ni insumos con ese nombre.
-                  </p>
-                )}
-              </div>
-              <div className="bw-form-actions">
-                <button
-                  type="button"
-                  className="bw-secondary"
-                  onClick={() => setPicker({ view: "create" })}
-                >
-                  <Plus size={16} />
-                  Nuevo insumo
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="bw-back"
-                onClick={() => setPicker({ view: "search" })}
-              >
-                <ArrowLeft size={15} />
-                {picker.view === "edit"
-                  ? "Volver al listado"
-                  : "Elegir uno existente"}
-              </button>
-              <BarMaterialForm
-                key={
-                  picker.view === "edit"
-                    ? picker.item.id
-                    : `new-${picker.view}`
-                }
-                item={picker.view === "edit" ? picker.item : undefined}
-                token={token}
-                materials={materials}
-                embedded
-                submitLabel={
-                  picker.view === "create"
-                    ? "Crear y cargar stock"
-                    : "Guardar insumo"
-                }
-                onCancel={() => setPicker({ view: "search" })}
-                onCreated={(item) => {
-                  onMaterialCreated(item);
-                  if (picker.view === "edit") {
-                    closePicker();
-                    return;
-                  }
-                  setExtraIds((prev) => [...prev, item.id]);
-                  setEditing(item.id);
-                  setExpected("0");
-                  setQuantity("");
-                  setCost("");
-                  setMode("add");
-                  setError("");
-                  closePicker();
-                  setQuery("");
-                  setFilter("all");
-                }}
-              />
-            </>
-          )}
-        </section>
-      )}
-      {tracked.length > 0 && (
-        <div className="bw-toolbar">
-          <label className="bw-search">
-            <Search size={17} />
-            <input
-              aria-label="Buscar producto o insumo"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar producto o insumo"
-            />
-          </label>
-          <div
-            className="bw-segmented"
-            role="group"
-            aria-label="Filtrar stock"
+      {focus ? (
+        <div className="bw-stock-focus" role="status">
+          <p>
+            Insumos de <strong>{focus.label}</strong>
+          </p>
+          <button
+            type="button"
+            className="bw-secondary bw-table-action"
+            onClick={onClearFocus}
           >
-            <button
-              aria-pressed={filter === "all"}
-              onClick={() => setFilter("all")}
-            >
-              Todos
-            </button>
-            <button
-              aria-pressed={filter === "empty"}
-              onClick={() => setFilter("empty")}
-            >
-              Agotadas{emptyCount > 0 && <span>{emptyCount}</span>}
-            </button>
-          </div>
+            <X size={14} aria-hidden="true" />
+            Ver todo el stock
+          </button>
         </div>
+      ) : (
+        tracked.length > 0 && (
+          <div className="bw-toolbar">
+            <label className="bw-search">
+              <Search size={17} />
+              <input
+                aria-label="Buscar producto o insumo"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar producto o insumo"
+              />
+            </label>
+            <div
+              className="bw-segmented"
+              role="group"
+              aria-label="Filtrar stock"
+            >
+              <button
+                aria-pressed={filter === "all"}
+                onClick={() => setFilter("all")}
+              >
+                Todos
+              </button>
+              <button
+                aria-pressed={filter === "empty"}
+                onClick={() => setFilter("empty")}
+              >
+                Agotadas{emptyCount > 0 && <span>{emptyCount}</span>}
+              </button>
+            </div>
+          </div>
+        )
       )}
-      {tracked.length === 0 ? (
+      {tracked.length === 0 && !creating ? (
         <div className="bw-empty">
           <Package size={30} />
           <h4>Las existencias de esta barra, en un lugar</h4>
           <p>
-            Agregá mercadería con <strong>Agregar stock</strong> o definí qué
-            insumos usan tus productos desde el menú.
+            Creá insumos con <strong>Nuevo insumo</strong> o configurá la receta
+            de tus productos desde el menú.
           </p>
         </div>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !creating ? (
         <div className="bw-empty">
-          <h4>No hay existencias con este filtro</h4>
+          <h4>
+            {focus
+              ? "Este producto todavía no tiene existencias"
+              : "No hay existencias con este filtro"}
+          </h4>
           <button
             className="bw-secondary"
             onClick={() => {
+              onClearFocus();
               setQuery("");
               setFilter("all");
             }}
@@ -536,34 +331,38 @@ export function BarStockPanel({
               </TableRow>
             </TableHeader>
             <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
+              {creating && (
+                <NewMaterialRow
+                  token={token}
+                  materials={materials}
+                  middleCells={1}
+                  onCancel={() => setCreating(false)}
+                  onCreated={(item) => {
+                    onMaterialCreated(item);
+                    setExtraIds((prev) => [...prev, item.id]);
+                    setCreating(false);
+                  }}
+                />
+              )}
               {rows.map((item) => {
                 const consumers = usedBy.get(item.inventoryItemId) ?? [];
-                const empty = new Decimal(item.barCurrentStock).lte(0);
+                const empty = isEmptyStock(item.barCurrentStock);
                 const edit = editing === item.inventoryItemId;
-                const description = `${
-                  item.productId
-                    ? "Producto por unidad"
-                    : packageDescription(item)
-                } · ${
-                  consumers.length > 0
-                    ? `${consumers.length} ${consumers.length === 1 ? "producto" : "productos"}`
-                    : item.productId
-                      ? "por unidad"
-                      : "sin productos"
-                }`;
+                const description = item.productId
+                  ? "Por unidad"
+                  : consumers.length > 0
+                    ? consumers.map((product) => product.name).join(", ")
+                    : "Sin productos";
                 const next = validQuantity(quantity)
                   ? mode === "add"
-                    ? new Decimal(expected)
-                        .div(packageFactor(item))
-                        .plus(decimalInput(quantity))
-                        .toString()
+                    ? new Decimal(expected).plus(decimalInput(quantity)).toString()
                     : decimalInput(quantity)
                   : null;
                 return (
                   <Fragment key={item.inventoryItemId}>
                     <TableRow
                       id={`stock-row-${item.inventoryItemId}`}
-                      className="border-0 hover:bg-white/[0.03]"
+                      className={`border-0 ${focus ? "bg-[#FF9500]/10 hover:bg-[#FF9500]/10" : "hover:bg-white/[0.03]"}`}
                     >
                       <TableCell className="max-w-[420px] py-3.5 pl-4">
                         <div className="flex min-w-0 items-baseline gap-2">
@@ -573,22 +372,27 @@ export function BarStockPanel({
                           >
                             {item.name}
                           </span>
-                          <span className="hidden truncate text-[12px] text-white/40 sm:inline">
+                          <span
+                            className="hidden truncate text-[12px] text-white/40 sm:inline"
+                            title={description}
+                          >
                             {description}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell
                         className="whitespace-nowrap py-3.5 text-right"
-                        title={`${quantityLabel(item.barCurrentStock)} ${baseUnitLabel(item)}`}
+                        title={`${quantityLabel(item.barCurrentStock)} unidades`}
                       >
                         <span
                           className={`text-[14px] font-medium tabular-nums ${empty ? "text-[#ffd294]" : "text-foreground"}`}
                         >
-                          {packageQuantityLabel(stockInPackages(item))}
+                          {stockLabel(item.barCurrentStock)}
                         </span>{" "}
                         <span className="text-[12px] text-white/40">
-                          {stockUnit(item)}
+                          {new Decimal(item.barCurrentStock).eq(1)
+                            ? "unidad"
+                            : "unidades"}
                         </span>
                       </TableCell>
                       <TableCell className="py-3.5 pr-4 text-right">
@@ -658,7 +462,7 @@ export function BarStockPanel({
                         {mode === "add"
                           ? "Cantidad que entra"
                           : "Cantidad real en la barra"}{" "}
-                        ({stockUnit(item)})
+                        (unidades)
                         <input
                           autoFocus
                           id={`quantity-${item.inventoryItemId}`}
@@ -693,11 +497,7 @@ export function BarStockPanel({
                       <span>
                         Actual{" "}
                         <strong>
-                          {packageQuantityLabel(
-                            new Decimal(expected)
-                              .div(packageFactor(item))
-                              .toString(),
-                          )}
+                          {stockLabel(expected)}
                         </strong>
                       </span>
                       <span>{mode === "add" ? "+" : "se corrige a"}</span>
@@ -717,10 +517,8 @@ export function BarStockPanel({
                       <span>
                         Quedan{" "}
                         <strong>
-                          {next == null
-                            ? "—"
-                            : packageQuantityLabel(next)}{" "}
-                          {stockUnit(item)}
+                          {next == null ? "—" : stockLabel(next)}{" "}
+                          unidades
                         </strong>
                       </span>
                     </div>
@@ -752,23 +550,6 @@ export function BarStockPanel({
                               ))}
                             </p>
                           )}
-                          <button
-                            type="button"
-                            className="bw-quiet-button"
-                            onClick={() => {
-                              const material = materials.find(
-                                (row) => row.id === item.inventoryItemId,
-                              );
-                              if (material) {
-                                setEditing(null);
-                                closePicker();
-                                setPicker({ view: "edit", item: material });
-                              }
-                            }}
-                          >
-                            <Pencil size={14} />
-                            Editar insumo
-                          </button>
                         </>
                       )}
                     </div>

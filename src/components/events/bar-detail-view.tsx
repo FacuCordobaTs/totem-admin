@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
-import Decimal from "decimal.js";
 import { AlertTriangle, ArrowLeft, Check, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEventStock } from "@/hooks/useEventStock";
-import type { ApiProduct } from "@/components/inventory/recipe-config";
-import type { ApiInventoryItem } from "@/components/inventory/raw-materials";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type {
+  ApiInventoryItem,
+  ApiProduct,
+  ProductSaleType,
+} from "@/types/inventory";
 import type {
   BarInventoryApiResponse,
   BarInventoryItemRow,
@@ -22,7 +33,17 @@ import { BarStockPanel } from "./bar-stock-panel";
 import { BarTeamPanel } from "./bar-team-panel";
 import { BarSalesPanel } from "./bar-sales-panel";
 import { BarProductEditor } from "./bar-product-editor";
-import { moneyLabel } from "./bar-workspace-model";
+import {
+  isEmptyStock,
+  productStockId,
+  recipeLinesForApi,
+  type RecipeDraftLine,
+  type RecipeMode,
+  type StockFocus,
+  moneyLabel,
+  productSaleType,
+  saleTypeLabel,
+} from "./bar-workspace-model";
 type Props = {
   eventId: string;
   barId: string;
@@ -56,6 +77,11 @@ export function BarDetailView({
   const [rename, setRename] = useState(false);
   const [name, setName] = useState("");
   const [menuQuery, setMenuQuery] = useState("");
+  const [stockFocus, setStockFocus] = useState<StockFocus | null>(null);
+  const [pendingSaleType, setPendingSaleType] = useState<{
+    product: ApiProduct;
+    saleType: ProductSaleType;
+  } | null>(null);
   const { barStock } = useEventStock(eventId, barId, token, trackStock);
   const bar = bars.find((row) => row.id === barId);
 
@@ -90,15 +116,7 @@ export function BarDetailView({
       setMenu(menuRes.products);
       setCatalog(productsRes.products);
       setMaterials(materialsRes.items);
-      setInventory(
-        stockRes.items.map((item) => ({
-          ...item,
-          countingUnit:
-            materialsRes.items.find(
-              (material) => material.id === item.inventoryItemId,
-            )?.countingUnit ?? item.countingUnit,
-        })),
-      );
+      setInventory(stockRes.items);
       setStaff(staffRes.staff);
       setError("");
     } catch (e) {
@@ -186,39 +204,86 @@ export function BarDetailView({
     }
   }
   function materialCreated(item: ApiInventoryItem) {
-    setCatalog((prev) =>
-      prev.map((product) => ({
-        ...product,
-        recipes: product.recipes.map((line) =>
-          line.inventoryItemId === item.id
-            ? { ...line, inventoryItemName: item.name }
-            : line,
-        ),
-      })),
-    );
-    setMaterials((prev) => [...prev.filter((row) => row.id !== item.id), item]);
+    setMaterials((prev) => [item, ...prev.filter((row) => row.id !== item.id)]);
     setInventory((prev) =>
       prev.some((row) => row.inventoryItemId === item.id)
         ? prev.map((row) =>
-            row.inventoryItemId === item.id
-              ? { ...row, name: item.name, countingUnit: item.countingUnit }
-              : row,
+            row.inventoryItemId === item.id ? { ...row, name: item.name } : row,
           )
         : [
-            ...prev,
             {
               inventoryItemId: item.id,
               name: item.name,
-              baseUnit: item.baseUnit,
-              packageSize: item.packageSize,
-              countingUnit: item.countingUnit,
+              createdAt: item.createdAt,
               barCurrentStock: "0",
               barInventoryRowId: null,
               eventStockAllocated: "0",
               unallocatedEventStock: "0",
             },
+            ...prev,
           ],
     );
+  }
+  async function changeSaleType(productId: string, saleType: ProductSaleType) {
+    if (!token || busy) return;
+    setBusy(productId);
+    try {
+      await apiFetch(`/inventory/products/${productId}/sale-type`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ saleType }),
+      });
+      await refresh();
+      toast.success(`Ahora se vende como ${saleTypeLabel(saleType)}`);
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError ? e.message : "No se pudo cambiar la venta",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+  function requestSaleType(productId: string, saleType: ProductSaleType) {
+    const product = catalog.find((row) => row.id === productId);
+    if (!product) return;
+    // Cambiar de modo descarta la receta: se confirma sólo si había una.
+    if (product.recipes.length > 0) setPendingSaleType({ product, saleType });
+    else void changeSaleType(productId, saleType);
+  }
+  async function saveRecipe(
+    productId: string,
+    mode: RecipeMode,
+    lines: RecipeDraftLine[],
+  ) {
+    if (!token) return false;
+    try {
+      await apiFetch(`/inventory/products/${productId}/recipe`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ recipes: recipeLinesForApi(mode, lines) }),
+      });
+      await refresh();
+      toast.success(
+        mode === "GLASS" ? "Receta guardada" : "Botellas guardadas",
+      );
+      return true;
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError ? e.message : "No se pudo guardar la receta",
+      );
+      return false;
+    }
+  }
+  function showStock(product: ApiProduct) {
+    const directStock = menu.find((row) => row.id === product.id)?.directStock;
+    setStockFocus({
+      label: product.name,
+      ids:
+        productSaleType(product, directStock) === "UNIT"
+          ? [productStockId(product.id)]
+          : product.recipes.map((line) => line.inventoryItemId),
+    });
+    setSection("stock");
   }
   const activeIds = new Set(
     menu.filter((row) => row.isActiveForBar).map((row) => row.id),
@@ -226,15 +291,23 @@ export function BarDetailView({
   const activeProducts = catalog.filter((product) => activeIds.has(product.id));
   // El contador de Stock cuenta existencias agotadas, no productos: es el mismo
   // número que ve el operador en esa pestaña.
+  const usedItemIds = new Set(
+    activeProducts.flatMap((product) =>
+      product.recipes.map((line) => line.inventoryItemId),
+    ),
+  );
   const emptyStock = trackStock
-    ? inventory.filter((item) => new Decimal(item.barCurrentStock).lte(0))
-        .length +
+    ? inventory.filter(
+        (item) =>
+          (usedItemIds.has(item.inventoryItemId) || item.barInventoryRowId) &&
+          isEmptyStock(item.barCurrentStock),
+      ).length +
       menu.filter((row) => {
-        const product = catalog.find((item) => item.id === row.id);
+        const product = activeProducts.find((item) => item.id === row.id);
         return (
-          product?.recipes.length === 0 &&
-          row.directStock != null &&
-          new Decimal(row.directStock).lte(0)
+          product != null &&
+          productSaleType(product, row.directStock) === "UNIT" &&
+          isEmptyStock(row.directStock ?? "0")
         );
       }).length
     : 0;
@@ -366,7 +439,10 @@ export function BarDetailView({
                 key={item.id}
                 aria-current={section === item.id ? "page" : undefined}
                 disabled={editing !== undefined || busy !== null}
-                onClick={() => setSection(item.id)}
+                onClick={() => {
+                  setStockFocus(null);
+                  setSection(item.id);
+                }}
               >
                 {item.label}
                 {item.count != null && (
@@ -441,14 +517,20 @@ export function BarDetailView({
                 />
               ) : (
                 <BarMenuPanel
+                  token={token}
                   catalog={catalog}
                   menu={menu}
                   inventory={inventory}
+                  materials={materials}
                   trackStock={trackStock}
                   busy={busy}
                   onToggle={(id, active) => void toggleProduct(id, active)}
                   onCreate={() => setEditing(null)}
                   onEdit={setEditing}
+                  onSaleTypeChange={requestSaleType}
+                  onSaveRecipe={saveRecipe}
+                  onMaterialCreated={materialCreated}
+                  onShowStock={showStock}
                   query={menuQuery}
                   onQueryChange={setMenuQuery}
                 />
@@ -461,9 +543,12 @@ export function BarDetailView({
                 menu={menu}
                 inventory={inventory}
                 materials={materials}
+                focus={stockFocus}
+                onClearFocus={() => setStockFocus(null)}
                 onSaved={refresh}
                 onMaterialCreated={materialCreated}
                 onShowProduct={(id) => {
+                  setStockFocus(null);
                   setSection("menu");
                   setMenuQuery(
                     catalog.find((product) => product.id === id)?.name ?? "",
@@ -492,6 +577,43 @@ export function BarDetailView({
           </div>
         </>
       )}
+      <AlertDialog
+        open={pendingSaleType !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingSaleType(null);
+        }}
+      >
+        <AlertDialogContent className="bar-workspace bg-[#0a0a0a]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ¿Vender {pendingSaleType?.product.name} como{" "}
+              {pendingSaleType ? saleTypeLabel(pendingSaleType.saleType) : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se descarta su configuración actual
+              {pendingSaleType?.product.recipes.length
+                ? ` (${pendingSaleType.product.recipes.map((line) => line.inventoryItemName).join(" + ")})`
+                : ""}
+              . El cambio aplica al producto en todas las barras.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <button
+              type="button"
+              className="bw-primary"
+              onClick={() => {
+                const pending = pendingSaleType;
+                setPendingSaleType(null);
+                if (pending)
+                  void changeSaleType(pending.product.id, pending.saleType);
+              }}
+            >
+              Cambiar venta
+            </button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import type { EventMenuProductsResponse } from "@/types/event-dashboard"
-import type { ApiProduct } from "@/components/inventory/recipe-config"
+import type { ApiProduct } from "@/types/inventory"
 import {
   Table,
   TableBody,
@@ -47,8 +47,6 @@ function timeOfDay(iso: string | Date): string {
 type EventInvRow = {
   id: string
   name: string
-  baseUnit: ApiProduct["recipes"][number]["inventoryBaseUnit"]
-  packageSize: string
   stockAllocated: string
 }
 type EventInventoryListResponse = { items: EventInvRow[] }
@@ -64,22 +62,10 @@ type SaleRow = {
 }
 type SalesResponse = { sales: SaleRow[] }
 
-/**
- * Consumo por venta de un producto para una línea de receta. Mismo criterio que
- * `event-bar-section.tsx` (`perSaleBaseUnits`): un BOTTLE declara la receta en envases y el
- * stock vive en base units (ml/g), por eso multiplica por el tamaño de envase.
- */
-function perSaleBaseUnits(product: ApiProduct, line: ApiProduct["recipes"][number]): number {
-  let qty = Number.parseFloat(line.quantityUsed)
-  if (!Number.isFinite(qty) || qty <= 0) return 0
-  if (
-    product.saleType === "BOTTLE" &&
-    (line.inventoryBaseUnit === "ML" || line.inventoryBaseUnit === "GRAMS")
-  ) {
-    const pkg = Number.parseFloat(line.inventoryPackageSize ?? "0")
-    if (Number.isFinite(pkg) && pkg > 0) qty = qty * pkg
-  }
-  return qty
+/** Unidades del insumo que consume una venta: la receta ya está expresada en unidades. */
+function perSaleBaseUnits(line: ApiProduct["recipes"][number]): number {
+  const qty = Number.parseFloat(line.quantityUsed)
+  return Number.isFinite(qty) && qty > 0 ? qty : 0
 }
 
 /** "alcanza para ~N tragos" de un insumo, según el primer GLASS activo que lo consume. */
@@ -89,7 +75,7 @@ function insumoServings(insumo: EventInvRow, activeGlassProducts: ApiProduct[]):
   for (const p of activeGlassProducts) {
     const line = p.recipes.find((r) => r.inventoryItemId === insumo.id)
     if (!line) continue
-    const per = perSaleBaseUnits(p, line)
+    const per = perSaleBaseUnits(line)
     if (per <= 0) continue
     return Math.max(0, Math.floor(stock / per))
   }
