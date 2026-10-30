@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Copy, Loader2 } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { apiFetch, ApiError } from "@/lib/api"
@@ -103,7 +113,7 @@ function DateTimeField({
   hint?: string
   value: string
   onChange: (next: string) => void
-  onCommit: () => void
+  onCommit?: () => void
 }) {
   const [datePart, timePart] = splitDateTimeLocal(value)
 
@@ -140,6 +150,115 @@ function DateTimeField({
         />
       </div>
       {hint ? <p className="text-[12px] leading-relaxed text-white/35">{hint}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * Fecha y hora del evento. A diferencia del resto de la página se guarda con un botón: fecha y hora
+ * son dos inputs, y guardar al salir de cada uno persistiría estados intermedios que el público ve y
+ * que pueden disparar el recordatorio de WhatsApp.
+ */
+function EventDateField({ event, onUpdated }: Pick<Props, "event" | "onUpdated">) {
+  const token = useAuthStore((s) => s.token)
+  const saved = toDatetimeLocalValue(event.date)
+  const [value, setValue] = useState(saved)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  /** Personas a las que les saldría el recordatorio; `null` = no hay confirmación pendiente. */
+  const [confirmRecipients, setConfirmRecipients] = useState<number | null>(null)
+
+  useEffect(() => {
+    setValue(saved)
+    setError(null)
+  }, [saved])
+
+  async function save(confirmSend = false) {
+    if (!token) return
+    const date = fromDatetimeLocalToIso(value)
+    if (date === null) {
+      setError("Elegí una fecha válida.")
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await apiFetch<{ event: ApiEvent }>(`/events/${event.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(confirmSend ? { date, confirmSend: true } : { date }),
+      })
+      setConfirmRecipients(null)
+      // Recarga el evento: el encabezado y este campo pasan a mostrar la fecha guardada.
+      await onUpdated()
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.body?.code === "CONFIRM_IMMEDIATE_SEND"
+      ) {
+        setConfirmRecipients(Number(err.body.recipients) || 0)
+      } else {
+        setConfirmRecipients(null)
+        setError(err instanceof ApiError ? err.message : "No se pudo guardar la fecha.")
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="sm:max-w-sm">
+        <DateTimeField
+          id={`event-date-${event.id}`}
+          label="Fecha y hora del evento"
+          hint="Es la que ve el público y la que usa el recordatorio de WhatsApp. No mueve las ventanas de venta ni los horarios de ingreso de las entradas."
+          value={value}
+          onChange={setValue}
+        />
+      </div>
+      {value !== saved ? (
+        <div className="flex items-center gap-2">
+          <Button type="button" disabled={saving || value === ""} onClick={() => void save()}>
+            {saving ? "Guardando…" : "Guardar fecha"}
+          </Button>
+          <Button type="button" variant="ghost" disabled={saving} onClick={() => setValue(saved)}>
+            Descartar
+          </Button>
+        </div>
+      ) : null}
+      {error ? (
+        <p className="text-[12px] text-red-400" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <AlertDialog
+        open={confirmRecipients != null}
+        onOpenChange={(open) => {
+          if (!open && !saving) setConfirmRecipients(null)
+        }}
+      >
+        <AlertDialogContent className="border-0 bg-[#0a0a0a] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Mandar el recordatorio ahora?</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/60">
+              {confirmRecipients
+                ? `Con esta fecha el recordatorio de WhatsApp sale en el próximo minuto a ${confirmRecipients} ${
+                    confirmRecipients === 1 ? "persona" : "personas"
+                  }. No se puede deshacer ni volver a enviar.`
+                : "Con esta fecha el recordatorio de WhatsApp sale en el próximo minuto, pero todavía no hay nadie con entrada y celular: quedaría como enviado sin llegarle a nadie y no volvería a salir."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <Button type="button" disabled={saving} onClick={() => void save(true)}>
+              {saving ? "Guardando…" : "Guardar y enviar"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -449,6 +568,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
 
           {/* Contenido: lo que lee el público en la página. */}
           <TabsContent value="contenido" className="mt-6 space-y-8">
+            <EventDateField event={event} onUpdated={onUpdated} />
+
             <div className="space-y-2">
               <label
                 htmlFor={`event-description-${event.id}`}
