@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Copy, Loader2 } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
@@ -47,7 +48,8 @@ type Fields = {
   location: string
   ticketsLocal: string
   ticketsCloseLocal: string
-  consumptionsLocal: string
+  consumptionsOnPage: boolean
+  consumptionsOnAccessLink: boolean
   slug: string
   designType: "GLASS" | "MINIMAL"
 }
@@ -142,6 +144,34 @@ function DateTimeField({
   )
 }
 
+/** Interruptor de una preferencia booleana, sin contenedores anidados. */
+function ToggleRow({
+  title,
+  description,
+  checked,
+  onCheckedChange,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-start justify-between gap-6">
+      <div className="min-w-0">
+        <p className="text-[14px] font-medium text-white">{title}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-white/45">{description}</p>
+      </div>
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        aria-label={title}
+        className="mt-0.5 h-6 w-11 shrink-0 data-[state=checked]:bg-[#FF9500] data-[state=unchecked]:bg-white/[0.16]"
+      />
+    </div>
+  )
+}
+
 /**
  * Config de la página pública. Sin botón de guardar (spec §0/§3.1): cada campo persiste
  * al perder el foco, con una confirmación visual mínima ("Guardado" efímero).
@@ -154,7 +184,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   const token = useAuthStore((s) => s.token)
   const [ticketsLocal, setTicketsLocal] = useState("")
   const [ticketsCloseLocal, setTicketsCloseLocal] = useState("")
-  const [consumptionsLocal, setConsumptionsLocal] = useState("")
+  const [consumptionsOnPage, setConsumptionsOnPage] = useState(true)
+  const [consumptionsOnAccessLink, setConsumptionsOnAccessLink] = useState(true)
   const [venue, setVenue] = useState("")
   const [location, setLocation] = useState("")
   const [description, setDescription] = useState("")
@@ -179,20 +210,22 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
   useEffect(() => {
     const tickets = toDatetimeLocalValue(event.ticketsAvailableFrom)
     const ticketsClose = toDatetimeLocalValue(event.ticketsSalesClosedAt)
-    const consumptions = toDatetimeLocalValue(event.consumptionsAvailableFrom)
+    const onPage = event.consumptionsOnPageEnabled ?? true
+    const onAccessLink = event.consumptionsOnAccessLinkEnabled ?? true
     const desc = event.description ?? ""
     const s = event.slug ?? ""
     const design = event.designType ?? "MINIMAL"
     setTicketsLocal(tickets)
     setTicketsCloseLocal(ticketsClose)
-    setConsumptionsLocal(consumptions)
+    setConsumptionsOnPage(onPage)
+    setConsumptionsOnAccessLink(onAccessLink)
     setVenue(event.venue ?? "")
     setLocation(event.location ?? "")
     setDescription(desc)
     setSlug(s)
     setDesignType(design)
     setError(null)
-    lastSavedRef.current = JSON.stringify([desc, tickets, ticketsClose, consumptions, s, design, event.venue ?? "", event.location ?? ""])
+    lastSavedRef.current = JSON.stringify([desc, tickets, ticketsClose, onPage, onAccessLink, s, design, event.venue ?? "", event.location ?? ""])
   }, [
     event.id,
     event.description,
@@ -200,7 +233,8 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
     event.location,
     event.ticketsAvailableFrom,
     event.ticketsSalesClosedAt,
-    event.consumptionsAvailableFrom,
+    event.consumptionsOnPageEnabled,
+    event.consumptionsOnAccessLinkEnabled,
     event.slug,
     event.designType,
   ])
@@ -231,21 +265,21 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
       const desc = (override?.description ?? description).trim()
       const tickets = override?.ticketsLocal ?? ticketsLocal
       const ticketsClose = override?.ticketsCloseLocal ?? ticketsCloseLocal
-      const consumptions = override?.consumptionsLocal ?? consumptionsLocal
+      const onPage = override?.consumptionsOnPage ?? consumptionsOnPage
+      const onAccessLink =
+        override?.consumptionsOnAccessLink ?? consumptionsOnAccessLink
       const rawSlug = override?.slug ?? slug
       const design = override?.designType ?? designType
 
       const trimmed = rawSlug.trim()
       if (trimmed !== "" && !isValidSlug(trimmed)) return // el error ya se muestra
 
-      const signature = JSON.stringify([desc, tickets, ticketsClose, consumptions, trimmed, design, venueValue, locationValue])
+      const signature = JSON.stringify([desc, tickets, ticketsClose, onPage, onAccessLink, trimmed, design, venueValue, locationValue])
       if (signature === lastSavedRef.current) return // sin cambios reales
 
       const ticketsPayload = tickets.trim() === "" ? null : fromDatetimeLocalToIso(tickets)
       const ticketsClosePayload =
         ticketsClose.trim() === "" ? null : fromDatetimeLocalToIso(ticketsClose)
-      const consumptionsPayload =
-        consumptions.trim() === "" ? null : fromDatetimeLocalToIso(consumptions)
 
       if (tickets.trim() !== "" && ticketsPayload === null) {
         setError("La fecha de entradas no es válida.")
@@ -263,10 +297,6 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setError("El cierre de venta debe ser posterior al inicio de venta.")
         return
       }
-      if (supportsConsumptions && consumptions.trim() !== "" && consumptionsPayload === null) {
-        setError("La fecha de consumos no es válida.")
-        return
-      }
 
       setSaving(true)
       setError(null)
@@ -281,7 +311,10 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
             ticketsAvailableFrom: ticketsPayload,
             ticketsSalesClosedAt: ticketsClosePayload,
             ...(supportsConsumptions
-              ? { consumptionsAvailableFrom: consumptionsPayload }
+              ? {
+                  consumptionsOnPageEnabled: onPage,
+                  consumptionsOnAccessLinkEnabled: onAccessLink,
+                }
               : {}),
             slug: trimmed === "" ? null : trimmed,
             designType: design,
@@ -300,7 +333,7 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
         setSaving(false)
       }
     },
-    [token, venue, location, description, ticketsLocal, ticketsCloseLocal, consumptionsLocal, slug, designType, event.id, onUpdated, supportsConsumptions]
+    [token, venue, location, description, ticketsLocal, ticketsCloseLocal, consumptionsOnPage, consumptionsOnAccessLink, slug, designType, event.id, onUpdated, supportsConsumptions]
   )
 
   const copy = useCallback(
@@ -561,17 +594,29 @@ export function EventSalesConfig({ event, onUpdated, onlySlug = false }: Props) 
                 onChange={setTicketsCloseLocal}
                 onCommit={() => void persist()}
               />
-              {supportsConsumptions ? (
-                <DateTimeField
-                  id={`sales-consumptions-${event.id}`}
-                  label="Inicio de venta de consumiciones"
-                  hint="Cuándo se abre la compra anticipada de barra."
-                  value={consumptionsLocal}
-                  onChange={setConsumptionsLocal}
-                  onCommit={() => void persist()}
-                />
-              ) : null}
             </div>
+            {supportsConsumptions ? (
+              <div className="space-y-4">
+                <ToggleRow
+                  title="Venta de consumos en la página de evento"
+                  description="Habilita la compra anticipada de barra en el link público del evento."
+                  checked={consumptionsOnPage}
+                  onCheckedChange={(checked) => {
+                    setConsumptionsOnPage(checked)
+                    void persist({ consumptionsOnPage: checked })
+                  }}
+                />
+                <ToggleRow
+                  title="Venta de consumos en el link de acceso"
+                  description="Habilita la carta de barra en el link de acceso que se usa dentro del evento."
+                  checked={consumptionsOnAccessLink}
+                  onCheckedChange={(checked) => {
+                    setConsumptionsOnAccessLink(checked)
+                    void persist({ consumptionsOnAccessLink: checked })
+                  }}
+                />
+              </div>
+            ) : null}
             <p className="text-[12px] text-white/35">
               Los cambios se guardan al salir de cada campo.
             </p>

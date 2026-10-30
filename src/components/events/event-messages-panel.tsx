@@ -557,17 +557,12 @@ export function EventMessagesPanel({
           />
           {supportsConsumptions ? (
             <DateItem
-              label="Venta de consumiciones"
-              value={
-                event.consumptionsAvailableFrom
-                  ? `Desde el ${formatDateTime(event.consumptionsAvailableFrom)}`
-                  : "Sin fecha programada"
-              }
-              hint={
-                event.consumptionsAvailableFrom
-                  ? "Se cambia en la sección Página."
-                  : "La compra no tiene una hora de apertura fijada."
-              }
+              label="Venta de consumos"
+              value={[
+                `Página: ${event.consumptionsOnPageEnabled === false ? "No" : "Sí"}`,
+                `Link de acceso: ${event.consumptionsOnAccessLinkEnabled === false ? "No" : "Sí"}`,
+              ].join(" · ")}
+              hint="Se cambia en la sección Página."
             />
           ) : null}
         </dl>

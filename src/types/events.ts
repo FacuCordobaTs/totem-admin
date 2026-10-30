@@ -141,6 +141,10 @@ export type ApiEvent = {
   ticketsAvailableFrom: string | null
   /** ISO 8601 UTC; null = sin cierre de venta de entradas */
   ticketsSalesClosedAt?: string | null
-  /** ISO 8601 UTC; null = guest consumption sales not deferred by schedule */
+  /** @deprecated Reemplazada por los canales de venta de consumos. */
   consumptionsAvailableFrom: string | null
+  /** Venta de consumos desde la página pública del evento. */
+  consumptionsOnPageEnabled?: boolean
+  /** Venta de consumos desde el link de acceso (`/{slug}/acceso`). */
+  consumptionsOnAccessLinkEnabled?: boolean
 }
