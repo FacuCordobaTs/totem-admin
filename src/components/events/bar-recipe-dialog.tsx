@@ -159,7 +159,7 @@ export function BarRecipeDialog({
                   Nuevo insumo
                 </button>
               </div>
-              <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+              <div className="max-h-[min(50vh,420px)] overflow-y-auto rounded-2xl bg-white/[0.02] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {sorted.length || creating ? (
                   <Table>
                     <TableHeader>
@@ -225,7 +225,7 @@ export function BarRecipeDialog({
               </div>
             </>
           ) : (
-            <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+            <div className="max-h-[min(50vh,420px)] overflow-y-auto rounded-2xl bg-white/[0.02] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <Table>
                 <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
                   {chosen.map((item, index) => {
