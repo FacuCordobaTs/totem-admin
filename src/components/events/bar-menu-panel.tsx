@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PackagePlus, Pencil, Plus, Search, Utensils, X } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,8 @@ import type {
 import type {
   BarInventoryItemRow,
   BarMenuProductRow,
+  BarMenuProductsApiResponse,
+  EventBarRow,
 } from "@/types/event-dashboard";
 import { BarRecipeDialog } from "./bar-recipe-dialog";
 import {
@@ -46,6 +49,9 @@ import {
 
 type Props = {
   token: string | null;
+  eventId: string;
+  barId: string;
+  bars: EventBarRow[];
   catalog: ApiProduct[];
   menu: BarMenuProductRow[];
   inventory: BarInventoryItemRow[];
@@ -69,6 +75,9 @@ type Props = {
 
 export function BarMenuPanel({
   token,
+  eventId,
+  barId,
+  bars,
   catalog,
   menu,
   inventory,
@@ -91,11 +100,74 @@ export function BarMenuPanel({
     product: ApiProduct;
     mode: RecipeMode;
   } | null>(null);
+  /** Barra de referencia para filtrar el catálogo; "all" = todo el catálogo. */
+  const [sourceBarId, setSourceBarId] = useState("all");
+  const [sourceMenu, setSourceMenu] = useState<{
+    barId: string;
+    ids: Set<string>;
+  } | null>(null);
+  const [sourceError, setSourceError] = useState("");
+  const sourceCacheRef = useRef(new Map<string, Set<string>>());
+  const sourceRequestRef = useRef(0);
+  const otherBars = bars.filter((row) => row.id !== barId);
+  const sourceBar = otherBars.find((row) => row.id === sourceBarId);
+
+  // El endpoint de menú de una barra devuelve el catálogo completo con
+  // `isActiveForBar`; acá se guardan sólo los ids que esa barra ya vende.
+  async function selectSourceBar(value: string) {
+    const requestId = ++sourceRequestRef.current;
+    setSourceBarId(value);
+    setSourceError("");
+    if (value === "all" || !token) {
+      setSourceMenu(null);
+      return;
+    }
+    const cached = sourceCacheRef.current.get(value);
+    if (cached) {
+      setSourceMenu({ barId: value, ids: cached });
+      return;
+    }
+    setSourceMenu(null);
+    try {
+      const result = await apiFetch<BarMenuProductsApiResponse>(
+        `/bars/${value}/products?eventId=${eventId}`,
+        { token },
+      );
+      const ids = new Set(
+        result.products.filter((row) => row.isActiveForBar).map((row) => row.id),
+      );
+      sourceCacheRef.current.set(value, ids);
+      if (requestId !== sourceRequestRef.current) return;
+      setSourceMenu({ barId: value, ids });
+    } catch {
+      if (requestId !== sourceRequestRef.current) return;
+      setSourceError("No se pudieron cargar los productos de esa barra.");
+    }
+  }
+
+  function resetPicker() {
+    sourceRequestRef.current += 1;
+    setPickerQuery("");
+    setSourceBarId("all");
+    setSourceMenu(null);
+    setSourceError("");
+  }
+
+  function closePicker() {
+    setPicker(false);
+    resetPicker();
+  }
+
   const active = menu.filter((row) => row.isActiveForBar);
   const activeIds = new Set(active.map((row) => row.id));
+  const scoped = sourceBarId !== "all";
+  const scopeIds =
+    scoped && sourceMenu?.barId === sourceBarId ? sourceMenu.ids : null;
+  const waitingScope = scoped && scopeIds === null && !sourceError;
   const available = catalog.filter(
     (product) =>
       !activeIds.has(product.id) &&
+      (scopeIds === null || scopeIds.has(product.id)) &&
       normalizeSearch(product.name).includes(normalizeSearch(pickerQuery)),
   );
   const detailFor = (product: ApiProduct, directStock?: string | null) =>
@@ -128,7 +200,13 @@ export function BarMenuPanel({
           )}
         </p>
         <div className="bw-form-actions">
-          <button className="bw-secondary" onClick={() => setPicker(true)}>
+          <button
+            className="bw-secondary"
+            onClick={() => {
+              sourceCacheRef.current.clear();
+              setPicker(true);
+            }}
+          >
             <PackagePlus size={16} />
             <span className="sm:hidden">Del catálogo</span>
             <span className="hidden sm:inline">
@@ -396,8 +474,8 @@ export function BarMenuPanel({
       <Dialog
         open={picker}
         onOpenChange={(open) => {
-          setPicker(open);
-          if (!open) setPickerQuery("");
+          if (open) setPicker(true);
+          else closePicker();
         }}
       >
         <DialogContent
@@ -411,15 +489,15 @@ export function BarMenuPanel({
                 Asignar producto del catálogo
               </DialogTitle>
               <DialogDescription className="bw-dialog-hint">
-                Elegí productos ya creados por la productora. Podés sumar
-                varios seguidos.
+                Elegí productos ya creados por la productora. Podés filtrar por
+                otra barra y sumar varios seguidos.
               </DialogDescription>
             </div>
             <button
               type="button"
               className="bw-icon-button"
               aria-label="Cerrar"
-              onClick={() => setPicker(false)}
+              onClick={closePicker}
             >
               <X size={17} />
             </button>
@@ -434,8 +512,44 @@ export function BarMenuPanel({
               onChange={(e) => setPickerQuery(e.target.value)}
             />
           </label>
+          {otherBars.length > 0 && (
+            <div className="bw-picker-scope">
+              <span id="bar-picker-scope-label">Ver productos de</span>
+              <Select
+                value={sourceBarId}
+                onValueChange={(value) => void selectSourceBar(value)}
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-labelledby="bar-picker-scope-label"
+                  className="bw-scope-select"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0a0a0a]">
+                  <SelectItem value="all">Todo el catálogo</SelectItem>
+                  {otherBars.map((bar) => (
+                    <SelectItem key={bar.id} value={bar.id}>
+                      {bar.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-            {available.length ? (
+            {waitingScope ? (
+              <p
+                role="status"
+                className="px-4 py-6 text-[13px] text-white/45"
+              >
+                Cargando productos de {sourceBar?.name ?? "esa barra"}…
+              </p>
+            ) : sourceError ? (
+              <p role="alert" className="px-4 py-6 text-[13px] text-white/45">
+                {sourceError}
+              </p>
+            ) : available.length ? (
               <Table className="table-fixed sm:table-auto">
                 <TableHeader>
                   <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
@@ -502,7 +616,9 @@ export function BarMenuPanel({
               <p className="px-4 py-6 text-[13px] text-white/45">
                 {pickerQuery
                   ? "No hay productos con ese nombre."
-                  : "Todos los productos del catálogo ya están en esta barra."}
+                  : sourceBar
+                    ? `No quedan productos de ${sourceBar.name} para sumar a esta barra.`
+                    : "Todos los productos del catálogo ya están en esta barra."}
               </p>
             )}
           </div>

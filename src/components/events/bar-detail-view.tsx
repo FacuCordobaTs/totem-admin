@@ -551,6 +551,9 @@ export function BarDetailView({
               ) : (
                 <BarMenuPanel
                   token={token}
+                  eventId={eventId}
+                  barId={barId}
+                  bars={bars}
                   catalog={catalog}
                   menu={menu}
                   inventory={inventory}

@@ -495,6 +495,33 @@
 .bw-dialog .bw-search {
   max-width: none;
 }
+/* Barra de referencia al asignar productos del catálogo. */
+.bw-picker-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.bw-picker-scope > span {
+  flex-shrink: 0;
+  color: var(--bw-muted);
+  font-size: 12px;
+}
+.bar-workspace .bw-picker-scope .bw-scope-select {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bw-soft);
+  box-shadow: none;
+  color: var(--bw-text);
+  font-size: 13px;
+}
+.bar-workspace .bw-picker-scope .bw-scope-select:hover {
+  background: var(--bw-hover);
+}
 .bw-dialog .bw-fields {
   gap: 14px 16px;
 }
