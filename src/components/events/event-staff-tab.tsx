@@ -8,6 +8,7 @@ import {
   Copy,
   ExternalLink,
   Loader2,
+  LogIn,
   QrCode,
   Search,
   ShieldCheck,
@@ -19,7 +20,8 @@ import {
   X
 } from "lucide-react"
 import { apiFetch, ApiError } from "@/lib/api"
-import { useAuthStore } from "@/stores/auth-store"
+import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
+import { homeForRole } from "@/lib/staff-home"
 import type {
   EventAssignmentStaffRow,
   EventBarRow,
@@ -315,6 +317,22 @@ export function EventStaffTab({
     toast.success("Roles actualizados")
   }
 
+  /**
+   * Reemplaza la sesión de este dispositivo por la del empleado. El backend entrega su sesión
+   * normal (con sus permisos y un año de duración) y no guarda ninguna referencia a la cuenta del
+   * administrador: en este dispositivo no hay vuelta al panel de gestión. Se navega con recarga
+   * completa para descartar el estado de la cuenta anterior.
+   */
+  async function impersonate(member: EventAssignmentStaffRow) {
+    if (!token) throw new Error("Volvé a iniciar sesión para continuar.")
+    const data = await apiFetch<{ token: string; staff: StaffProfile }>(
+      `/staff/team/${member.id}/impersonate`,
+      { method: "POST", token }
+    )
+    useAuthStore.getState().setAuth(data.token, data.staff)
+    window.location.assign(homeForRole(data.staff.role))
+  }
+
   async function deleteMember(member: EventAssignmentStaffRow): Promise<boolean> {
     if (!token) return false
     try {
@@ -402,6 +420,9 @@ export function EventStaffTab({
     const canDelete =
       (role === "ADMIN" || isGeneralPromoter) &&
       selectedMember.id !== currentStaffId
+    const canImpersonate =
+      (role === "ADMIN" || role === "MANAGER") &&
+      selectedMember.id !== currentStaffId
     return (
       <>
         <StaffDetail
@@ -413,6 +434,7 @@ export function EventStaffTab({
           canManage={canManage}
           canEditRoles={canEditRoles}
           canDelete={canDelete}
+          canImpersonate={canImpersonate}
           isGeneralPromoter={isGeneralPromoter}
           isPending={pendingIds.has(selectedMember.id)}
           shopUrl={shopUrl}
@@ -428,6 +450,7 @@ export function EventStaffTab({
             setInviteOpen(true)
           }}
           onSaveRoles={(roles) => saveRoles(selectedMember, roles)}
+          onImpersonate={() => impersonate(selectedMember)}
           onDelete={() => deleteMember(selectedMember)}
         />
         {inviteDialog}
@@ -750,6 +773,7 @@ function StaffDetail({
   canManage,
   canEditRoles,
   canDelete,
+  canImpersonate,
   isGeneralPromoter,
   isPending,
   shopUrl,
@@ -760,6 +784,7 @@ function StaffDetail({
   onCopyLink,
   onShowAccess,
   onSaveRoles,
+  onImpersonate,
   onDelete
 }: {
   member: EventAssignmentStaffRow
@@ -769,6 +794,7 @@ function StaffDetail({
   canManage: boolean
   canEditRoles: boolean
   canDelete: boolean
+  canImpersonate: boolean
   isGeneralPromoter: boolean
   isPending: boolean
   shopUrl: string | null
@@ -779,6 +805,7 @@ function StaffDetail({
   onCopyLink: (url: string, successMessage?: string) => Promise<void>
   onShowAccess: () => void
   onSaveRoles: (roles: StaffRole[]) => Promise<void>
+  onImpersonate: () => Promise<void>
   onDelete: () => Promise<boolean>
 }) {
   const roles = memberRoles(member)
@@ -787,6 +814,9 @@ function StaffDetail({
   const [rolesError, setRolesError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [impersonateOpen, setImpersonateOpen] = useState(false)
+  const [impersonating, setImpersonating] = useState(false)
+  const [impersonateError, setImpersonateError] = useState<string | null>(null)
   const rolesChanged =
     selectedRoles.length !== roles.length ||
     selectedRoles.some((role) => !roles.includes(role))
@@ -812,6 +842,22 @@ function StaffDetail({
     const ok = await onDelete()
     if (ok) setDeleteOpen(false)
     setDeleting(false)
+  }
+
+  async function confirmImpersonate() {
+    if (impersonating) return
+    setImpersonating(true)
+    setImpersonateError(null)
+    try {
+      await onImpersonate()
+    } catch (error) {
+      setImpersonateError(
+        error instanceof ApiError
+          ? error.message
+          : "No se pudo acceder como esta persona. Volvé a intentarlo."
+      )
+      setImpersonating(false)
+    }
   }
 
   return (
@@ -968,6 +1014,26 @@ function StaffDetail({
           </DetailBlock>
         ) : null}
 
+        {canImpersonate ? (
+          <DetailBlock
+            title="Acceder como esta persona"
+            description="Cierra tu sesión en este dispositivo y deja abierta la del empleado, con sus permisos y sin pedirle su contraseña. Sirve para configurarle el celular o la computadora."
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setImpersonateError(null)
+                setImpersonateOpen(true)
+              }}
+              className="h-9 rounded-xl bg-white/[0.06] px-3 text-white/80 hover:bg-white/[0.1] hover:text-white"
+            >
+              <LogIn className="mr-1.5 h-4 w-4 text-white/50" aria-hidden="true" />
+              Acceder como esta persona
+            </Button>
+          </DetailBlock>
+        ) : null}
+
         <DetailBlock
           title="Funciones"
           description="Definen qué puede hacer esta persona dentro de la productora."
@@ -1020,6 +1086,45 @@ function StaffDetail({
           </DetailBlock>
         ) : null}
       </div>
+
+      <AlertDialog
+        open={impersonateOpen}
+        onOpenChange={(open) => {
+          if (!impersonating) setImpersonateOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ¿Acceder como {member.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Este dispositivo cierra tu sesión y abre la de {member.name} con
+              sus permisos, durante un año. No hay vuelta desde acá: para
+              administrar de nuevo tenés que iniciar sesión con tu cuenta. El
+              empleado queda con su propia cuenta, sin acceso al panel de
+              gestión.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {impersonateError ? (
+            <p role="alert" className="text-[13px] text-rose-300">
+              {impersonateError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={impersonating}>
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              disabled={impersonating}
+              onClick={() => void confirmImpersonate()}
+              className="bg-[#FF9500] font-semibold text-[#18120a] hover:bg-[#FFAB36]"
+            >
+              {impersonating ? "Entrando…" : "Acceder como esta persona"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
         <AlertDialogContent>
