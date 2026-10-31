@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Check, Pencil, X } from "lucide-react";
+import { ArrowLeft, Check, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -29,17 +29,14 @@ import type {
   EventStaffListResponse,
 } from "@/types/event-dashboard";
 import { BarMenuPanel } from "./bar-menu-panel";
-import { BarStockPanel } from "./bar-stock-panel";
 import { BarTeamPanel } from "./bar-team-panel";
 import { BarSalesPanel } from "./bar-sales-panel";
 import { BarProductEditor } from "./bar-product-editor";
 import { BarSwitcher } from "./bar-switcher";
 import {
-  isEmptyStock,
   recipeLinesForApi,
   type RecipeDraftLine,
   type RecipeMode,
-  type StockFocus,
   moneyLabel,
   saleTypeLabel,
 } from "./bar-workspace-model";
@@ -51,7 +48,7 @@ type Props = {
   onBack: () => void;
   onChanged?: () => void;
 };
-type Section = "menu" | "stock" | "team" | "sales";
+type Section = "menu" | "team" | "sales";
 
 export function BarDetailView({
   eventId,
@@ -78,7 +75,6 @@ export function BarDetailView({
   const [rename, setRename] = useState(false);
   const [name, setName] = useState("");
   const [menuQuery, setMenuQuery] = useState("");
-  const [stockFocus, setStockFocus] = useState<StockFocus | null>(null);
   const [pendingSaleType, setPendingSaleType] = useState<{
     product: ApiProduct;
     saleType: ProductSaleType;
@@ -139,7 +135,6 @@ export function BarDetailView({
   useEffect(() => {
     setEditing(undefined);
     setRename(false);
-    setStockFocus(null);
     setMenuQuery("");
     setPendingSaleType(null);
     setBusy(null);
@@ -295,31 +290,9 @@ export function BarDetailView({
       return false;
     }
   }
-  function showStock(product: ApiProduct) {
-    setStockFocus({
-      label: product.name,
-      ids: product.recipes.map((line) => line.inventoryItemId),
-    });
-    setSection("stock");
-  }
   const activeIds = new Set(
     menu.filter((row) => row.isActiveForBar).map((row) => row.id),
   );
-  const activeProducts = catalog.filter((product) => activeIds.has(product.id));
-  // El contador de Stock cuenta existencias agotadas, no productos: es el mismo
-  // número que ve el operador en esa pestaña.
-  const usedItemIds = new Set(
-    activeProducts.flatMap((product) =>
-      product.recipes.map((line) => line.inventoryItemId),
-    ),
-  );
-  const emptyStock = trackStock
-    ? inventory.filter(
-        (item) =>
-          (usedItemIds.has(item.inventoryItemId) || item.barInventoryRowId) &&
-          isEmptyStock(item.barCurrentStock),
-      ).length
-    : 0;
   const members = staff.filter(
     (member) => member.barId === barId && member.isAssigned,
   ).length;
@@ -450,15 +423,6 @@ export function BarDetailView({
             {(
               [
                 { id: "menu", label: "Menú", count: activeIds.size },
-                ...(trackStock
-                  ? [
-                      {
-                        id: "stock",
-                        label: "Stock",
-                        count: emptyStock || undefined,
-                      },
-                    ]
-                  : []),
                 { id: "team", label: "Equipo", count: members },
                 { id: "sales", label: "Ventas" },
               ] as { id: Section; label: string; count?: number }[]
@@ -467,32 +431,10 @@ export function BarDetailView({
                 key={item.id}
                 aria-current={section === item.id ? "page" : undefined}
                 disabled={editing !== undefined || busy !== null}
-                onClick={() => {
-                  setStockFocus(null);
-                  setSection(item.id);
-                }}
+                onClick={() => setSection(item.id)}
               >
                 {item.label}
-                {item.count != null && (
-                  <span
-                    className={
-                      item.id === "stock" && emptyStock ? "warning" : ""
-                    }
-                    title={
-                      item.id === "stock"
-                        ? `${emptyStock} ${emptyStock === 1 ? "existencia sin stock" : "existencias sin stock"}`
-                        : undefined
-                    }
-                  >
-                    {item.id === "stock" && emptyStock > 0 && (
-                      <AlertTriangle
-                        size={12}
-                        aria-label="Existencias sin stock"
-                      />
-                    )}
-                    {item.count}
-                  </span>
-                )}
+                {item.count != null && <span>{item.count}</span>}
               </button>
             ))}
           </nav>
@@ -502,11 +444,9 @@ export function BarDetailView({
             aria-label={
               section === "menu"
                 ? "Menú"
-                : section === "stock"
-                  ? "Stock"
-                  : section === "team"
-                    ? "Equipo"
-                    : "Ventas"
+                : section === "team"
+                  ? "Equipo"
+                  : "Ventas"
             }
           >
             {section === "menu" &&
@@ -537,14 +477,9 @@ export function BarDetailView({
                     void refresh().catch(() => {});
                     toast.success("Producto eliminado");
                   }}
-                  onSaved={(_id, hasStock) => {
-                    const created = editing === null;
+                  onSaved={() => {
                     setEditing(undefined);
-                    void refresh()
-                      .then(() => {
-                        if (created && hasStock) setSection("stock");
-                      })
-                      .catch(() => {});
+                    void refresh().catch(() => {});
                     toast.success("Producto guardado en el menú de esta barra");
                   }}
                 />
@@ -566,24 +501,10 @@ export function BarDetailView({
                   onSaleTypeChange={requestSaleType}
                   onSaveRecipe={saveRecipe}
                   onMaterialCreated={materialCreated}
-                  onShowStock={showStock}
                   query={menuQuery}
                   onQueryChange={setMenuQuery}
                 />
               ))}
-            {section === "stock" && trackStock && (
-              <BarStockPanel
-                token={token}
-                barId={barId}
-                products={activeProducts}
-                inventory={inventory}
-                materials={materials}
-                focus={stockFocus}
-                onClearFocus={() => setStockFocus(null)}
-                onSaved={refresh}
-                onMaterialCreated={materialCreated}
-              />
-            )}
             {section === "team" && (
               <BarTeamPanel
                 token={token}

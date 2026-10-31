@@ -75,7 +75,7 @@ type Props = {
   onRemove?: () => Promise<boolean>;
   /** Tras eliminar el producto del catálogo. */
   onDeleted?: () => void;
-  onSaved: (productId: string, hasStock: boolean) => void;
+  onSaved: () => void;
 };
 
 export function BarProductEditor({
@@ -185,10 +185,7 @@ export function BarProductEditor({
           priceOverride: normalizedPrice,
         }),
       });
-      onSaved(
-        savedId.current,
-        trackStock && (saleType === "UNIT" || recipe.length > 0),
-      );
+      onSaved();
     } catch (e) {
       setError(
         e instanceof ApiError

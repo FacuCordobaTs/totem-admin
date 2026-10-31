@@ -50,16 +50,6 @@ export function stockLevel(value: string | number): StockLevel {
   return new Decimal(value).lte(LOW_STOCK_UNITS) ? "low" : "healthy";
 }
 
-/** Stock de la barra de menor a mayor; a igual cantidad, el insumo más reciente primero. */
-export function compareStockAsc<
-  T extends Pick<BarInventoryItemRow, "barCurrentStock" | "name" | "createdAt">,
->(a: T, b: T): number {
-  const diff = new Decimal(a.barCurrentStock).cmp(
-    new Decimal(b.barCurrentStock),
-  );
-  return diff !== 0 ? diff : byRecentCreation(a, b);
-}
-
 export const SALE_TYPES: { value: ProductSaleType; label: string }[] = [
   { value: "GLASS", label: "Trago" },
   { value: "BOTTLE", label: "Botellas" },
@@ -170,8 +160,6 @@ export function byRecentCreation<T extends Pick<ApiInventoryItem, "name" | "crea
   return bt - at || a.name.localeCompare(b.name, "es-AR");
 }
 
-/** Existencias que el Menú pide mostrar juntas: los insumos de un producto. */
-export type StockFocus = { label: string; ids: string[] };
 /** Insumo propio de un producto que se vende por unidad (su única línea de receta). */
 export function unitProductItemId(product: ApiProduct): string | null {
   return product.saleType === "UNIT" && product.recipes.length === 1

@@ -280,8 +280,7 @@ export function EventBarSection({
                 <div className="bw-empty">
                   <h4>Tu primera barra empieza acá</h4>
                   <p>
-                    Creá un punto de venta para armar su menú
-                    {trackStock ? " y cargar su stock" : ""}.
+                    Creá un punto de venta para armar su menú.
                   </p>
                   <button className="bw-primary" onClick={() => setCreating(true)}>
                     <Plus size={17} />

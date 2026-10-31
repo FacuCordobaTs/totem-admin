@@ -68,7 +68,6 @@ type Props = {
     lines: RecipeDraftLine[],
   ) => Promise<boolean>;
   onMaterialCreated: (item: ApiInventoryItem) => void;
-  onShowStock: (product: ApiProduct) => void;
   query: string;
   onQueryChange: (query: string) => void;
 };
@@ -90,7 +89,6 @@ export function BarMenuPanel({
   onSaleTypeChange,
   onSaveRecipe,
   onMaterialCreated,
-  onShowStock,
   query,
   onQueryChange,
 }: Props) {
@@ -297,14 +295,11 @@ export function BarMenuPanel({
                             .map((line) => line.inventoryItemName)
                             .join(" + ")
                     : "";
-                // La fila hace lo mismo que su acción de disponibilidad; la tienen
-                // también los botones de la celda para teclado y lectores de pantalla.
-                const rowAction = !trackStock || saleType === "NONE"
+                // Configurar es la única acción de la fila: el stock se opera desde Depósito.
+                const rowAction = !trackStock || saleType === "NONE" || configured
                   ? null
-                  : !configured
-                    ? () =>
-                        setRecipeFor({ product, mode: saleType as RecipeMode })
-                    : () => onShowStock(product);
+                  : () =>
+                      setRecipeFor({ product, mode: saleType as RecipeMode });
                 return (
                   <TableRow
                     key={row.id}
@@ -397,15 +392,8 @@ export function BarMenuPanel({
                               </span>
                             </button>
                           ) : (
-                            <button
-                              type="button"
-                              className={`bw-availability bw-availability-link ${count === 0 ? "empty" : "ready"}`}
-                              aria-label={
-                                count === 0
-                                  ? `${row.name} sin stock: ver en Stock`
-                                  : `${row.name}: ${count} disponibles, ver en Stock`
-                              }
-                              onClick={() => onShowStock(product)}
+                            <span
+                              className={`bw-availability ${count === 0 ? "empty" : "ready"}`}
                             >
                               {count === 0 ? (
                                 "Sin stock"
@@ -418,7 +406,7 @@ export function BarMenuPanel({
                                   </span>
                                 </>
                               )}
-                            </button>
+                            </span>
                           )}
                         </TableCell>
                       </>

@@ -1053,14 +1053,6 @@
 .bar-workspace .bw-sale-select:hover {
   background: var(--bw-hover);
 }
-.bw-availability-link {
-  cursor: pointer;
-  transition: filter 150ms;
-}
-.bw-availability-link:hover {
-  filter: brightness(1.2);
-}
-
 /* Stock enfocado desde el menú */
 .bw-stock-focus {
   display: flex;
