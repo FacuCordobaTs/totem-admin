@@ -34,7 +34,7 @@ export function SettingsPage() {
   const [productoraName, setProductoraName] = useState(tenantName ?? "")
   const [savingProductora, setSavingProductora] = useState(false)
   const isAdmin = staff?.role === "ADMIN"
-  const restrictedSettings = ["BARTENDER", "SECURITY", "TRANSPORTER", "GENERAL_PROMOTER"].includes(staff?.role ?? "")
+  const restrictedSettings = ["BARTENDER", "SECURITY", "TRANSPORTER", "GENERAL_PROMOTER", "DEPOSIT"].includes(staff?.role ?? "")
   const hasTenant = tenantId != null && tenantId !== ""
   const visibleSections = ACCOUNT_SECTIONS.filter((section) => {
     if (section.id === "app") return !isTauri()

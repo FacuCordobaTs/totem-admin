@@ -21,6 +21,7 @@ import { AccessPage } from "@/pages/AccessPage"
 import { DeviceLinkPage } from "@/pages/DeviceLinkPage"
 import { PosSessionPage } from "@/pages/PosSessionPage"
 import { PromoterPage } from "@/pages/PromoterPage"
+import { DepositPage } from "@/pages/DepositPage"
 import { RequireAuth } from "@/components/auth/RequireAuth"
 import { GuestRoute } from "@/components/auth/GuestRoute"
 import { PrinterProvider } from "@/context/PrinterContext"
@@ -92,6 +93,8 @@ const router = createBrowserRouter([
       { path: "scanner", element: <ScannerPage /> },
       { path: "scanner-transporte", element: <ScannerPage operation="transport" /> },
       { path: "promotor", element: <PromoterPage /> },
+      { path: "deposito", element: <DepositPage /> },
+      { path: "deposito/:id", element: <DepositPage /> },
       // Legacy redirects
       { path: "events", element: <Navigate to="/eventos" replace /> },
       { path: "events/:id", element: <LegacyEventRedirect /> },

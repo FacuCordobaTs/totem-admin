@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import type { EventBarRow, EventBarsResponse } from "@/types/event-dashboard";
 import { BarDetailView } from "./bar-detail-view";
+import { DepositWorkspace } from "./deposit-workspace";
 import { moneyLabel } from "./bar-workspace-model";
 import { useEventNestedView } from "./event-mobile-nav";
 import "./bar-workspace.css";
@@ -37,7 +38,8 @@ export function EventBarSection({
   const token = useAuthStore((s) => s.token);
   const [bars, setBars] = useState<EventBarRow[]>([]);
   const [openBarId, setOpenBarId] = useState<string | null>(null);
-  useEventNestedView(openBarId != null);
+  const [openDeposit, setOpenDeposit] = useState(false);
+  useEventNestedView(openBarId != null || openDeposit);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -104,7 +106,16 @@ export function EventBarSection({
 
   return (
     <div className="bar-workspace">
-      {openBarId ? (
+      {openDeposit ? (
+        <DepositWorkspace
+          eventId={eventId}
+          onBack={() => {
+            setOpenDeposit(false);
+            void load();
+          }}
+          onChanged={onLogisticsChange}
+        />
+      ) : openBarId ? (
         <BarDetailView
           key={`${eventId}:${openBarId}`}
           eventId={eventId}
@@ -142,96 +153,140 @@ export function EventBarSection({
                 Reintentar
               </button>
             </div>
-          ) : bars.length === 0 ? (
-            <div className="bw-empty">
-              <h4>Tu primera barra empieza acá</h4>
-              <p>
-                Creá un punto de venta para armar su menú
-                {trackStock ? " y cargar su stock" : ""}.
-              </p>
-              <button className="bw-primary" onClick={() => setCreating(true)}>
-                <Plus size={17} />
-                Crear barra
-              </button>
-            </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
-              <Table className="table-fixed sm:table-auto">
-                <TableHeader>
-                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="w-[52%] pl-4 text-[11px] font-normal lowercase text-white/45 sm:w-auto">
-                      Barra
-                    </TableHead>
-                    <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
-                      Menú
-                    </TableHead>
-                    <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
-                      Equipo
-                    </TableHead>
-                    <TableHead className="w-[36%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
-                      Vendido
-                    </TableHead>
-                    <TableHead className="w-10 pr-4">
-                      <span className="sr-only">Abrir barra</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
-                  {bars.map((bar) => {
-                    const products = bar.productList.length;
-                    const team = bar.staffList.length;
-                    return (
-                      <TableRow
-                        key={bar.id}
-                        tabIndex={0}
-                        aria-label={`Abrir ${bar.name}`}
-                        onClick={() => setOpenBarId(bar.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setOpenBarId(bar.id);
-                          }
-                        }}
-                        className="cursor-pointer border-0 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
-                      >
-                        <TableCell className="py-3.5 pl-4">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <span
-                              className="truncate text-[15px] font-medium text-foreground"
-                              title={bar.name}
-                            >
-                              {bar.name}
-                            </span>
-                            {bar.isActive === false && (
-                              <span className="bw-status">Inactiva</span>
-                            )}
-                            {products === 0 && (
-                              <span className="bw-status hidden sm:inline">Sin menú</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="hidden py-3.5 text-[13px] tabular-nums text-white/55 sm:table-cell">
-                          {products}
-                        </TableCell>
-                        <TableCell className="hidden py-3.5 text-[13px] tabular-nums text-white/55 sm:table-cell">
-                          {team}
-                        </TableCell>
-                        <TableCell className="py-3.5 text-right text-[14px] font-medium tabular-nums text-foreground">
-                          {moneyLabel(bar.totalSales ?? "0")}
-                        </TableCell>
-                        <TableCell className="py-3.5 pr-4">
-                          <ArrowRight
-                            size={18}
-                            className="ml-auto text-white/30"
-                            aria-hidden="true"
-                          />
-                        </TableCell>
+            <>
+              {(bars.length > 0 || trackStock) && (
+                <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+                  <Table className="table-fixed sm:table-auto">
+                    <TableHeader>
+                      <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                        <TableHead className="w-[52%] pl-4 text-[11px] font-normal lowercase text-white/45 sm:w-auto">
+                          Espacio
+                        </TableHead>
+                        <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
+                          Menú
+                        </TableHead>
+                        <TableHead className="hidden text-[11px] font-normal lowercase text-white/45 sm:table-cell">
+                          Equipo
+                        </TableHead>
+                        <TableHead className="w-[36%] text-right text-[11px] font-normal lowercase text-white/45 sm:w-auto">
+                          Vendido
+                        </TableHead>
+                        <TableHead className="w-10 pr-4">
+                          <span className="sr-only">Abrir espacio</span>
+                        </TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                    </TableHeader>
+                    <TableBody className="[&>tr:not(:first-child)>td]:border-t [&>tr:not(:first-child)>td]:border-white/[0.06]">
+                      {trackStock && (
+                        <TableRow
+                          tabIndex={0}
+                          aria-label="Abrir Depósito"
+                          onClick={() => setOpenDeposit(true)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setOpenDeposit(true);
+                            }
+                          }}
+                          className="cursor-pointer border-0 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
+                        >
+                          <TableCell className="py-3.5 pl-4">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <span className="truncate text-[15px] font-medium text-foreground">
+                                Depósito
+                              </span>
+                              <span className="bw-status">Stock general</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden py-3.5 text-[13px] text-white/55 sm:table-cell">
+                            Envíos a barras
+                          </TableCell>
+                          <TableCell className="hidden py-3.5 text-[13px] text-white/55 sm:table-cell">
+                            —
+                          </TableCell>
+                          <TableCell className="py-3.5 text-right text-[14px] text-white/45">
+                            —
+                          </TableCell>
+                          <TableCell className="py-3.5 pr-4">
+                            <ArrowRight
+                              size={18}
+                              className="ml-auto text-white/30"
+                              aria-hidden="true"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {bars.map((bar) => {
+                        const products = bar.productList.length;
+                        const team = bar.staffList.length;
+                        return (
+                          <TableRow
+                            key={bar.id}
+                            tabIndex={0}
+                            aria-label={`Abrir ${bar.name}`}
+                            onClick={() => setOpenBarId(bar.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setOpenBarId(bar.id);
+                              }
+                            }}
+                            className="cursor-pointer border-0 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-[#ff9500] focus-visible:-outline-offset-2"
+                          >
+                            <TableCell className="py-3.5 pl-4">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <span
+                                  className="truncate text-[15px] font-medium text-foreground"
+                                  title={bar.name}
+                                >
+                                  {bar.name}
+                                </span>
+                                {bar.isActive === false && (
+                                  <span className="bw-status">Inactiva</span>
+                                )}
+                                {products === 0 && (
+                                  <span className="bw-status hidden sm:inline">Sin menú</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden py-3.5 text-[13px] tabular-nums text-white/55 sm:table-cell">
+                              {products}
+                            </TableCell>
+                            <TableCell className="hidden py-3.5 text-[13px] tabular-nums text-white/55 sm:table-cell">
+                              {team}
+                            </TableCell>
+                            <TableCell className="py-3.5 text-right text-[14px] font-medium tabular-nums text-foreground">
+                              {moneyLabel(bar.totalSales ?? "0")}
+                            </TableCell>
+                            <TableCell className="py-3.5 pr-4">
+                              <ArrowRight
+                                size={18}
+                                className="ml-auto text-white/30"
+                                aria-hidden="true"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              {bars.length === 0 && (
+                <div className="bw-empty">
+                  <h4>Tu primera barra empieza acá</h4>
+                  <p>
+                    Creá un punto de venta para armar su menú
+                    {trackStock ? " y cargar su stock" : ""}.
+                  </p>
+                  <button className="bw-primary" onClick={() => setCreating(true)}>
+                    <Plus size={17} />
+                    Crear barra
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

@@ -10,6 +10,7 @@ export type StaffRole =
   | "TRANSPORTER"
   | "PROMOTER"
   | "GENERAL_PROMOTER"
+  | "DEPOSIT"
 
 export type StaffProfile = {
   id: string

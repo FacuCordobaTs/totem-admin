@@ -46,6 +46,7 @@ const ROLE_LABELS: Record<StaffRole, string> = {
   TRANSPORTER: "Transporte",
   PROMOTER: "Promotor",
   GENERAL_PROMOTER: "Promotor general",
+  DEPOSIT: "Depósito",
 }
 
 /**

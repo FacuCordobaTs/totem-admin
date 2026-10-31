@@ -80,6 +80,7 @@ const ROLE_ORDER: StaffRole[] = [
   "PROMOTER",
   "GENERAL_PROMOTER",
   "BARTENDER",
+  "DEPOSIT",
   "SECURITY",
   "TRANSPORTER",
   "ADMIN"

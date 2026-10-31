@@ -1,12 +1,14 @@
 import { Link, useLocation } from "react-router"
 import { cn } from "@/lib/utils"
-import { ScanLine, CreditCard } from "lucide-react"
+import { ScanLine, CreditCard, Warehouse } from "lucide-react"
 import { useAuthStore } from "@/stores/auth-store"
 import { globalNav } from "@/components/dashboard/global-nav"
 
 const adminNavigation = globalNav
 
 const bartenderNavigation = [{ name: "Punto de Venta", href: "/pos/venta", icon: CreditCard }]
+
+const depositNavigation = [{ name: "Depósito", href: "/deposito", icon: Warehouse }]
 
 const securityNavigation = [
   { name: "Escáner / Control de Acceso", href: "/scanner", icon: ScanLine },
@@ -35,15 +37,24 @@ export function Sidebar({
   const role = useAuthStore((s) => s.staff?.role)
   const isBartender = role === "BARTENDER"
   const isSecurity = role === "SECURITY"
+  const isDeposit = role === "DEPOSIT"
 
   const navigation =
     role === "BARTENDER"
       ? bartenderNavigation
       : role === "SECURITY"
         ? securityNavigation
-        : adminNavigation
+        : role === "DEPOSIT"
+          ? depositNavigation
+          : adminNavigation
   const homeHref =
-    role === "BARTENDER" ? "/pos/venta" : role === "SECURITY" ? "/scanner" : "/eventos"
+    role === "BARTENDER"
+      ? "/pos/venta"
+      : role === "SECURITY"
+        ? "/scanner"
+        : role === "DEPOSIT"
+          ? "/deposito"
+          : "/eventos"
 
   if (layout === "sheet") {
     return (
@@ -89,7 +100,7 @@ export function Sidebar({
           })}
         </nav>
 
-        {!isBartender && !isSecurity ? (
+        {!isBartender && !isSecurity && !isDeposit ? (
           <div className="shrink-0 border-t border-zinc-800 py-4">
             <p className="px-5 pb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
               En móvil
@@ -165,7 +176,7 @@ export function Sidebar({
         })}
       </nav>
 
-      {!isBartender && !isSecurity ? (
+      {!isBartender && !isSecurity && !isDeposit ? (
         <div className="border-t border-zinc-200/50 py-4 dark:border-zinc-800/50">
           <div className="flex flex-col items-center gap-1.5">
             {mobileApps.map((item) => {

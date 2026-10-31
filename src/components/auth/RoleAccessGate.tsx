@@ -35,6 +35,17 @@ function redirectForRestrictedRole(
   if (role === "PROMOTER") {
     return pathname === "/promotor" ? null : "/promotor"
   }
+  if (role === "DEPOSIT") {
+    if (
+      pathname === "/deposito" ||
+      pathname.startsWith("/deposito/") ||
+      pathname === "/configuracion" ||
+      pathname.startsWith("/configuracion/")
+    ) {
+      return null
+    }
+    return "/deposito"
+  }
   if (role === "GENERAL_PROMOTER") {
     // Su superficie son los eventos donde está asignado (y adentro, sus promotores); el resto de
     // la navegación de la productora le queda fuera.

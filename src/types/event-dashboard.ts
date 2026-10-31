@@ -105,7 +105,7 @@ export type StaffTeamMember = {
   tenantId: string | null
   name: string
   email: string
-  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER"
+  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER" | "DEPOSIT"
   isActive: boolean
   createdAt: Date | string | null
 }
@@ -158,7 +158,7 @@ export type EventAssignmentStaffRow = {
   id: string
   name: string
   email: string
-  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER"
+  role: "ADMIN" | "MANAGER" | "BARTENDER" | "SECURITY" | "TRANSPORTER" | "PROMOTER" | "GENERAL_PROMOTER" | "DEPOSIT"
   roles?: EventAssignmentStaffRow["role"][]
   isAssigned: boolean
   barId: string | null
@@ -200,6 +200,52 @@ export type BarInventoryItemRow = {
 
 export type BarInventoryApiResponse = {
   items: BarInventoryItemRow[]
+}
+
+/** Depósito del evento: stock total menos lo que ya está físicamente en las barras. */
+export type DepositItemRow = {
+  inventoryItemId: string
+  name: string
+  createdAt: string | null
+  eventStock: string
+  inBars: string
+  depositStock: string
+}
+
+export type DepositBarRow = {
+  id: string
+  name: string
+  isActive: boolean
+  itemCount: number
+  totalUnits: string
+  lastMovementAt: string | null
+}
+
+export type DepositMovementRow = {
+  id: string
+  type: "DEPOSIT_IN" | "DEPOSIT_COUNT" | "SEND_TO_BAR"
+  createdAt: string | null
+  inventoryItemId: string
+  itemName: string
+  barId: string | null
+  barName: string | null
+  quantity: string
+  depositAfter: string
+  barAfter: string | null
+  note: string | null
+  createdByName: string | null
+}
+
+export type DepositResponse = {
+  tracksStock: boolean
+  items: DepositItemRow[]
+  bars: DepositBarRow[]
+  barInventory: {
+    barId: string
+    inventoryItemId: string
+    currentStock: string
+  }[]
+  movements: DepositMovementRow[]
 }
 
 export type EventExpenseCategory =
