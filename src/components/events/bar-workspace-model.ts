@@ -39,6 +39,27 @@ export const validQuantity = (value: string) =>
 export const isEmptyStock = (value: string | number) =>
   new Decimal(value).toDecimalPlaces(4, Decimal.ROUND_DOWN).lte(0);
 
+/**
+ * Umbral visual de stock bajo, en unidades. Las existencias se cuentan en unidades, así que
+ * hasta tres unidades la fila se marca como baja antes de llegar a cero.
+ */
+export const LOW_STOCK_UNITS = 3;
+export type StockLevel = "empty" | "low" | "healthy";
+export function stockLevel(value: string | number): StockLevel {
+  if (isEmptyStock(value)) return "empty";
+  return new Decimal(value).lte(LOW_STOCK_UNITS) ? "low" : "healthy";
+}
+
+/** Stock de la barra de menor a mayor; a igual cantidad, el insumo más reciente primero. */
+export function compareStockAsc<
+  T extends Pick<BarInventoryItemRow, "barCurrentStock" | "name" | "createdAt">,
+>(a: T, b: T): number {
+  const diff = new Decimal(a.barCurrentStock).cmp(
+    new Decimal(b.barCurrentStock),
+  );
+  return diff !== 0 ? diff : byRecentCreation(a, b);
+}
+
 export const SALE_TYPES: { value: ProductSaleType; label: string }[] = [
   { value: "GLASS", label: "Trago" },
   { value: "BOTTLE", label: "Botellas" },

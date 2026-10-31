@@ -40,6 +40,7 @@ import {
   decimalInput,
   normalizeSearch,
   stockLabel,
+  stockLevel,
 } from "./bar-workspace-model";
 import { useEventNestedView } from "./event-mobile-nav";
 import "./bar-workspace.css";
@@ -330,7 +331,8 @@ export function DepositWorkspace({ eventId, onBack, onChanged }: Props) {
       }))
       .filter((item) =>
         normalizeSearch(item.name).includes(normalizeSearch(barQuery)),
-      );
+      )
+      .sort((a, b) => new Decimal(a.barStock).cmp(new Decimal(b.barStock)));
   }, [liveItems, selectedBar, barValue, barQuery]);
 
   const selectedBarMovements = useMemo(
@@ -934,6 +936,7 @@ export function DepositWorkspace({ eventId, onBack, onChanged }: Props) {
                     </TableRow>
                   )}
                   {barItemRows.map((item) => {
+                    const level = stockLevel(item.barStock);
                     const send =
                       sending?.itemId === item.inventoryItemId &&
                       sending.barId === selectedBar.id
@@ -946,7 +949,7 @@ export function DepositWorkspace({ eventId, onBack, onChanged }: Props) {
                       >
                         <TableCell className="max-w-[380px] py-2 pl-4">
                           <span
-                            className={`block truncate text-[13px] font-medium sm:text-[14px] ${new Decimal(item.barStock).lte(0) ? "text-[#ffd294]" : "text-foreground"}`}
+                            className={`block truncate text-[13px] font-medium sm:text-[14px] ${level === "empty" ? "text-rose-200" : level === "low" ? "text-[#ffd294]" : "text-foreground"}`}
                             title={item.name}
                           >
                             {item.name}
@@ -972,7 +975,7 @@ export function DepositWorkspace({ eventId, onBack, onChanged }: Props) {
                               }}
                             />
                           ) : (
-                            <span className="text-[14px] font-medium tabular-nums text-foreground">
+                            <span className={`bw-stock-value ${level}`}>
                               {stockLabel(item.barStock)}
                             </span>
                           )}

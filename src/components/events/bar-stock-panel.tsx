@@ -39,10 +39,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { NewMaterialRow } from "./bar-new-material-row";
 import {
-  byRecentCreation,
+  compareStockAsc,
   decimalInput,
   isEmptyStock,
   normalizeSearch,
+  stockLevel,
   unitProductItemId,
   type StockFocus,
   quantityLabel,
@@ -94,7 +95,7 @@ export function BarStockPanel({
   onMaterialCreated,
 }: Props) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "empty">("all");
+  const [filter, setFilter] = useState<"all" | "low" | "empty">("all");
   const [creating, setCreating] = useState(false);
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
@@ -124,7 +125,7 @@ export function BarStockPanel({
     const itemId = unitProductItemId(product);
     if (itemId) unitOwners.set(itemId, product);
   }
-  // Insumos del más reciente al más viejo.
+  // Insumos con menor stock primero: el operador ve qué reponer antes de que se agote.
   const tracked = [...inventory]
     .filter(
       (item) =>
@@ -132,7 +133,7 @@ export function BarStockPanel({
         item.barInventoryRowId ||
         extraIds.includes(item.inventoryItemId),
     )
-    .sort(byRecentCreation);
+    .sort(compareStockAsc);
   const focusIds = focus ? new Set(focus.ids) : null;
   const rows = focusIds
     ? tracked.filter((item) => focusIds.has(item.inventoryItemId))
@@ -141,10 +142,16 @@ export function BarStockPanel({
           normalizeSearch(
             `${item.name} ${(usedBy.get(item.inventoryItemId) ?? []).map((p) => p.name).join(" ")}`,
           ).includes(normalizeSearch(query)) &&
-          (filter !== "empty" || isEmptyStock(item.barCurrentStock)),
+          (filter === "all" ||
+            (filter === "empty" && isEmptyStock(item.barCurrentStock)) ||
+            (filter === "low" &&
+              stockLevel(item.barCurrentStock) === "low")),
       );
   const emptyCount = tracked.filter((item) =>
     isEmptyStock(item.barCurrentStock),
+  ).length;
+  const lowCount = tracked.filter(
+    (item) => stockLevel(item.barCurrentStock) === "low",
   ).length;
   useEffect(() => {
     if (!editing) return;
@@ -310,6 +317,12 @@ export function BarStockPanel({
               · {emptyCount} {emptyCount === 1 ? "agotada" : "agotadas"}
             </span>
           )}
+          {lowCount > 0 && (
+            <span className="bw-lede-warning">
+              {" "}
+              · {lowCount} {lowCount === 1 ? "baja" : "bajas"}
+            </span>
+          )}
         </p>
         <button
           className="bw-secondary"
@@ -356,6 +369,12 @@ export function BarStockPanel({
                 onClick={() => setFilter("all")}
               >
                 Todos
+              </button>
+              <button
+                aria-pressed={filter === "low"}
+                onClick={() => setFilter("low")}
+              >
+                Bajas{lowCount > 0 && <span>{lowCount}</span>}
               </button>
               <button
                 aria-pressed={filter === "empty"}
@@ -426,7 +445,8 @@ export function BarStockPanel({
               )}
               {rows.map((item) => {
                 const consumers = usedBy.get(item.inventoryItemId) ?? [];
-                const empty = isEmptyStock(item.barCurrentStock);
+                const level = stockLevel(item.barCurrentStock);
+                const empty = level === "empty";
                 const edit = editing === item.inventoryItemId;
                 const isRenaming = renaming === item.inventoryItemId;
                 const owner = unitOwners.get(item.inventoryItemId);
@@ -480,7 +500,7 @@ export function BarStockPanel({
                       ) : (
                         <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-2">
                           <span
-                            className={`min-w-0 truncate text-[13px] font-medium sm:text-[14px] ${empty ? "text-[#ffd294]" : "text-foreground"}`}
+                            className={`min-w-0 truncate text-[13px] font-medium sm:text-[14px] ${empty ? "text-rose-200" : level === "low" ? "text-[#ffd294]" : "text-foreground"}`}
                             title={item.name}
                           >
                             {item.name}
@@ -551,7 +571,7 @@ export function BarStockPanel({
                       ) : (
                         <>
                           <span
-                            className={`text-[14px] font-medium tabular-nums ${empty ? "text-[#ffd294]" : "text-foreground"}`}
+                            className={`bw-stock-value ${level}`}
                           >
                             {stockLabel(item.barCurrentStock)}
                           </span>{" "}

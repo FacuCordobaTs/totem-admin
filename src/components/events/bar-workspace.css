@@ -205,6 +205,83 @@
 .bw-back:hover {
   color: white;
 }
+/* Navegador entre barras del evento */
+.bw-bar-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 20px;
+}
+.bw-switcher-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--bw-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.bw-switcher-back:hover {
+  background: var(--bw-hover);
+  color: white;
+}
+.bw-bar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 3px;
+  border-radius: 14px;
+  background: var(--bw-soft);
+  scrollbar-width: thin;
+  scrollbar-color: #52525b transparent;
+}
+.bw-bar-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 6px 11px;
+  border-radius: 10px;
+  color: var(--bw-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.bw-bar-tab:hover {
+  color: white;
+}
+.bw-bar-tab[aria-current="page"] {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
+.bw-bar-tab-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #6ee7b7;
+}
+.bw-bar-tab-dot.inactive {
+  background: #71717a;
+}
+.bw-bar-tab-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bw-bar-tab-meta {
+  color: var(--bw-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
 .bw-danger-text {
   color: #fda4af;
   min-height: 0;
@@ -1014,6 +1091,30 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.bw-stock-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 52px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bw-stock-value.healthy {
+  color: #8ceac2;
+  background: rgba(101, 214, 168, 0.09);
+}
+.bw-stock-value.low {
+  color: #fcd089;
+  background: rgba(255, 149, 0, 0.12);
+}
+.bw-stock-value.empty {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.12);
+}
 /* En mobile el conteo se edita en una fila compacta: el input se angosta. */
 @media (max-width: 639px) {
   .bar-workspace input.bw-stock-quantity:not([type="radio"]):not([type="checkbox"]) {
@@ -1221,6 +1322,21 @@
   }
 }
 @media (max-width: 480px) {
+  .bw-bar-switcher {
+    gap: 4px;
+  }
+  .bw-switcher-back {
+    padding-inline: 8px;
+  }
+  .bw-switcher-back > span {
+    display: none;
+  }
+  .bw-bar-tab-name {
+    max-width: 112px;
+  }
+  .bw-bar-tab-meta {
+    display: none;
+  }
   .bw-bar-name {
     font-size: 15px;
   }

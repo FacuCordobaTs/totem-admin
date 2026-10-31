@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Check, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
@@ -33,6 +33,7 @@ import { BarStockPanel } from "./bar-stock-panel";
 import { BarTeamPanel } from "./bar-team-panel";
 import { BarSalesPanel } from "./bar-sales-panel";
 import { BarProductEditor } from "./bar-product-editor";
+import { BarSwitcher } from "./bar-switcher";
 import {
   isEmptyStock,
   recipeLinesForApi,
@@ -46,6 +47,7 @@ type Props = {
   eventId: string;
   barId: string;
   trackStock?: boolean;
+  onSelectBar: (barId: string) => void;
   onBack: () => void;
   onChanged?: () => void;
 };
@@ -55,6 +57,7 @@ export function BarDetailView({
   eventId,
   barId,
   trackStock = true,
+  onSelectBar,
   onBack,
   onChanged,
 }: Props) {
@@ -82,9 +85,11 @@ export function BarDetailView({
   } | null>(null);
   const { barStock } = useEventStock(eventId, barId, token, trackStock);
   const bar = bars.find((row) => row.id === barId);
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!token) return;
+    const requestId = ++requestIdRef.current;
     try {
       const [barsRes, menuRes, productsRes, materialsRes, stockRes, staffRes] =
         await Promise.all([
@@ -110,6 +115,7 @@ export function BarDetailView({
             token,
           }),
         ]);
+      if (requestId !== requestIdRef.current) return;
       setBars(barsRes.bars);
       setMenu(menuRes.products);
       setCatalog(productsRes.products);
@@ -118,14 +124,31 @@ export function BarDetailView({
       setStaff(staffRes.staff);
       setError("");
     } catch (e) {
+      if (requestId !== requestIdRef.current) return;
       setError(
         e instanceof ApiError ? e.message : "No se pudo cargar la barra",
       );
       throw e;
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [token, eventId, barId, trackStock]);
+
+  // Al cambiar de barra se conserva la sección activa, pero se cierran editores y filtros
+  // para no mostrar datos del puesto anterior.
+  useEffect(() => {
+    setEditing(undefined);
+    setRename(false);
+    setStockFocus(null);
+    setMenuQuery("");
+    setPendingSaleType(null);
+    setBusy(null);
+    setError("");
+    setMenu([]);
+    setInventory([]);
+    setLoading(true);
+  }, [barId]);
+
   useEffect(() => {
     void load().catch(() => {});
   }, [load]);
@@ -303,14 +326,33 @@ export function BarDetailView({
 
   return (
     <div className="bw-detail">
-      {editing === undefined && (
-        <button className="bw-back" onClick={onBack}>
-          <ArrowLeft size={16} />
-          Todas las barras
-        </button>
-      )}
+      {editing === undefined ? (
+        bars.length > 0 ? (
+          <div className="bw-bar-switcher">
+            <button
+              type="button"
+              className="bw-switcher-back"
+              onClick={onBack}
+              aria-label="Volver a todas las barras"
+            >
+              <ArrowLeft size={16} aria-hidden="true" />
+              <span>Todas</span>
+            </button>
+            <BarSwitcher
+              bars={bars}
+              activeBarId={barId}
+              onSelect={onSelectBar}
+            />
+          </div>
+        ) : (
+          <button className="bw-back" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Todas las barras
+          </button>
+        )
+      ) : null}
       {loading ? (
-        <div className="bw-skeleton" aria-label="Cargando barra" />
+        <div className="bw-skeleton" aria-label="Cargando barra" aria-busy="true" />
       ) : error ? (
         <div role="alert" className="bw-error">
           {error}

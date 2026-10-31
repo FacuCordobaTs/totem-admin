@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ApiProduct, ProductSaleType } from "../src/types/inventory";
 import type { BarInventoryItemRow } from "../src/types/event-dashboard";
 import {
+  compareStockAsc,
   isEmptyStock,
   productAvailability,
   productAvailabilityDetail,
@@ -9,6 +10,7 @@ import {
   recipeDraftFromLines,
   recipeLinesForApi,
   stockLabel,
+  stockLevel,
   unitProductItemId,
 } from "../src/components/events/bar-workspace-model";
 
@@ -117,8 +119,27 @@ describe("Disponibilidad física de una barra", () => {
     expect(productSaleType({ ...legacy, recipes: [] }, null)).toBe("NONE");
   });
 });
-describe("Receta en unidades", () => {
-  test("el trago guarda cuántas ventas terminan cada insumo", () => {
+describe("Orden y color del stock", () => {
+  test("clasifica agotado, bajo y saludable para la señal visual", () => {
+    expect(stockLevel("0")).toBe("empty");
+    expect(stockLevel("0.000004")).toBe("empty");
+    expect(stockLevel("0.5")).toBe("low");
+    expect(stockLevel("3")).toBe("low");
+    expect(stockLevel("3.000001")).toBe("healthy");
+    expect(stockLevel("40")).toBe("healthy");
+  });
+  test("ordena primero los insumos con menos stock", () => {
+    const sorted = [item("fern", "5"), item("cola", "0"), item("hielo", "2")].sort(
+      compareStockAsc,
+    );
+    expect(sorted.map((row) => row.inventoryItemId)).toEqual([
+      "cola",
+      "hielo",
+      "fern",
+    ]);
+  });
+});
+describe("Receta en unidades", () => {  test("el trago guarda cuántas ventas terminan cada insumo", () => {
     const draft = recipeDraftFromLines("GLASS", product().recipes);
     expect(draft.map((line) => line.value)).toEqual(["10", "5"]);
     expect(recipeLinesForApi("GLASS", draft)[0]).toEqual({

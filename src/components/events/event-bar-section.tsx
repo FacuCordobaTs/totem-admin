@@ -117,10 +117,13 @@ export function EventBarSection({
         />
       ) : openBarId ? (
         <BarDetailView
-          key={`${eventId}:${openBarId}`}
           eventId={eventId}
           barId={openBarId}
           trackStock={trackStock}
+          onSelectBar={(nextBarId) => {
+            setOpenBarId(nextBarId);
+            onLogisticsChange?.();
+          }}
           onBack={() => {
             setOpenBarId(null);
             void load();
