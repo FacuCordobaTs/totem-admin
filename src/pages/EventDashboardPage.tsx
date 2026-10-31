@@ -46,6 +46,7 @@ import {
   Users,
   Globe,
   TrendingUp,
+  ReceiptText,
   Ban,
   type LucideIcon,
 } from "lucide-react"
@@ -59,6 +60,7 @@ type SectionId =
   | "equipo"
   | "acceso"
   | "pagina"
+  | "ventas"
   | "finanzas"
 
 const EVENT_SECTIONS: { id: SectionId; label: string; Icon: LucideIcon }[] = [
@@ -69,6 +71,7 @@ const EVENT_SECTIONS: { id: SectionId; label: string; Icon: LucideIcon }[] = [
   { id: "barra", label: "Barra", Icon: Wine },
   { id: "equipo", label: "Equipo", Icon: Users },
   { id: "acceso", label: "Acceso", Icon: Ban },
+  { id: "ventas", label: "Ventas", Icon: ReceiptText },
   { id: "finanzas", label: "Finanzas", Icon: TrendingUp },
 ]
 
@@ -95,7 +98,6 @@ export function EventDashboardPage() {
   // En mobile la página funciona por pasos: primero el índice de secciones y después
   // una sola sección ocupando todo el espacio. En desktop se ignora.
   const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
-  const [financeView, setFinanceView] = useState<"summary" | "sales">("summary")
   const [refreshTick, setRefreshTick] = useState(0)
   // Las herramientas y los reportes se abren desde el mismo espacio de trabajo.
   const [view, setView] = useState<"workspace" | "balance" | "cash" | "report">("workspace")
@@ -131,11 +133,9 @@ export function EventDashboardPage() {
     }
     setActiveSection(section)
     setMobileSectionOpen(true)
-    if (section === "finanzas") setFinanceView("summary")
   }, [activeSection, resetInlineEditors])
   const closeMobileSection = useCallback(() => {
     resetInlineEditors()
-    setFinanceView("summary")
     setMobileSectionOpen(false)
     window.scrollTo({ top: 0, behavior: "auto" })
   }, [resetInlineEditors])
@@ -221,11 +221,9 @@ export function EventDashboardPage() {
   const subtitle = [formatEventDate(event.date), event.venue ?? event.location]
     .filter(Boolean)
     .join(" · ")
-  // Las herramientas (balance, caja, reporte) y el detalle de ventas reemplazan todo el
-  // contenido en mobile y traen su propio botón de volver: el encabezado no compite con ellos.
-  const mobilePageNested =
-    view !== "workspace" ||
-    (activeSection === "finanzas" && financeView === "sales")
+  // Las herramientas (balance, caja, reporte) reemplazan todo el contenido en mobile y
+  // traen su propio botón de volver: el encabezado no compite con ellos.
+  const mobilePageNested = view !== "workspace"
   const mobileFocus = mobileSectionOpen || view !== "workspace"
   const mobileBack = mobilePageNested
     ? null
@@ -399,44 +397,41 @@ export function EventDashboardPage() {
             )}
           </SectionShell>
         )
+      case "ventas":
+        return (
+          <SectionShell
+            title="Ventas"
+            description={
+              supportsConsumptions
+                ? "Entradas y consumos, online y en barra."
+                : "Entradas registradas en el evento."
+            }
+          >
+            <EventSalesList
+              eventId={id}
+              supportsConsumptions={supportsConsumptions}
+            />
+          </SectionShell>
+        )
       case "finanzas":
         return (
           <SectionShell
             title="Finanzas"
-            description="Ingresos, gastos y ventas del evento."
+            description="Ingresos y gastos del evento."
           >
-            {financeView === "sales" ? (
-              <EventSalesList
+            <div className="space-y-12">
+              <EventIncomeSummary
                 eventId={id}
+                refreshTrigger={refreshTick}
                 supportsConsumptions={supportsConsumptions}
-                onBack={() => setFinanceView("summary")}
+                onNavigate={navigateToSection}
               />
-            ) : (
-              <div className="space-y-12">
-                <EventIncomeSummary
-                  eventId={id}
-                  refreshTrigger={refreshTick}
-                  supportsConsumptions={supportsConsumptions}
-                  onNavigate={navigateToSection}
-                  action={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setFinanceView("sales")}
-                      className="h-9 rounded-xl px-3 text-[13px] font-medium text-white/55 hover:bg-white/[0.06] hover:text-white"
-                    >
-                      Ver todas las ventas
-                      <ArrowRight className="ml-1.5 h-4 w-4" />
-                    </Button>
-                  }
-                />
 
-                <EventExpensesTab
-                  eventId={id}
-                  onExpensesChanged={bump}
-                />
-              </div>
-            )}
+              <EventExpensesTab
+                eventId={id}
+                onExpensesChanged={bump}
+              />
+            </div>
           </SectionShell>
         )
     }

@@ -278,6 +278,7 @@ export type EventSaleRowApi = {
   id: string
   createdAt: Date | string | null
   source: "POS" | "APP" | "WEB"
+  status: "PENDING" | "COMPLETED"
   totalAmount: string
   paymentMethod: "CASH" | "CARD" | "MERCADOPAGO" | "TRANSFER" | "SALDO"
   staffName: string | null

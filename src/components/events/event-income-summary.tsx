@@ -12,8 +12,6 @@ type Props = {
   supportsConsumptions?: boolean
   /** Salta a la sección del evento que explica ese ingreso. */
   onNavigate?: (target: IncomeTarget) => void
-  /** Acción secundaria junto al título (por ejemplo, ver todas las ventas). */
-  action?: React.ReactNode
 }
 
 type IncomeRow = {
@@ -31,7 +29,7 @@ function formatMoney(value: string): string {
     : "—"
 }
 
-export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsumptions = true, onNavigate, action }: Props) {
+export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsumptions = true, onNavigate }: Props) {
   const token = useAuthStore((s) => s.token)
   const [summary, setSummary] = useState<EventSummaryResponse | null>(null)
 
@@ -59,10 +57,7 @@ export function EventIncomeSummary({ eventId, refreshTrigger = 0, supportsConsum
 
   return (
     <section aria-labelledby="income-summary-title">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 lg:max-w-md">
-        <h2 id="income-summary-title" className="text-lg font-semibold text-white">Ingresos</h2>
-        {action}
-      </div>
+      <h2 id="income-summary-title" className="mb-4 text-lg font-semibold text-white">Ingresos</h2>
       <div className="overflow-hidden rounded-2xl bg-white/[0.02] lg:max-w-md">
         <div className="px-5 pt-5">
           <div className="flex items-center gap-3">
