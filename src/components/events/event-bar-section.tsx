@@ -120,10 +120,6 @@ export function EventBarSection({
           eventId={eventId}
           barId={openBarId}
           trackStock={trackStock}
-          onSelectBar={(nextBarId) => {
-            setOpenBarId(nextBarId);
-            onLogisticsChange?.();
-          }}
           onBack={() => {
             setOpenBarId(null);
             void load();

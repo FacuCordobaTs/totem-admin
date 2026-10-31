@@ -32,7 +32,6 @@ import { BarMenuPanel } from "./bar-menu-panel";
 import { BarTeamPanel } from "./bar-team-panel";
 import { BarSalesPanel } from "./bar-sales-panel";
 import { BarProductEditor } from "./bar-product-editor";
-import { BarSwitcher } from "./bar-switcher";
 import {
   recipeLinesForApi,
   type RecipeDraftLine,
@@ -44,7 +43,6 @@ type Props = {
   eventId: string;
   barId: string;
   trackStock?: boolean;
-  onSelectBar: (barId: string) => void;
   onBack: () => void;
   onChanged?: () => void;
 };
@@ -54,7 +52,6 @@ export function BarDetailView({
   eventId,
   barId,
   trackStock = true,
-  onSelectBar,
   onBack,
   onChanged,
 }: Props) {
@@ -299,31 +296,12 @@ export function BarDetailView({
 
   return (
     <div className="bw-detail">
-      {editing === undefined ? (
-        bars.length > 0 ? (
-          <div className="bw-bar-switcher">
-            <button
-              type="button"
-              className="bw-switcher-back"
-              onClick={onBack}
-              aria-label="Volver a todas las barras"
-            >
-              <ArrowLeft size={16} aria-hidden="true" />
-              <span>Todas</span>
-            </button>
-            <BarSwitcher
-              bars={bars}
-              activeBarId={barId}
-              onSelect={onSelectBar}
-            />
-          </div>
-        ) : (
-          <button className="bw-back" onClick={onBack}>
-            <ArrowLeft size={16} />
-            Todas las barras
-          </button>
-        )
-      ) : null}
+      {editing === undefined && (
+        <button className="bw-back" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Todas las barras
+        </button>
+      )}
       {loading ? (
         <div className="bw-skeleton" aria-label="Cargando barra" aria-busy="true" />
       ) : error ? (

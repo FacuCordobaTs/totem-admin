@@ -1,15 +1,20 @@
 import { useEffect, useRef } from "react";
-import type { EventBarRow } from "@/types/event-dashboard";
+
+type BarTab = {
+  id: string;
+  name: string;
+  isActive?: boolean | null;
+};
 
 type Props = {
-  bars: EventBarRow[];
-  activeBarId: string;
+  bars: BarTab[];
+  activeBarId: string | null;
   onSelect: (barId: string) => void;
 };
 
 /**
- * Navegador horizontal entre las barras del evento. Evita volver al listado para cambiar de
- * puesto y mantiene el foco de teclado usando el patrón de tabs con selección roving.
+ * Navegador horizontal entre las barras del depósito. Evita volver al resumen para cambiar de
+ * puesto y mantiene el foco de teclado con navegación por flechas.
  */
 export function BarSwitcher({ bars, activeBarId, onSelect }: Props) {
   const activeRef = useRef<HTMLButtonElement | null>(null);

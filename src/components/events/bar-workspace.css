@@ -229,6 +229,10 @@
   background: var(--bw-hover);
   color: white;
 }
+.bw-switcher-back[aria-current="page"] {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
 .bw-bar-tabs {
   display: flex;
   align-items: center;

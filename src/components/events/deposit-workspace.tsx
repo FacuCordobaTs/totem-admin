@@ -36,6 +36,7 @@ import type {
   DepositResponse,
 } from "@/types/event-dashboard";
 import { NewMaterialRow } from "./bar-new-material-row";
+import { BarSwitcher } from "./bar-switcher";
 import {
   decimalInput,
   normalizeSearch,
@@ -574,6 +575,32 @@ export function DepositWorkspace({ eventId, onBack, onChanged }: Props) {
           </button>
         </nav>
 
+        {section === "bars" && liveBars.length > 0 ? (
+          <div className="bw-bar-switcher">
+            <button
+              type="button"
+              className="bw-switcher-back"
+              aria-current={selectedBarId == null ? "page" : undefined}
+              onClick={() => {
+                setSelectedBarId(null);
+                setSending(null);
+                setBarQuery("");
+              }}
+            >
+              Resumen
+            </button>
+            <BarSwitcher
+              bars={liveBars}
+              activeBarId={selectedBarId}
+              onSelect={(barId) => {
+                setSelectedBarId(barId);
+                setSending(null);
+                setBarQuery("");
+              }}
+            />
+          </div>
+        ) : null}
+
         {section === "stock" ? (
           <section aria-label="Existencias del depósito">
             <div className="bw-tab-head">
@@ -860,17 +887,6 @@ export function DepositWorkspace({ eventId, onBack, onChanged }: Props) {
           </section>
         ) : selectedBar ? (
           <section aria-label={`Stock de ${selectedBar.name}`}>
-            <button
-              className="bw-back"
-              onClick={() => {
-                setSelectedBarId(null);
-                setSending(null);
-                setBarQuery("");
-              }}
-            >
-              <ArrowLeft size={16} />
-              Todas las barras
-            </button>
             <div className="bw-detail-header">
               <div className="bw-grow">
                 <div className="bw-bar-title">
