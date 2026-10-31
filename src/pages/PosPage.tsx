@@ -25,8 +25,6 @@ import {
   Store,
   RefreshCw,
   Wallet,
-  AlertTriangle,
-  Package,
   EllipsisVertical,
 } from "lucide-react"
 import {
@@ -50,8 +48,6 @@ import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { PosScannerModal } from "@/components/pos/PosScannerModal"
 import { SaleDetailsDialog } from "@/components/pos/SaleDetailsDialog"
-import { useEventStock } from "@/hooks/useEventStock"
-import type { RecipeLine } from "@/lib/product-availability"
 import { usePrinter } from "@/context/PrinterContext"
 import { usePosOffline } from "@/hooks/usePosOffline"
 import { buildPosDocuments, enqueuePosSale, posCachedFetch, printPosSale, updatePosSale, type PosQueuedSale, type PosSaleBody } from "@/lib/pos-offline"
@@ -63,9 +59,6 @@ interface CatalogProduct {
   categoryId: string | null
   categoryName: string | null
   categorySortOrder: number | null
-  recipes: RecipeLine[]
-  /** Productos sin receta: null significa que no tienen límite de unidades. */
-  directStock: string | null
 }
 
 interface ProductCartItem {
@@ -107,8 +100,6 @@ type BarCatalogRowApi = {
   categoryId?: string | null
   categoryName?: string | null
   categorySortOrder?: number | null
-  recipes: RecipeLine[]
-  directStock?: string | null
 }
 
 type UiPayment = "cash" | "card" | "mercadopago" | "saldo"
@@ -147,43 +138,6 @@ function formatSaleTime(createdAt: Date | string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   })
-}
-
-type StockVisual = "unlimited" | "ok" | "low" | "out"
-
-function stockVisualForProduct(
-  avail: number,
-  baseline: number | undefined
-): StockVisual {
-  if (!Number.isFinite(avail)) return "unlimited"
-  if (avail <= 0) return "out"
-  const b = Math.max(baseline ?? avail, 1)
-  if (avail < 10 || avail < 0.05 * b) return "low"
-  if (avail >= 0.2 * b) return "ok"
-  return "low"
-}
-
-/**
- * La caja muestra el menú y las existencias físicas de la barra seleccionada.
- */
-function barProductAvailabilityUnits(
-  product: CatalogProduct,
-  eventStock: Record<string, number>
-): number {
-  if (product.recipes.length === 0) {
-    if (product.directStock == null) return Number.POSITIVE_INFINITY
-    const directStock = Number.parseFloat(product.directStock)
-    return Number.isFinite(directStock) ? Math.max(0, Math.floor(directStock)) : 0
-  }
-
-  let available = Number.POSITIVE_INFINITY
-  for (const recipe of product.recipes) {
-    const quantity = Number.parseFloat(recipe.quantityUsed)
-    if (!Number.isFinite(quantity) || quantity <= 0) continue
-    const stock = eventStock[recipe.inventoryItemId] ?? 0
-    available = Math.min(available, Math.floor(stock / quantity))
-  }
-  return Number.isFinite(available) ? Math.max(0, available) : 0
 }
 
 const shell = "bg-[#F2F2F7] text-black dark:bg-black dark:text-white"
@@ -261,10 +215,8 @@ export function PosPage() {
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
-  const [tracksStock, setTracksStock] = useState(true)
   const [productSearch, setProductSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<{ eventId: string; barId: string; id: string } | null>(null)
-  const [eventStockOpen, setEventStockOpen] = useState(false)
 
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<UiPayment>("cash")
@@ -469,12 +421,11 @@ export function PosPage() {
     setCatalogLoading(true)
     void (async () => {
       try {
-        const res = await cachedFetch<{ products: BarCatalogRowApi[]; tracksStock?: boolean }>(
+        const res = await cachedFetch<{ products: BarCatalogRowApi[] }>(
           `/bars/${activeBarId}/products?eventId=${encodeURIComponent(activeEventId)}`,
           { method: "GET", token }
         )
         if (cancelled) return
-        setTracksStock(res.tracksStock !== false)
         const rows = res.products.filter((p) => p.isActiveForBar).map((p) => ({
             id: p.id,
             name: p.name,
@@ -482,8 +433,6 @@ export function PosPage() {
             categoryId: p.categoryId ?? null,
             categoryName: p.categoryName ?? null,
             categorySortOrder: p.categorySortOrder ?? null,
-            recipes: p.recipes ?? [],
-            directStock: p.directStock ?? null,
           }))
         setCatalogProducts(rows)
       } catch {
@@ -580,37 +529,6 @@ export function PosPage() {
     !!activeBarId &&
     (!shiftBound || hasBoundShift)
 
-  const { barStock, connectionStatus, refreshSnapshot } =
-    useEventStock(activeEventId || null, activeBarId || null, token, posReady && tracksStock)
-
-  const physicalStock = useMemo(() => Object.fromEntries(
-    Object.entries(barStock).filter(([key]) => key.startsWith(`${activeBarId}:`)).map(([key, quantity]) => [key.slice(activeBarId.length + 1), quantity])
-  ), [barStock, activeBarId])
-
-  const [productBaselines, setProductBaselines] = useState<
-    Record<string, number>
-  >({})
-
-  useEffect(() => {
-    setProductBaselines({})
-  }, [activeEventId])
-
-  useEffect(() => {
-    if (!posReady) return
-    setProductBaselines((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const p of catalogProducts) {
-        if (next[p.id] != null) continue
-        const a = barProductAvailabilityUnits(p, physicalStock)
-        if (!Number.isFinite(a)) continue
-        next[p.id] = Math.max(a, 1)
-        changed = true
-      }
-      return changed ? next : prev
-    })
-  }, [catalogProducts, physicalStock, posReady])
-
   const catalogCategories = useMemo(() => {
     const categories = new Map<string, { id: string; name: string; sortOrder: number; count: number }>()
     for (const p of catalogProducts) {
@@ -662,19 +580,6 @@ export function PosPage() {
           (a.name ?? "").localeCompare(b.name ?? "")
       )
   }, [filteredCatalog])
-
-  const eventStockProducts = useMemo(
-    () =>
-      catalogProducts.map((product) => {
-        const available = barProductAvailabilityUnits(product, physicalStock)
-        return {
-          product,
-          available,
-          visual: stockVisualForProduct(available, productBaselines[product.id]),
-        }
-      }),
-    [catalogProducts, physicalStock, productBaselines]
-  )
 
   const cartTotal = useMemo(
     () =>
@@ -819,7 +724,6 @@ export function PosPage() {
       setCustomerName("")
       if (paymentMethod === "saldo") setPaymentMethod("cash")
       bumpHistory()
-      void refreshSnapshot().catch(() => {})
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "No se pudo guardar la venta"
@@ -847,7 +751,6 @@ export function PosPage() {
     customerName,
     clearCart,
     bumpHistory,
-    refreshSnapshot,
   ])
 
   const handleAddBalanceCharge = useCallback(() => {
@@ -1053,60 +956,6 @@ export function PosPage() {
         token={token}
         onClose={() => setSelectedSaleId(null)}
       />
-      <Dialog open={tracksStock && eventStockOpen} onOpenChange={setEventStockOpen}>
-        <DialogContent className="max-h-[80svh] max-w-lg overflow-hidden rounded-2xl p-0">
-          <DialogHeader className="border-b border-zinc-100 px-6 py-5 dark:border-zinc-800">
-            <div className="flex items-start justify-between gap-4 pr-6">
-              <div>
-                <DialogTitle>Stock de esta barra</DialogTitle>
-                <DialogDescription className="mt-1.5">
-                  Disponible para toda la caja, sin separar por barras.
-                </DialogDescription>
-              </div>
-              {tracksStock ? <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => void refreshSnapshot()}
-                className="h-9 w-9 shrink-0 rounded-xl"
-                aria-label="Actualizar stock de esta barra"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button> : null}
-            </div>
-          </DialogHeader>
-          <div className="max-h-[58svh] overflow-y-auto p-4">
-            {eventStockProducts.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                No hay productos activos en este evento.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {eventStockProducts.map(({ product, available, visual }) => (
-                  <li
-                    key={product.id}
-                    className={cn(
-                      "flex items-center justify-between gap-4 rounded-xl border px-4 py-3",
-                      visual === "out" && "border-red-200 bg-red-50/70 dark:border-red-900/50 dark:bg-red-950/20",
-                      visual === "low" && "border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20",
-                      (visual === "ok" || visual === "unlimited") && "border-zinc-100 dark:border-zinc-800"
-                    )}
-                  >
-                    <span className="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                      {product.name}
-                    </span>
-                    <span className="shrink-0 text-sm font-black tabular-nums text-zinc-700 dark:text-zinc-200">
-                      {Number.isFinite(available)
-                        ? `${Math.floor(available)} disp.`
-                        : "Sin límite"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
       <Dialog open={chargeOpen} onOpenChange={setChargeOpen}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
@@ -1278,33 +1127,14 @@ export function PosPage() {
         </details>
       )}
 
-      {posReady && connectionStatus === "closed" && (
-        <div className="shrink-0 border-b border-amber-200/80 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-          Stock en vivo desconectado — el stock de esta barra se actualiza cada 25s.
-        </div>
-      )}
-
       <div className="grid flex-1 grid-cols-1 items-start gap-4 p-3 lg:min-h-0 lg:grid-cols-12 lg:items-stretch lg:gap-5 lg:p-5">
         
         {/* Columna 1: Catálogo (lg:col-span-5) */}
         <section className={cn(panelClass, "lg:col-span-5")}>
           <div className="shrink-0 space-y-3 border-b border-zinc-200/50 p-4 dark:border-zinc-800/50 md:p-5">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                Productos del evento
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!posReady}
-                onClick={() => setEventStockOpen(true)}
-                className="h-9 shrink-0 gap-1.5 rounded-xl text-xs font-semibold"
-              >
-                <Package className="h-3.5 w-3.5" />
-                Stock de esta barra
-              </Button>
-            </div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+              Productos del evento
+            </p>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8E8E93]" />
               <Input
@@ -1350,61 +1180,35 @@ export function PosPage() {
                       </p>
                     ) : null}
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
-                      {group.products.map((product) => {
-                        const avail = barProductAvailabilityUnits(product, physicalStock)
-                        const baseline = productBaselines[product.id]
-                        const vis = stockVisualForProduct(avail, baseline)
-                        const hasStockWarning = vis === "low" || vis === "out"
-                        return (
-                          <Card
-                            key={product.id}
-                            size="sm"
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => addToCart(product)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault()
-                                addToCart(product)
-                              }
-                            }}
-                            className={cn(
-                              "relative gap-3 rounded-2xl border py-4 shadow-none ring-0 transition-all duration-300 dark:bg-zinc-950/30",
-                              "cursor-pointer border-zinc-100 bg-zinc-50/50 hover:bg-zinc-100/80 active:scale-[0.98] dark:border-zinc-800 dark:hover:bg-zinc-800/50",
-                              vis === "ok" && "border-zinc-200 dark:border-zinc-700",
-                              vis === "low" && "border-amber-200 dark:border-amber-900/50",
-                              vis === "out" && "border-red-200 dark:border-red-900/50"
-                            )}
-                          >
-                            {hasStockWarning ? (
-                              <span
-                                className={cn(
-                                  "absolute right-3 top-3 flex items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wider",
-                                  vis === "out" &&
-                                    "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-                                  vis === "low" &&
-                                    "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
-                                )}
-                              >
-                                <AlertTriangle className="h-3 w-3" />
-                                {vis === "out" ? "Sin stock" : "Stock bajo"}
-                              </span>
-                            ) : null}
-                            <CardHeader className="px-4 py-0 pr-20">
-                              <CardTitle className="text-base font-bold leading-tight tracking-tight text-zinc-950 dark:text-white">
-                                {product.name}
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="px-4 pb-0 pt-0">
-                              <p
-                                className="text-lg font-black tabular-nums tracking-tight text-[#FF9500]"
-                              >
-                                ${new Decimal(product.price).toFixed(2)}
-                              </p>
-                            </CardContent>
-                          </Card>
-                        )
-                      })}
+                      {group.products.map((product) => (
+                        <Card
+                          key={product.id}
+                          size="sm"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => addToCart(product)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              addToCart(product)
+                            }
+                          }}
+                          className="relative cursor-pointer gap-3 rounded-2xl border border-zinc-100 bg-zinc-50/50 py-4 shadow-none ring-0 transition-all duration-300 hover:bg-zinc-100/80 active:scale-[0.98] dark:border-zinc-800 dark:bg-zinc-950/30 dark:hover:bg-zinc-800/50"
+                        >
+                          <CardHeader className="px-4 py-0">
+                            <CardTitle className="text-base font-bold leading-tight tracking-tight text-zinc-950 dark:text-white">
+                              {product.name}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="px-4 pb-0 pt-0">
+                            <p
+                              className="text-lg font-black tabular-nums tracking-tight text-[#FF9500]"
+                            >
+                              ${new Decimal(product.price).toFixed(2)}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -1716,29 +1520,15 @@ export function PosPage() {
                         </li>
                       )
                     }
-                    const avail = barProductAvailabilityUnits(item.product, physicalStock)
-                    const stockGone =
-                      Number.isFinite(avail) &&
-                      (avail <= 0 || item.quantity > avail)
                     return (
                       <li
                         key={item.product.id}
-                        className={cn(
-                          "flex items-stretch gap-2 rounded-2xl border p-3 transition-all duration-300",
-                          stockGone
-                            ? "border-red-200 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/30"
-                            : "border-zinc-100 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-950/40"
-                        )}
+                        className="flex items-stretch gap-2 rounded-2xl border border-zinc-100 bg-zinc-50/80 p-3 transition-all duration-300 dark:border-zinc-800 dark:bg-zinc-950/40"
                       >
                         <div className="min-w-0 flex-1 self-center">
                           <p className="truncate font-bold text-sm text-zinc-950 dark:text-white">
                             {item.product.name}
                           </p>
-                          {stockGone ? (
-                            <p className="text-xs font-semibold text-red-600 dark:text-red-400">
-                              Agotado
-                            </p>
-                          ) : null}
                           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                             <span className="font-bold text-zinc-900 dark:text-zinc-100">
                               ${new Decimal(item.product.price).times(item.quantity).toFixed(2)}
