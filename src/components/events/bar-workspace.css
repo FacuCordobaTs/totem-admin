@@ -275,7 +275,7 @@
   left: 13px;
   color: var(--bw-muted);
 }
-.bar-workspace .bw-price-input input {
+.bar-workspace .bw-price-input input:not([type="radio"]):not([type="checkbox"]) {
   padding-left: 30px;
   font-variant-numeric: tabular-nums;
 }
@@ -533,7 +533,7 @@
   left: 13px;
   pointer-events: none;
 }
-.bar-workspace .bw-search input {
+.bar-workspace .bw-search input:not([type="radio"]):not([type="checkbox"]) {
   margin: 0;
   padding-left: 39px;
   background: transparent;
@@ -1007,12 +1007,19 @@
 .bw-danger-button:hover:not(:disabled) {
   background: rgba(244, 63, 94, 0.24);
 }
-.bar-workspace input.bw-stock-quantity {
+.bar-workspace input.bw-stock-quantity:not([type="radio"]):not([type="checkbox"]) {
   width: 88px;
   min-height: 36px;
   padding-block: 6px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+/* En mobile el conteo se edita en una fila compacta: el input se angosta. */
+@media (max-width: 639px) {
+  .bar-workspace input.bw-stock-quantity:not([type="radio"]):not([type="checkbox"]) {
+    width: 64px;
+    padding-inline: 8px;
+  }
 }
 .bw-stock-cost {
   width: 168px;
@@ -1231,6 +1238,18 @@
     width: 100%;
     gap: 2px;
     margin-bottom: 24px;
+  }
+  .bw-nav button {
+    flex-shrink: 0;
+    gap: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .bw-nav button > span {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
   }
   .bw-heading {
     align-items: start;

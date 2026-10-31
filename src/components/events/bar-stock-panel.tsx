@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import Decimal from "decimal.js";
-import { MoreHorizontal, Package, Plus, Search, X } from "lucide-react";
+import {
+  Check,
+  Loader2,
+  MoreHorizontal,
+  Package,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
 import {
@@ -26,6 +34,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NewMaterialRow } from "./bar-new-material-row";
@@ -40,6 +49,25 @@ import {
   stockLabel,
   validQuantity,
 } from "./bar-workspace-model";
+
+/** En pantallas angostas Ingresar/Contar se agrupan en el menú "…" de la fila. */
+const COMPACT_ACTIONS_QUERY = "(max-width: 639px)";
+
+function useCompactRowActions() {
+  const [compact, setCompact] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(COMPACT_ACTIONS_QUERY).matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(COMPACT_ACTIONS_QUERY);
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return compact;
+}
 
 
 type Props = {
@@ -79,6 +107,7 @@ export function BarStockPanel({
   const [renameValue, setRenameValue] = useState("");
   const [deleting, setDeleting] = useState<BarInventoryItemRow | null>(null);
   const [itemBusy, setItemBusy] = useState(false);
+  const compactActions = useCompactRowActions();
   const usedBy = useMemo(() => {
     const map = new Map<string, ApiProduct[]>();
     for (const product of products)
@@ -366,17 +395,17 @@ export function BarStockPanel({
           </button>
         </div>
       ) : (
-        <div className="overflow-x-auto overflow-y-hidden rounded-2xl bg-white/[0.02]">
-          <Table className="min-w-[620px] sm:min-w-0">
+        <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+          <Table className="table-fixed sm:table-auto">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Producto
                 </TableHead>
-                <TableHead className="w-[200px] text-right text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[84px] text-right text-[11px] font-normal lowercase text-white/45 sm:w-[200px]">
                   En barra
                 </TableHead>
-                <TableHead className="w-[216px] pr-4">
+                <TableHead className="w-[88px] pr-4 sm:w-[216px]">
                   <span className="sr-only">Acciones</span>
                 </TableHead>
               </TableRow>
@@ -449,15 +478,15 @@ export function BarStockPanel({
                           }}
                         />
                       ) : (
-                        <div className="flex min-h-9 min-w-0 items-center gap-2">
+                        <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-2">
                           <span
-                            className={`truncate text-[14px] font-medium ${empty ? "text-[#ffd294]" : "text-foreground"}`}
+                            className={`min-w-0 truncate text-[13px] font-medium sm:text-[14px] ${empty ? "text-[#ffd294]" : "text-foreground"}`}
                             title={item.name}
                           >
                             {item.name}
                           </span>
                           {edit && mode === "add" ? (
-                            <span className="bw-price-input bw-stock-cost ml-auto">
+                            <span className="bw-price-input bw-stock-cost ml-auto max-sm:mt-1 max-sm:basis-full">
                               <span>$</span>
                               <input
                                 aria-label={`Costo total de la compra de ${item.name} (opcional)`}
@@ -489,7 +518,7 @@ export function BarStockPanel({
                     >
                       {edit ? (
                         <div className="flex items-center justify-end gap-2">
-                          <span className="text-[12px] text-white/45">
+                          <span className="hidden text-[12px] text-white/45 sm:inline">
                             {mode === "add" ? "+" : "Hay"}
                           </span>
                           <input
@@ -526,7 +555,7 @@ export function BarStockPanel({
                           >
                             {stockLabel(item.barCurrentStock)}
                           </span>{" "}
-                          <span className="text-[12px] text-white/40">
+                          <span className="hidden text-[12px] text-white/40 sm:inline">
                             {new Decimal(item.barCurrentStock).eq(1)
                               ? "unidad"
                               : "unidades"}
@@ -541,10 +570,27 @@ export function BarStockPanel({
                             <button
                               type="button"
                               className="bw-secondary bw-table-action whitespace-nowrap"
+                              aria-label={
+                                itemBusy ? "Guardando…" : "Guardar nombre"
+                              }
                               disabled={itemBusy || !renameValue.trim()}
                               onClick={() => void rename(item)}
                             >
-                              {itemBusy ? "Guardando…" : "Guardar"}
+                              {compactActions ? (
+                                itemBusy ? (
+                                  <Loader2
+                                    size={14}
+                                    className="animate-spin"
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <Check size={14} aria-hidden="true" />
+                                )
+                              ) : itemBusy ? (
+                                "Guardando…"
+                              ) : (
+                                "Guardar"
+                              )}
                             </button>
                             <button
                               type="button"
@@ -561,10 +607,25 @@ export function BarStockPanel({
                             <button
                               type="button"
                               className="bw-primary bw-table-action whitespace-nowrap"
+                              aria-label={busy ? "Guardando…" : "Guardar"}
                               disabled={busy || !quantity.trim()}
                               onClick={() => void save(item)}
                             >
-                              {busy ? "Guardando…" : "Guardar"}
+                              {compactActions ? (
+                                busy ? (
+                                  <Loader2
+                                    size={14}
+                                    className="animate-spin"
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <Check size={14} aria-hidden="true" />
+                                )
+                              ) : busy ? (
+                                "Guardando…"
+                              ) : (
+                                "Guardar"
+                              )}
                             </button>
                             <button
                               type="button"
@@ -578,24 +639,28 @@ export function BarStockPanel({
                           </>
                         ) : (
                           <>
-                            <button
-                              type="button"
-                              className="bw-secondary bw-table-action whitespace-nowrap"
-                              disabled={busy}
-                              aria-label={`Ingresar stock de ${item.name}`}
-                              onClick={() => open(item, "add")}
-                            >
-                              Ingresar
-                            </button>
-                            <button
-                              type="button"
-                              className="bw-secondary bw-table-action whitespace-nowrap"
-                              disabled={busy}
-                              aria-label={`Contar stock de ${item.name}`}
-                              onClick={() => open(item, "count")}
-                            >
-                              Contar
-                            </button>
+                            {!compactActions && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="bw-secondary bw-table-action whitespace-nowrap"
+                                  disabled={busy}
+                                  aria-label={`Ingresar stock de ${item.name}`}
+                                  onClick={() => open(item, "add")}
+                                >
+                                  Ingresar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="bw-secondary bw-table-action whitespace-nowrap"
+                                  disabled={busy}
+                                  aria-label={`Contar stock de ${item.name}`}
+                                  onClick={() => open(item, "count")}
+                                >
+                                  Contar
+                                </button>
+                              </>
+                            )}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button
@@ -611,6 +676,21 @@ export function BarStockPanel({
                                 align="end"
                                 className="bg-[#0a0a0a]"
                               >
+                                {compactActions && (
+                                  <>
+                                    <DropdownMenuItem
+                                      onSelect={() => open(item, "add")}
+                                    >
+                                      Ingresar stock
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onSelect={() => open(item, "count")}
+                                    >
+                                      Contar stock
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator className="bg-white/[0.06]" />
+                                  </>
+                                )}
                                 <DropdownMenuItem
                                   onSelect={() => startRename(item)}
                                 >
