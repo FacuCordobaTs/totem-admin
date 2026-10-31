@@ -356,7 +356,6 @@ export function PosScannerModal({
   const handleDeliver = useCallback(async () => {
     if (!order || !barId || !token || delivering) return
     if (order.status !== "PENDING") return
-    if ((order.stockShortages?.length ?? 0) > 0) return
     setDelivering(true)
     try {
       // La venta del ticket se entrega por comprobante; el resto del flujo es idéntico.
@@ -727,7 +726,7 @@ export function PosScannerModal({
                     <section className="mt-5 rounded-2xl border border-red-400/50 bg-red-500/15 p-4" aria-live="assertive">
                       <div className="flex items-center gap-2 text-red-300">
                         <AlertTriangle className="h-5 w-5 shrink-0" />
-                        <p className="font-black">No alcanza el stock para entregar este pedido</p>
+                        <p className="font-black">Stock insuficiente: podés entregar igual</p>
                       </div>
                       <ul className="mt-3 space-y-2">
                         {order.stockShortages?.map((shortage) => (
@@ -755,7 +754,7 @@ export function PosScannerModal({
                   {order.status === "PENDING" ? (
                     <Button
                       type="button"
-                      disabled={delivering || hasStockShortages}
+                      disabled={delivering}
                       onClick={() => void handleDeliver()}
                       className="h-16 w-full gap-2 rounded-2xl bg-emerald-500 text-lg font-black tracking-tight text-emerald-950 transition-all duration-300 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-60"
                     >
