@@ -130,7 +130,10 @@ export function BarMenuPanel({
         <div className="bw-form-actions">
           <button className="bw-secondary" onClick={() => setPicker(true)}>
             <PackagePlus size={16} />
-            Asignar producto del catálogo
+            <span className="sm:hidden">Del catálogo</span>
+            <span className="hidden sm:inline">
+              Asignar producto del catálogo
+            </span>
           </button>
           <button className="bw-secondary" onClick={onCreate}>
             <Plus size={17} />
@@ -169,27 +172,27 @@ export function BarMenuPanel({
           </button>
         </div>
       ) : (
-        <div className="overflow-x-auto overflow-y-hidden rounded-2xl bg-white/[0.02]">
-          <Table className="min-w-[560px] sm:min-w-0">
+        <div className="overflow-hidden rounded-2xl bg-white/[0.02]">
+          <Table className="table-fixed sm:table-auto">
             <TableHeader>
               <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
                 <TableHead className="pl-4 text-[11px] font-normal lowercase text-white/45">
                   Producto
                 </TableHead>
-                <TableHead className="w-[96px] text-right text-[11px] font-normal lowercase text-white/45">
+                <TableHead className="w-[76px] text-right text-[11px] font-normal lowercase text-white/45 sm:w-[96px]">
                   Precio
                 </TableHead>
                 {trackStock && (
                   <>
-                    <TableHead className="w-[148px] text-[11px] font-normal lowercase text-white/45">
+                    <TableHead className="hidden w-[148px] text-[11px] font-normal lowercase text-white/45 sm:table-cell">
                       Venta
                     </TableHead>
-                    <TableHead className="w-[176px] text-center text-[11px] font-normal lowercase text-white/45">
+                    <TableHead className="w-[96px] text-center text-[11px] font-normal lowercase text-white/45 sm:w-[176px]">
                       Disponible
                     </TableHead>
                   </>
                 )}
-                <TableHead className="w-12 pr-4">
+                <TableHead className="w-[44px] pr-4 sm:w-12">
                   <span className="sr-only">Editar producto</span>
                 </TableHead>
               </TableRow>
@@ -233,7 +236,7 @@ export function BarMenuPanel({
                     <TableCell className="max-w-[360px] py-3.5 pl-4">
                       <div className="flex min-w-0 items-baseline gap-2">
                         <span
-                          className="truncate text-[15px] font-medium text-foreground"
+                          className="min-w-0 truncate text-[13px] font-medium text-foreground sm:text-[15px]"
                           title={row.name}
                         >
                           {row.name}
@@ -248,13 +251,13 @@ export function BarMenuPanel({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="py-3.5 text-right text-[13px] font-medium tabular-nums text-white/80">
+                    <TableCell className="py-3.5 text-right text-[12px] font-medium tabular-nums text-white/80 sm:text-[13px]">
                       {moneyLabel(row.price)}
                     </TableCell>
                     {trackStock && (
                       <>
                         <TableCell
-                          className="py-2"
+                          className="hidden py-2 sm:table-cell"
                           onClick={(event) => event.stopPropagation()}
                           onKeyDown={(event) => event.stopPropagation()}
                         >
@@ -290,7 +293,13 @@ export function BarMenuPanel({
                           onClick={(event) => event.stopPropagation()}
                           onKeyDown={(event) => event.stopPropagation()}
                         >
-                          {saleType === "NONE" ? null : !configured ? (
+                          {saleType === "NONE" ? (
+                            <span className="sm:hidden">
+                              <span className="bw-availability untracked">
+                                Sin control
+                              </span>
+                            </span>
+                          ) : !configured ? (
                             <button
                               type="button"
                               className="bw-secondary bw-table-action whitespace-nowrap"
@@ -302,9 +311,12 @@ export function BarMenuPanel({
                                 })
                               }
                             >
-                              {saleType === "GLASS"
-                                ? "Configurar receta"
-                                : "Configurar botellas"}
+                              <span className="sm:hidden">Configurar</span>
+                              <span className="hidden sm:inline">
+                                {saleType === "GLASS"
+                                  ? "Configurar receta"
+                                  : "Configurar botellas"}
+                              </span>
                             </button>
                           ) : (
                             <button
