@@ -6,6 +6,36 @@ export type EventOperationMode =
   | "FULL_OPERATION"
 
 /**
+ * Partes de configuración de un evento que se pueden reutilizar al crear uno nuevo.
+ * Los hechos (ventas, entradas, cortesías, stock, compras y gastos) nunca se copian.
+ */
+export type EventCopySection =
+  | "page"
+  | "tickets"
+  | "menu"
+  | "bars"
+  | "team"
+  | "transports"
+
+/** Conteos del evento de origen para elegir qué copiar sin abrir cada sección. */
+export type EventCopyPreview = {
+  event: {
+    id: string
+    name: string
+    date: string
+    operationMode: EventOperationMode
+  }
+  sections: {
+    page: { available: boolean }
+    tickets: { count: number }
+    menu: { count: number }
+    bars: { count: number; products: number }
+    team: { count: number }
+    transports: { count: number }
+  }
+}
+
+/**
  * Tarea 10.1 — Cierre de caja POR PUESTO (visión §2.8). Espejo del tipo del backend
  * (`CashClosingEntry` en `schema.ts`). `expected` = efectivo (CASH) que debería haber en el
  * cajón; `counted` = lo contado a mano (null = no se contó); `byMethod` desglosa el esperado.

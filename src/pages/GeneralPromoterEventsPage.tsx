@@ -16,7 +16,7 @@ function formatEventDate(iso: string): string {
 
 /**
  * Pantalla del promotor general: los eventos en los que la productora lo incluyó. Es la misma
- * lista que abre el admin, reducida a lo suyo: sin crear, duplicar ni eliminar eventos y sin
+ * lista que abre el admin, reducida a lo suyo: sin crear, copiar ni eliminar eventos y sin
  * cifras de la productora. El backend ya acota `GET /events` a sus asignaciones (`event_staff`),
  * igual que hace con Seguridad.
  */

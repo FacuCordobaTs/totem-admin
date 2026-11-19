@@ -468,7 +468,7 @@ export function EventStaffTab({
           <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-white/45">
             {isGeneralPromoter
               ? "Gestioná tu cartera y compartí los accesos desde el detalle de cada promotor."
-              : "Cada evento nuevo incluye a todo el equipo activo. Las personas que invites acá quedan asignadas a este evento."}
+              : "Asigná acá a las personas que trabajan en este evento. Las que invitás quedan asignadas automáticamente."}
           </p>
         </div>
         {canManage ? (

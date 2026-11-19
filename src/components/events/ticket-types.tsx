@@ -13,6 +13,13 @@ import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { admissionInputToIso, toAdmissionInput } from "@/lib/ticket-admission"
 import { TicketAdmissionFields } from "./ticket-admission-fields"
+import {
+  offerBadge,
+  offerDraftFrom,
+  offerPayload,
+  TicketOfferFields,
+  type VolumeDiscountTier,
+} from "./ticket-offer-fields"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -40,6 +47,7 @@ export type ApiTicketType = {
   isActive?: boolean
   promoBuy?: number | null
   promoPay?: number | null
+  volumeDiscounts?: VolumeDiscountTier[] | null
   sold: number
   remaining: number | null
   courtesies?: number
@@ -203,9 +211,7 @@ function TicketTypeEditor({
   const [price, setPrice] = useState(type ? formatPriceInput(type.price) : "")
   const [stock, setStock] = useState(type?.stockLimit?.toString() ?? "")
   const [active, setActive] = useState(type?.isActive !== false)
-  const [promoEnabled, setPromoEnabled] = useState(type?.promoBuy != null)
-  const [promoBuy, setPromoBuy] = useState(type?.promoBuy?.toString() ?? "2")
-  const [promoPay, setPromoPay] = useState(type?.promoPay?.toString() ?? "1")
+  const [offer, setOffer] = useState(() => offerDraftFrom(type))
   const [admissionEnabled, setAdmissionEnabled] = useState(
     Boolean(type?.validFrom || type?.validUntil)
   )
@@ -243,20 +249,9 @@ function TicketTypeEditor({
       setError("El horario hasta debe ser posterior al horario desde.")
       return
     }
-    const buy = promoEnabled ? Number(promoBuy) : null
-    const pay = promoEnabled ? Number(promoPay) : null
-    if (
-      promoEnabled &&
-      (buy == null ||
-        pay == null ||
-        !Number.isInteger(buy) ||
-        !Number.isInteger(pay) ||
-        buy < 2 ||
-        buy > 20 ||
-        pay < 1 ||
-        pay >= buy)
-    ) {
-      setError("Revisá la promoción: llevás entre 2 y 20, y pagás una cantidad menor.")
+    const offerResult = offerPayload(offer)
+    if ("error" in offerResult) {
+      setError(offerResult.error)
       return
     }
     setSaving(true)
@@ -268,8 +263,7 @@ function TicketTypeEditor({
           name: name.trim(),
           price: new Decimal(normalizedPrice).toFixed(2),
           stockLimit: stock.trim() === "" ? null : Number(stock),
-          promoBuy: buy,
-          promoPay: pay,
+          ...offerResult.payload,
           validFrom: admissionEnabled ? admissionInputToIso(from) : null,
           validUntil: admissionEnabled ? admissionInputToIso(until) : null,
           ...(type ? { isActive: active } : {}),
@@ -300,11 +294,6 @@ function TicketTypeEditor({
       setDeleting(false)
     }
   }
-
-  const promoPercent =
-    promoEnabled && Number(promoBuy) > Number(promoPay) && Number(promoBuy) > 0
-      ? Math.round((1 - Number(promoPay) / Number(promoBuy)) * 100)
-      : null
 
   return (
     <div className="space-y-7">
@@ -376,43 +365,11 @@ function TicketTypeEditor({
             </div>
           </FormBlock>
 
-          <FormBlock title="Promoción">
-            <ToggleRow
-              title="Llevá varias y pagá menos"
-              description="Se aplica sola al comprar la cantidad de entradas indicada."
-              checked={promoEnabled}
-              onCheckedChange={setPromoEnabled}
-              disabled={saving || deleting}
-            />
-            {promoEnabled ? (
-              <div className="mt-5 space-y-3">
-                <div className="grid grid-cols-2 gap-3 sm:max-w-[280px]">
-                  <FormField label="Llevás" htmlFor={`type-buy-${id}`}>
-                    <Input
-                      id={`type-buy-${id}`}
-                      inputMode="numeric"
-                      value={promoBuy}
-                      onChange={(e) => setPromoBuy(e.target.value)}
-                      className={cn(fieldInputClass, "tabular-nums")}
-                    />
-                  </FormField>
-                  <FormField label="Pagás" htmlFor={`type-pay-${id}`}>
-                    <Input
-                      id={`type-pay-${id}`}
-                      inputMode="numeric"
-                      value={promoPay}
-                      onChange={(e) => setPromoPay(e.target.value)}
-                      className={cn(fieldInputClass, "tabular-nums")}
-                    />
-                  </FormField>
-                </div>
-                <p className="text-[12px] text-white/50" aria-live="polite">
-                  {promoPercent != null
-                    ? `Llevando ${promoBuy} pagás ${promoPay}: ${promoPercent}% menos.`
-                    : "Llevás entre 2 y 20 entradas y pagás una cantidad menor."}
-                </p>
-              </div>
-            ) : null}
+          <FormBlock
+            title="Oferta"
+            description="Se aplica sola en la tienda según la cantidad que lleve cada comprador."
+          >
+            <TicketOfferFields id={id} value={offer} onChange={setOffer} inputClassName={fieldInputClass} />
           </FormBlock>
 
           <FormBlock title="Horario de ingreso">
@@ -726,9 +683,9 @@ export function TicketTypes({
                           >
                             {type.name}
                           </span>
-                          {type.promoBuy != null && type.promoPay != null ? (
+                          {offerBadge(type) ? (
                             <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-medium text-white/65 tabular-nums">
-                              {type.promoBuy}×{type.promoPay}
+                              {offerBadge(type)}
                             </span>
                           ) : null}
                         </div>
@@ -804,9 +761,9 @@ export function TicketTypes({
                         >
                           {type.name}
                         </span>
-                        {type.promoBuy != null && type.promoPay != null ? (
+                        {offerBadge(type) ? (
                           <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-medium text-white/65 tabular-nums">
-                            {type.promoBuy}×{type.promoPay}
+                            {offerBadge(type)}
                           </span>
                         ) : null}
                         {inactive ? (
