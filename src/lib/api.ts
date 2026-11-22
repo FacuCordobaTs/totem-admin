@@ -39,6 +39,34 @@ export class ApiError extends Error {
   }
 }
 
+/** Código con el que el backend rechaza una sesión cerrada por el PIN de acceso del equipo. */
+export const STAFF_ACCESS_PIN_REVOKED = "STAFF_ACCESS_PIN_REVOKED"
+
+let staffSessionRevokedListener: ((token: string) => void) | null = null
+
+/**
+ * Lo registra el store de sesión: cualquier petición autenticada que vuelva con la sesión revocada
+ * por el PIN de acceso cierra la sesión local, sin esperar al próximo chequeo de `/staff/me`.
+ */
+export function onStaffSessionRevoked(listener: (token: string) => void) {
+  staffSessionRevokedListener = listener
+}
+
+/** Respuesta de un inicio de sesión que todavía necesita el PIN de acceso del equipo. */
+export type AccessPinPrompt = {
+  requiresAccessPin: true
+  /** Presente en contraseña y magic link: la cuenta elegida, para reintentar con el PIN. */
+  staffId?: string
+  name?: string | null
+  tenantName?: string | null
+  code?: string
+}
+
+export function accessPinPrompt(err: unknown): AccessPinPrompt | null {
+  if (!(err instanceof ApiError) || !err.body || err.body.requiresAccessPin !== true) return null
+  return err.body as unknown as AccessPinPrompt
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string | null } = {}
@@ -78,6 +106,9 @@ export async function apiFetch<T>(
       errBody && typeof errBody.error === "string"
         ? errBody.error
         : `Error ${res.status}`
+    if (token && res.status === 401 && errBody?.code === STAFF_ACCESS_PIN_REVOKED) {
+      staffSessionRevokedListener?.(token)
+    }
     throw new ApiError(msg, res.status, errBody)
   }
 

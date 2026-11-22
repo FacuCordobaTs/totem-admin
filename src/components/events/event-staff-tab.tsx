@@ -7,6 +7,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  KeyRound,
   Loader2,
   LogIn,
   QrCode,
@@ -65,6 +66,10 @@ import {
   TableRow
 } from "@/components/ui/table"
 import { useEventNestedView } from "./event-mobile-nav"
+import {
+  StaffAccessPinDialog,
+  type StaffAccessPinState
+} from "./staff-access-pin-dialog"
 
 type StaffRole = EventAssignmentStaffRow["role"]
 type Invitation = {
@@ -146,6 +151,11 @@ export function EventStaffTab({
   )
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // PIN de acceso del equipo. ADMIN lo configura; quienes comparten accesos sólo ven si está activo
+  // para avisarle a la persona. null = todavía sin dato (o un backend sin este endpoint).
+  const [accessPin, setAccessPin] = useState<StaffAccessPinState | null>(null)
+  const [accessPinOpen, setAccessPinOpen] = useState(false)
+  const canConfigureAccessPin = role === "ADMIN"
 
   const load = useCallback(
     async (showLoading = false) => {
@@ -182,6 +192,20 @@ export function EventStaffTab({
   useEffect(() => {
     void load(true)
   }, [load])
+  useEffect(() => {
+    if (!token || !canManage) return
+    let cancelled = false
+    apiFetch<{ accessPin: StaffAccessPinState }>("/staff/access-pin", { token })
+      .then((data) => {
+        if (!cancelled) setAccessPin(data.accessPin)
+      })
+      .catch(() => {
+        /* sin dato no se muestra el control ni el aviso: el resto de Equipo sigue igual */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canManage, token])
 
   const reloadTeam = useCallback(() => {
     void load()
@@ -402,6 +426,7 @@ export function EventStaffTab({
         reloadTeam()
       }}
       accessHint={inviteAccessHint}
+      accessPinEnabled={accessPin?.enabled === true}
       initialInvitation={invitationToShow}
       promoterOnly={isGeneralPromoter}
       ticketsOnly={promotersOnly}
@@ -472,18 +497,45 @@ export function EventStaffTab({
           </p>
         </div>
         {canManage ? (
-          <Button
-            onClick={() => {
-              setInvitationToShow(null)
-              setInviteOpen(true)
-            }}
-            className={`${primaryButtonClass} self-start`}
-          >
-            <UserPlus className="mr-1.5 size-4" />
-            {isGeneralPromoter ? "Invitar promotor" : "Invitar persona"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 self-start">
+            {canConfigureAccessPin && accessPin ? (
+              <Button
+                variant="ghost"
+                onClick={() => setAccessPinOpen(true)}
+                className="h-10 rounded-xl px-3 text-[13px] text-white/70 hover:bg-white/[0.06] hover:text-white"
+              >
+                <KeyRound className="mr-1.5 size-4" />
+                PIN de acceso
+                <span
+                  className={
+                    accessPin.enabled ? "text-emerald-300" : "text-white/45"
+                  }
+                >
+                  · {accessPin.enabled ? "Activo" : "Desactivado"}
+                </span>
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => {
+                setInvitationToShow(null)
+                setInviteOpen(true)
+              }}
+              className={primaryButtonClass}
+            >
+              <UserPlus className="mr-1.5 size-4" />
+              {isGeneralPromoter ? "Invitar promotor" : "Invitar persona"}
+            </Button>
+          </div>
         ) : null}
       </div>
+      {canConfigureAccessPin && accessPin ? (
+        <StaffAccessPinDialog
+          open={accessPinOpen}
+          onOpenChange={setAccessPinOpen}
+          state={accessPin}
+          onChange={setAccessPin}
+        />
+      ) : null}
 
       <div className="space-y-4">
         <div
@@ -1238,6 +1290,7 @@ function InviteEmployeeDialog({
   onOpenChange,
   onCreated,
   accessHint,
+  accessPinEnabled = false,
   initialInvitation,
   promoterOnly = false,
   ticketsOnly = false
@@ -1247,6 +1300,8 @@ function InviteEmployeeDialog({
   onOpenChange: (open: boolean) => void
   onCreated: () => void
   accessHint?: string
+  /** Con el PIN de acceso activo, el link solo no alcanza: se lo recuerda a quien comparte. */
+  accessPinEnabled?: boolean
   initialInvitation: Invitation | null
   promoterOnly?: boolean
   ticketsOnly?: boolean
@@ -1369,6 +1424,13 @@ function InviteEmployeeDialog({
                   <p className="text-sm text-white/65">
                     {accessHint ?? "Escaneá el QR para abrir la invitación."}
                   </p>
+                  {accessPinEnabled ? (
+                    <p className="mt-2 flex items-start gap-1.5 text-sm text-[#FFB547]">
+                      <KeyRound aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                      Además del link, va a tener que ingresar el PIN de acceso del
+                      equipo.
+                    </p>
+                  ) : null}
                   <div className="mt-3 flex gap-2">
                     <Input
                       aria-label="Link de acceso"

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router"
 import { Button } from "@/components/ui/button"
-import { apiFetch, ApiError } from "@/lib/api"
+import { accessPinPrompt, apiFetch, ApiError, type AccessPinPrompt } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
+import { StaffAccessPinForm } from "@/components/auth/staff-access-pin-form"
 import { homeForRole } from "@/lib/staff-home"
 
 type AccessResponse = {
@@ -26,9 +27,12 @@ export function AccessPage() {
   const [loading, setLoading] = useState(true)
   const [tenantOptions, setTenantOptions] =
     useState<TenantSelectionResponse["options"] | null>(null)
+  // El enlace no se consume hasta que el PIN de acceso del equipo es correcto: se reintenta con él.
+  const [pinPrompt, setPinPrompt] = useState<AccessPinPrompt | null>(null)
+  const [pinError, setPinError] = useState<string | null>(null)
 
   const consume = useCallback(
-    async (staffId?: string) => {
+    async (staffId?: string, pin?: string) => {
       if (!token) return
       setLoading(true)
       setError(null)
@@ -37,7 +41,11 @@ export function AccessPage() {
           "/staff/magic-link/consume",
           {
             method: "POST",
-            body: JSON.stringify({ token, ...(staffId ? { staffId } : {}) }),
+            body: JSON.stringify({
+              token,
+              ...(staffId ? { staffId } : {}),
+              ...(pin ? { pin } : {}),
+            }),
           }
         )
         if ("requiresTenantSelection" in data && data.requiresTenantSelection) {
@@ -48,9 +56,16 @@ export function AccessPage() {
         setAuth(data.token, data.staff)
         navigate(homeForRole(data.staff.role), { replace: true })
       } catch (err) {
-        setError(
-          err instanceof ApiError ? err.message : "El enlace es inválido o venció"
-        )
+        const prompt = accessPinPrompt(err)
+        if (prompt) {
+          setTenantOptions(null)
+          setPinPrompt(prompt)
+          setPinError(pin ? (err as ApiError).message : null)
+        } else {
+          setError(
+            err instanceof ApiError ? err.message : "El enlace es inválido o venció"
+          )
+        }
       } finally {
         setLoading(false)
       }
@@ -86,6 +101,14 @@ export function AccessPage() {
               Volver al inicio
             </Button>
           </div>
+        ) : pinPrompt ? (
+          <StaffAccessPinForm
+            name={pinPrompt.name}
+            tenantName={pinPrompt.tenantName}
+            error={pinError}
+            submitting={loading}
+            onSubmit={(pin) => void consume(pinPrompt.staffId, pin)}
+          />
         ) : tenantOptions && tenantOptions.length > 1 ? (
           <div className="flex flex-col gap-2">
             <p className="text-sm font-medium text-muted-foreground px-1">

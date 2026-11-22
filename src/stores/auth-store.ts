@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
-import { apiFetch, ApiError } from "@/lib/api"
+import { apiFetch, ApiError, onStaffSessionRevoked, STAFF_ACCESS_PIN_REVOKED } from "@/lib/api"
 
 export type StaffRole =
   | "ADMIN"
@@ -25,15 +25,29 @@ export type StaffProfile = {
   createdAt?: string | null
 }
 
+/** Por qué se cerró la sesión sin que la persona saliera: lo muestra la pantalla de reingreso. */
+export type SessionNotice = "access-pin"
+
 type AuthState = {
   token: string | null
   staff: StaffProfile | null
   roleChosen: boolean
+  /**
+   * Token del link de acceso (`/unirse/:token`) con el que entró la sesión de este dispositivo. Si
+   * la sesión se pierde sin cerrar sesión (p. ej. al activarse el PIN de acceso del equipo), el
+   * dispositivo vuelve a ese link en lugar del login con contraseña, que el personal no tiene.
+   */
+  accessLinkToken: string | null
+  sessionNotice: SessionNotice | null
   chooseRole: (role: StaffRole) => Promise<void>
   showRolePicker: () => void
-  setAuth: (token: string, staff: StaffProfile) => void
+  setAuth: (token: string, staff: StaffProfile, options?: { accessLinkToken?: string }) => void
   updateStaff: (staff: StaffProfile) => void
   logout: () => void
+  /** Cierra la sesión local porque el backend la revocó; conserva el link para volver a entrar. */
+  revokeSession: (token: string, notice: SessionNotice) => void
+  forgetAccessLink: () => void
+  clearSessionNotice: () => void
   fetchSession: () => Promise<void>
 }
 
@@ -43,7 +57,16 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       staff: null,
       roleChosen: false,
-      setAuth: (token, staff) => set({ token, staff, roleChosen: false }),
+      accessLinkToken: null,
+      sessionNotice: null,
+      setAuth: (token, staff, options) =>
+        set({
+          token,
+          staff,
+          roleChosen: false,
+          accessLinkToken: options?.accessLinkToken ?? null,
+          sessionNotice: null,
+        }),
       showRolePicker: () => set({ roleChosen: false }),
       chooseRole: async (role) => {
         const token = get().token
@@ -54,7 +77,15 @@ export const useAuthStore = create<AuthState>()(
         set({ ...data, roleChosen: true })
       },
       updateStaff: (staff) => set({ staff }),
-      logout: () => set({ token: null, staff: null, roleChosen: false }),
+      logout: () =>
+        set({ token: null, staff: null, roleChosen: false, accessLinkToken: null, sessionNotice: null }),
+      revokeSession: (token, notice) => {
+        // Una respuesta tardía de una sesión anterior no puede cerrar la que entró después.
+        if (get().token !== token) return
+        set({ token: null, staff: null, roleChosen: false, sessionNotice: notice })
+      },
+      forgetAccessLink: () => set({ accessLinkToken: null, sessionNotice: null }),
+      clearSessionNotice: () => set({ sessionNotice: null }),
       fetchSession: async () => {
         const token = get().token
         if (!token) return
@@ -75,15 +106,31 @@ export const useAuthStore = create<AuthState>()(
           })
         } catch (err) {
           if (get().token === token && err instanceof ApiError && err.status === 401) {
-            set({ token: null, staff: null, roleChosen: false })
+            if (err.body?.code === STAFF_ACCESS_PIN_REVOKED) {
+              get().revokeSession(token, "access-pin")
+            } else {
+              set({ token: null, staff: null, roleChosen: false })
+            }
           }
         }
       },
     }),
     {
       name: "totem-admin-auth",
-      partialize: (s) => ({ token: s.token, staff: s.staff }),
+      partialize: (s) => ({
+        token: s.token,
+        staff: s.staff,
+        accessLinkToken: s.accessLinkToken,
+        sessionNotice: s.sessionNotice,
+      }),
       storage: createJSONStorage(() => localStorage),
     }
   )
 )
+
+onStaffSessionRevoked((token) => useAuthStore.getState().revokeSession(token, "access-pin"))
+
+/** A dónde vuelve un dispositivo que perdió la sesión: su link de acceso si entró por uno. */
+export function staffReentryPath(state: Pick<AuthState, "accessLinkToken">): string {
+  return state.accessLinkToken ? `/unirse/${state.accessLinkToken}` : "/login"
+}

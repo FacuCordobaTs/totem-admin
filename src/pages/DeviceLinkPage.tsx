@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { apiFetch, ApiError, publicApiFetch } from "@/lib/api"
-import { useAuthStore, type StaffRole } from "@/stores/auth-store"
+import { staffReentryPath, useAuthStore, type StaffRole } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
 import { homeForRole } from "@/lib/staff-home"
 
@@ -63,6 +63,7 @@ export function DeviceLinkPage() {
   const navigate = useNavigate()
   const token = useAuthStore((s) => s.token)
   const staff = useAuthStore((s) => s.staff)
+  const accessLinkToken = useAuthStore((s) => s.accessLinkToken)
   // La sesión viene del storage: hasta que hidrate, `token` es null y no se puede decidir nada.
   const [hydrated, setHydrated] = useState(false)
   const [info, setInfo] = useState<DeviceLinkInfo | null>(null)
@@ -211,7 +212,7 @@ export function DeviceLinkPage() {
             <Button
               type="button"
               size="lg"
-              onClick={() => navigate("/login")}
+              onClick={() => navigate(staffReentryPath({ accessLinkToken }))}
               className="w-full h-12 mt-7 rounded-2xl text-sm font-semibold bg-[#FF9500] hover:bg-[#FF9500]/90 text-white shadow-none transition-all active:scale-[0.98]"
             >
               Iniciar sesión
