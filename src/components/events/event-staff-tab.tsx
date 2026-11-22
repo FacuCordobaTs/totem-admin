@@ -66,10 +66,7 @@ import {
   TableRow
 } from "@/components/ui/table"
 import { useEventNestedView } from "./event-mobile-nav"
-import {
-  StaffAccessPinDialog,
-  type StaffAccessPinState
-} from "./staff-access-pin-dialog"
+import { RegenerateLinkButton, StaffPinControl } from "./staff-access-panel"
 
 type StaffRole = EventAssignmentStaffRow["role"]
 type Invitation = {
@@ -104,6 +101,9 @@ const normalize = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("es")
     .trim()
+
+/** Roles cuyo link exige PIN propio (lo valida el backend). */
+const LINK_PIN_ROLES: StaffRole[] = ["ADMIN", "MANAGER", "GENERAL_PROMOTER"]
 
 const primaryButtonClass =
   "h-10 rounded-xl bg-[#FF9500] px-4 font-semibold text-[#18120a] hover:bg-[#FFAB36]"
@@ -151,11 +151,8 @@ export function EventStaffTab({
   )
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  // PIN de acceso del equipo. ADMIN lo configura; quienes comparten accesos sólo ven si está activo
-  // para avisarle a la persona. null = todavía sin dato (o un backend sin este endpoint).
-  const [accessPin, setAccessPin] = useState<StaffAccessPinState | null>(null)
-  const [accessPinOpen, setAccessPinOpen] = useState(false)
-  const canConfigureAccessPin = role === "ADMIN"
+  // Ver/cambiar el PIN personal y regenerar el link de cada persona es sólo de ADMIN.
+  const canManageAccess = role === "ADMIN"
 
   const load = useCallback(
     async (showLoading = false) => {
@@ -192,20 +189,6 @@ export function EventStaffTab({
   useEffect(() => {
     void load(true)
   }, [load])
-  useEffect(() => {
-    if (!token || !canManage) return
-    let cancelled = false
-    apiFetch<{ accessPin: StaffAccessPinState }>("/staff/access-pin", { token })
-      .then((data) => {
-        if (!cancelled) setAccessPin(data.accessPin)
-      })
-      .catch(() => {
-        /* sin dato no se muestra el control ni el aviso: el resto de Equipo sigue igual */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [canManage, token])
 
   const reloadTeam = useCallback(() => {
     void load()
@@ -426,7 +409,6 @@ export function EventStaffTab({
         reloadTeam()
       }}
       accessHint={inviteAccessHint}
-      accessPinEnabled={accessPin?.enabled === true}
       initialInvitation={invitationToShow}
       promoterOnly={isGeneralPromoter}
       ticketsOnly={promotersOnly}
@@ -460,6 +442,9 @@ export function EventStaffTab({
           canEditRoles={canEditRoles}
           canDelete={canDelete}
           canImpersonate={canImpersonate}
+          canManageAccess={canManageAccess}
+          isSelf={selectedMember.id === currentStaffId}
+          onAccessChange={() => void load()}
           isGeneralPromoter={isGeneralPromoter}
           isPending={pendingIds.has(selectedMember.id)}
           shopUrl={shopUrl}
@@ -497,45 +482,18 @@ export function EventStaffTab({
           </p>
         </div>
         {canManage ? (
-          <div className="flex flex-wrap items-center gap-2 self-start">
-            {canConfigureAccessPin && accessPin ? (
-              <Button
-                variant="ghost"
-                onClick={() => setAccessPinOpen(true)}
-                className="h-10 rounded-xl px-3 text-[13px] text-white/70 hover:bg-white/[0.06] hover:text-white"
-              >
-                <KeyRound className="mr-1.5 size-4" />
-                PIN de acceso
-                <span
-                  className={
-                    accessPin.enabled ? "text-emerald-300" : "text-white/45"
-                  }
-                >
-                  · {accessPin.enabled ? "Activo" : "Desactivado"}
-                </span>
-              </Button>
-            ) : null}
-            <Button
-              onClick={() => {
-                setInvitationToShow(null)
-                setInviteOpen(true)
-              }}
-              className={primaryButtonClass}
-            >
-              <UserPlus className="mr-1.5 size-4" />
-              {isGeneralPromoter ? "Invitar promotor" : "Invitar persona"}
-            </Button>
-          </div>
+          <Button
+            onClick={() => {
+              setInvitationToShow(null)
+              setInviteOpen(true)
+            }}
+            className={`${primaryButtonClass} self-start`}
+          >
+            <UserPlus className="mr-1.5 size-4" />
+            {isGeneralPromoter ? "Invitar promotor" : "Invitar persona"}
+          </Button>
         ) : null}
       </div>
-      {canConfigureAccessPin && accessPin ? (
-        <StaffAccessPinDialog
-          open={accessPinOpen}
-          onOpenChange={setAccessPinOpen}
-          state={accessPin}
-          onChange={setAccessPin}
-        />
-      ) : null}
 
       <div className="space-y-4">
         <div
@@ -826,6 +784,9 @@ function StaffDetail({
   canEditRoles,
   canDelete,
   canImpersonate,
+  canManageAccess,
+  isSelf,
+  onAccessChange,
   isGeneralPromoter,
   isPending,
   shopUrl,
@@ -847,6 +808,10 @@ function StaffDetail({
   canEditRoles: boolean
   canDelete: boolean
   canImpersonate: boolean
+  /** ADMIN: ve y cambia el PIN personal y regenera el link de la persona. */
+  canManageAccess: boolean
+  isSelf: boolean
+  onAccessChange: () => void
   isGeneralPromoter: boolean
   isPending: boolean
   shopUrl: string | null
@@ -1021,10 +986,14 @@ function StaffDetail({
           ) : null}
         </DetailBlock>
 
-        {(shopUrl && member.isAssigned) || (canManage && invitation) ? (
+        {(shopUrl && member.isAssigned) || (canManage && invitation) || canManageAccess ? (
           <DetailBlock
             title="Acceso"
-            description="Links para compartir con esta persona."
+            description={
+              canManageAccess
+                ? "Su link de acceso a Crow y su PIN. Administración, gerencia y promotor general crean su PIN la primera vez que abren el link y lo necesitan cada vez que entran por él."
+                : "Links para compartir con esta persona."
+            }
           >
             <div className="space-y-5">
               {shopUrl && member.isAssigned ? (
@@ -1044,19 +1013,45 @@ function StaffDetail({
                       void onCopyLink(invitation.url, "Link de acceso copiado")
                     }
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={onShowAccess}
-                    className="text-white/55 hover:bg-white/[0.06] hover:text-white"
-                  >
-                    <QrCode className="mr-1.5 h-4 w-4" />
-                    Ver QR
-                  </Button>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={onShowAccess}
+                      className="text-white/55 hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <QrCode className="mr-1.5 h-4 w-4" />
+                      Ver QR
+                    </Button>
+                    {canManageAccess && !isSelf ? (
+                      <RegenerateLinkButton
+                        staffId={member.id}
+                        name={member.name}
+                        hasLink
+                        onRegenerated={onAccessChange}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
-              {canManage && !invitation ? (
+              {canManageAccess && !invitation && !isSelf ? (
+                <div className="space-y-2">
+                  <p className="text-[13px] leading-relaxed text-white/45">
+                    Esta persona no tiene link de acceso a Crow.
+                  </p>
+                  <RegenerateLinkButton
+                    staffId={member.id}
+                    name={member.name}
+                    hasLink={false}
+                    onRegenerated={onAccessChange}
+                  />
+                </div>
+              ) : null}
+              {canManageAccess ? (
+                <StaffPinControl staffId={member.id} name={member.name} isSelf={isSelf} />
+              ) : null}
+              {canManage && !canManageAccess && !invitation ? (
                 <p className="text-[13px] leading-relaxed text-white/45">
                   Esta persona todavía no tiene una invitación activa. Podés
                   compartirle un acceso desde «Invitar persona».
@@ -1290,7 +1285,6 @@ function InviteEmployeeDialog({
   onOpenChange,
   onCreated,
   accessHint,
-  accessPinEnabled = false,
   initialInvitation,
   promoterOnly = false,
   ticketsOnly = false
@@ -1300,8 +1294,6 @@ function InviteEmployeeDialog({
   onOpenChange: (open: boolean) => void
   onCreated: () => void
   accessHint?: string
-  /** Con el PIN de acceso activo, el link solo no alcanza: se lo recuerda a quien comparte. */
-  accessPinEnabled?: boolean
   initialInvitation: Invitation | null
   promoterOnly?: boolean
   ticketsOnly?: boolean
@@ -1424,11 +1416,13 @@ function InviteEmployeeDialog({
                   <p className="text-sm text-white/65">
                     {accessHint ?? "Escaneá el QR para abrir la invitación."}
                   </p>
-                  {accessPinEnabled ? (
+                  {(invitation.roles ?? [invitation.role]).some((invitedRole) =>
+                    LINK_PIN_ROLES.includes(invitedRole)
+                  ) ? (
                     <p className="mt-2 flex items-start gap-1.5 text-sm text-[#FFB547]">
                       <KeyRound aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-                      Además del link, va a tener que ingresar el PIN de acceso del
-                      equipo.
+                      Compartíselo sólo a esta persona: al abrirlo por primera vez crea
+                      su PIN y lo va a necesitar cada vez que entre con el link.
                     </p>
                   ) : null}
                   <div className="mt-3 flex gap-2">

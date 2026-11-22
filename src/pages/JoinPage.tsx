@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router"
 import { accessPinPrompt, apiFetch, ApiError, type AccessPinPrompt } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
-import { ACCESS_PIN_REVOKED_NOTICE, StaffAccessPinForm } from "@/components/auth/staff-access-pin-form"
+import { ACCESS_CHANGED_NOTICE, StaffAccessPinForm } from "@/components/auth/staff-access-pin-form"
 import { homeForRole } from "@/lib/staff-home"
 
 type AcceptResponse = {
@@ -87,9 +87,14 @@ export function JoinPage() {
           </div>
         ) : pinPrompt ? (
           <StaffAccessPinForm
+            mode={pinPrompt.mode}
             name={pinPrompt.name}
             tenantName={pinPrompt.tenantName}
-            notice={sessionNotice === "access-pin" && reachedFromDevice ? ACCESS_PIN_REVOKED_NOTICE : null}
+            notice={
+              sessionNotice === "access-changed" && reachedFromDevice && pinPrompt.mode === "verify"
+                ? ACCESS_CHANGED_NOTICE
+                : null
+            }
             error={pinError}
             submitting={submitting}
             onSubmit={(pin) => void accept(pin)}

@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
-import { apiFetch, ApiError, onStaffSessionRevoked, STAFF_ACCESS_PIN_REVOKED } from "@/lib/api"
+import { apiFetch, ApiError, onStaffSessionRevoked, STAFF_SESSION_REVOKED } from "@/lib/api"
 
 export type StaffRole =
   | "ADMIN"
@@ -26,7 +26,7 @@ export type StaffProfile = {
 }
 
 /** Por qué se cerró la sesión sin que la persona saliera: lo muestra la pantalla de reingreso. */
-export type SessionNotice = "access-pin"
+export type SessionNotice = "access-changed"
 
 type AuthState = {
   token: string | null
@@ -34,7 +34,7 @@ type AuthState = {
   roleChosen: boolean
   /**
    * Token del link de acceso (`/unirse/:token`) con el que entró la sesión de este dispositivo. Si
-   * la sesión se pierde sin cerrar sesión (p. ej. al activarse el PIN de acceso del equipo), el
+   * la sesión se pierde sin cerrar sesión (p. ej. porque se cambió su PIN o su link), el
    * dispositivo vuelve a ese link en lugar del login con contraseña, que el personal no tiene.
    */
   accessLinkToken: string | null
@@ -106,8 +106,8 @@ export const useAuthStore = create<AuthState>()(
           })
         } catch (err) {
           if (get().token === token && err instanceof ApiError && err.status === 401) {
-            if (err.body?.code === STAFF_ACCESS_PIN_REVOKED) {
-              get().revokeSession(token, "access-pin")
+            if (err.body?.code === STAFF_SESSION_REVOKED) {
+              get().revokeSession(token, "access-changed")
             } else {
               set({ token: null, staff: null, roleChosen: false })
             }
@@ -128,7 +128,7 @@ export const useAuthStore = create<AuthState>()(
   )
 )
 
-onStaffSessionRevoked((token) => useAuthStore.getState().revokeSession(token, "access-pin"))
+onStaffSessionRevoked((token) => useAuthStore.getState().revokeSession(token, "access-changed"))
 
 /** A dónde vuelve un dispositivo que perdió la sesión: su link de acceso si entró por uno. */
 export function staffReentryPath(state: Pick<AuthState, "accessLinkToken">): string {

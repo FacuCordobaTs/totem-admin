@@ -5,12 +5,11 @@ import { isTauri } from "@tauri-apps/api/core"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { accessPinPrompt, apiFetch, ApiError, type AccessPinPrompt } from "@/lib/api"
+import { apiFetch, ApiError } from "@/lib/api"
 import { useAuthStore, type StaffProfile } from "@/stores/auth-store"
 import { usePosAssignmentStore } from "@/stores/pos-assignment-store"
 import { BrandLockup } from "@/components/auth/brand-lockup"
 import { DeviceLinkPanel } from "@/components/auth/device-link-panel"
-import { StaffAccessPinForm } from "@/components/auth/staff-access-pin-form"
 import { cn } from "@/lib/utils"
 import { homeForRole } from "@/lib/staff-home"
 import { getStaffLoginUrl } from "@/lib/staff-app-url"
@@ -68,9 +67,6 @@ export function LoginPage() {
   const [magicLoading, setMagicLoading] = useState(false)
   const [magicSent, setMagicSent] = useState(false)
   const [magicDevUrl, setMagicDevUrl] = useState<string | null>(null)
-  // Paso del PIN de acceso del equipo, después de una contraseña correcta.
-  const [pinPrompt, setPinPrompt] = useState<AccessPinPrompt | null>(null)
-  const [pinError, setPinError] = useState<string | null>(null)
 
   function chooseMode(mode: EntryMode) {
     setError(null)
@@ -86,17 +82,11 @@ export function LoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await submitLogin()
-  }
-
-  async function submitLogin(pin?: string) {
     setError(null)
     setLoading(true)
     try {
       const body: Record<string, string> = { email, password }
-      const staffId = pin ? pinPrompt?.staffId : selectedStaffId
-      if (staffId) body.staffId = staffId
-      if (pin) body.pin = pin
+      if (selectedStaffId) body.staffId = selectedStaffId
 
       const data = await apiFetch<LoginResponse | TenantSelectionResponse>("/staff/login", {
         method: "POST",
@@ -113,13 +103,7 @@ export function LoginPage() {
       setAuth(loginData.token, loginData.staff)
       navigate(homeForRole(loginData.staff.role), { replace: true })
     } catch (err) {
-      const prompt = accessPinPrompt(err)
-      if (prompt) {
-        setPinPrompt(prompt)
-        setPinError(pin ? (err as ApiError).message : null)
-      } else {
-        setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión")
-      }
+      setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión")
     } finally {
       setLoading(false)
     }
@@ -151,37 +135,17 @@ export function LoginPage() {
       <div className="w-full max-w-sm animate-in fade-in duration-700">
         <BrandLockup className="mb-12" />
 
-        {sessionNotice === "access-pin" && !pinPrompt ? (
+        {sessionNotice === "access-changed" ? (
           <p
             className="mb-6 rounded-2xl bg-[#FF9500]/10 px-4 py-3 text-sm leading-relaxed text-[#FFB547]"
             role="status"
           >
-            Se cerró tu sesión porque la productora activó o cambió el PIN de acceso. Volvé a entrar
-            con tu link de acceso o con tu cuenta, y vas a tener que ingresar el PIN.
+            Se cerró tu sesión porque cambió tu acceso (PIN o link nuevo). Volvé a entrar con tu
+            link de acceso o con tu cuenta.
           </p>
         ) : null}
 
-        {pinPrompt ? (
-          <StaffAccessPinForm
-            name={pinPrompt.name}
-            tenantName={pinPrompt.tenantName}
-            error={pinError}
-            submitting={loading}
-            onSubmit={(pin) => void submitLogin(pin)}
-            footer={
-              <button
-                type="button"
-                onClick={() => {
-                  setPinPrompt(null)
-                  setPinError(null)
-                }}
-                className="inline-flex items-center gap-1.5 text-sm text-white/50 transition-colors hover:text-white"
-              >
-                <ArrowLeft className="h-4 w-4" /> Volver
-              </button>
-            }
-          />
-        ) : entryMode === null ? (
+        {entryMode === null ? (
           <div className="space-y-3">
             <div className="mb-7 text-center">
               <h1 className="text-2xl font-semibold tracking-tight text-white">¿Cómo vas a entrar?</h1>
